@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block content %}
+<h5>Viewer</h5>
+<div id="stage" style="width:100%; height:620px; border:1px solid #ccc; border-radius:8px;"></div>
+<div class="d-flex gap-2 mt-2">
+  <input class="form-control" id="sel" placeholder="NGL selection (e.g., resname LIG or chain A and resi 123)">
+  <input class="form-control" id="size" value="{{ size }}" style="max-width:120px;">
+  <button class="btn btn-primary" id="use">Use selection center</button>
+</div>
+
+<script src="https://unpkg.com/ngl@2.0.0-dev.38/dist/ngl.js"></script>
+<script>
+const jobname = {{ jobname|tojson }};
+const rel = {{ relpath|tojson }};
+const pdbid = {{ pdbid|tojson }};
+let stage = new NGL.Stage('stage');
+
+async function load(){
+  if(pdbid){
+    // load directly from RCSB
+    const url = `https://files.rcsb.org/view/${pdbid}.pdb`;
+    const obj = await stage.loadFile(url, { defaultRepresentation: true });
+    obj.addRepresentation('licorice', { sele: 'hetero' });
+    stage.autoView();
+  } else if(rel){
+    // load workspace file through download endpoint
+    const path = '/tmp/pwwp_prep/'+jobname+'/'+rel;
+    const res = await fetch('/download?path='+encodeURIComponent(path));
+    if(!res.ok){ alert('Could not read file'); return; }
+    const blob = await res.blob();
+    const ext = rel.toLowerCase().endsWith('.pdbqt') ? 'pdb' : rel.split('.').pop();
+    const obj = await stage.loadFile(new Blob([blob]), { ext, defaultRepresentation: true });
+    obj.addRepresentation('licorice', { sele: 'hetero' });
+    stage.autoView();
+  } else {
+    alert('No input provided');
+  }
+}
+async function useCenter(){
+  const selection = document.getElementById('sel').value || 'all';
+  let v = new NGL.Selection(selection);
+  let comp = stage.compList[0];
+  if(!comp){ return alert('Not loaded'); }
+  let atoms = [];
+  comp.structure.eachAtom(a=>{ if(v.test(a)) atoms.push([a.x, a.y, a.z]); });
+  if(atoms.length===0){ return alert('No atoms in selection'); }
+  let cx=0, cy=0, cz=0; atoms.forEach(p=>{cx+=p[0]; cy+=p[1]; cz+=p[2];});
+  cx/=atoms.length; cy/=atoms.length; cz/=atoms.length;
+
+  const receptor_label = pdbid ? `${pdbid}.pdbqt` : rel.split('/').pop();
+  await fetch('/api/center', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      jobname, receptor_label,
+      center:[cx,cy,cz],
+      size: parseFloat(document.getElementById('size').value||'20')
+    })
+  });
+  alert(`Center saved for ${receptor_label} → (${cx.toFixed(3)}, ${cy.toFixed(3)}, ${cz.toFixed(3)})`);
+}
+document.getElementById('use').onclick = useCenter;
+load();
+</script>
+{% endblock %}

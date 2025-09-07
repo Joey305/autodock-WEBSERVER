@@ -1,0 +1,9 @@
+/* # ==============================
+# static/css/app.css
+# ============================== */
+pre.log{max-height:400px; overflow:auto; background:#0b0e14; color:#d6deeb; padding:10px; border-radius:8px}
+
+body{ background:#fafafa; }
+.card{ border-radius:14px; }
+#viewport canvas{ border-radius:8px; }
+.disabled{ opacity:.6; pointer-events:none; }
