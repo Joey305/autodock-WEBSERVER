@@ -2,7 +2,6 @@
 
 A login‑gated Flask web app that streamlines **end‑to‑end molecular docking job prep** for HPC clusters (LSF) and local experimentation. It focuses on fast, repeatable packaging of everything you need to run AutoDock Vina (or Vina‑compatible tools): receptor prep, box/center selection, ligand prep, and final job ZIPs that include executable submit scripts and templates.
 
-> Although our first users docked PWWP domains, the app is **not domain‑specific**. It works with general PDB/PDBQT receptors and SDF/SMILES ligands, at single‑target or small‑batch scale.
 
 ---
 
