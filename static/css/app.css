@@ -1,9 +1,21 @@
-/* # ==============================
-# static/css/app.css
-# ============================== */
-pre.log{max-height:400px; overflow:auto; background:#0b0e14; color:#d6deeb; padding:10px; border-radius:8px}
+/* Simplified tidy CSS */
+pre.log{max-height:320px;overflow:auto;background:#0b0e14;color:#d6deeb;padding:10px;border-radius:8px}
+body{background:#fafafa}
+.viewport{width:100%;height:520px;border:1px solid #e5e7eb;border-radius:.5rem;background:#000}
+.disabled{opacity:.6;pointer-events:none}
 
-body{ background:#fafafa; }
-.card{ border-radius:14px; }
-#viewport canvas{ border-radius:8px; }
-.disabled{ opacity:.6; pointer-events:none; }
+/* headers */
+.bg-gradient-primary{background:linear-gradient(90deg,#003459,#007ea7)}
+.step-card .card-header{color:#fff;font-weight:600;border-top-left-radius:.5rem;border-top-right-radius:.5rem}
+.step-header.step-1{background:#1d4ed8}
+.step-header.step-2{background:#6d28d9}
+.step-header.step-3{background:#374151}
+.section-label{padding:.5rem .75rem;border-radius:.5rem;font-weight:600;display:inline-block}
+.bg-orange{background:#fb923c;color:#111}
+.bg-light{background:#f3f4f6;color:#111}
+
+/* badges */
+.badge-new{background:#94a3b8}
+.badge-centered{background:#f59e0b}
+.badge-cleaned{background:#0ea5e9}
+.badge-prepped{background:#10b981}

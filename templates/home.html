@@ -1,487 +1,735 @@
 {% extends 'base.html' %}
 {% block content %}
+<style>
+  input[type="file"].form-control { background:#3b3b3b !important; color:#eaeaea !important; border-color:#2c2c2c !important; }
+  .btn-upload { transition: filter .15s, background-color .15s, border-color .15s, opacity .15s; }
+  .btn-upload.btn-danger { cursor:not-allowed; opacity:.85; }
+  .btn-upload.btn-success { cursor:pointer; }
+  .badge-prepped { background:#28a745 !important; }
+  .badge-centered { background:#ffc107 !important; color:#3a2f00 !important; }
+  .badge-new { background:#6c757d !important; }
+  .section-label.bg-light { background:#eef2f7 !important; }
+  .section-label.bg-orange { background:#fff4e6 !important; }
+  #summaryBox small { display:block; line-height:1.2; }
+  .viewport { height:420px; border:1px solid #e5e7eb; border-radius:.5rem; }
+  .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 1100; }
+
+  #hoverTip {
+    position: absolute; pointer-events: none; z-index: 50;
+    background: rgba(32,32,32,.85); color: #eee; border-radius: 6px;
+    padding: 4px 8px; font-size: 12px; display:none;
+  }
+  .toast {
+    position: fixed; right: 16px; bottom: 16px; z-index: 1080;
+    background: #212529; color: #fff; padding: 10px 14px; border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.25); margin-top: 8px;
+  }
+  #toastStack { position: fixed; right: 16px; bottom: 16px; z-index: 1080; display:flex; flex-direction:column; gap:8px; }
+</style>
+
+<div id="hoverTip"></div>
+<div id="toastStack"></div>
+<div class="toast-container" id="toasts"></div>
+
 <div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="m-0">Package & Upload Builder</h4>
+  <h3 class="m-0">Build a Docking Job</h3>
   <div>
-    <button id="btnNewWS" class="btn btn-outline-primary btn-sm">
-      <i class="bi bi-asterisk"></i> New Workspace
-    </button>
-    <span class="ms-2 text-muted">Job: <span id="jobname" class="fw-semibold">—</span></span>
+    <button id="btnNewWS" class="btn btn-outline-primary" data-bs-toggle="tooltip" title="Start a fresh workspace"><i class="bi bi-asterisk"></i> New Workspace</button>
+    <span class="ms-3 text-muted">Job: <span id="jobname" class="fw-semibold">—</span></span>
   </div>
 </div>
 
-<!-- ============ RECEPTOR PANEL ============ -->
-<div class="card shadow-sm mb-3">
+<!-- STEP 1 -->
+<div class="card step-card border-0 shadow-sm mb-3">
+  <div class="card-header step-header step-1">
+    <strong>1) Protein Prep</strong>
+    <span class="badge bg-secondary ms-2">Up to {{ max_receptors }} receptors per batch</span>
+  </div>
   <div class="card-body">
-    <div class="d-flex align-items-center mb-2">
-      <h5 class="card-title mb-0">Receptor</h5>
-      <i class="bi bi-info-circle ms-2 text-secondary" data-bs-toggle="tooltip"
-         title="Upload a single PDB/PDBQT or a ZIP of a Receptors/ folder. The viewer needs PDB to render; PDBQT is fine for docking but won’t display."></i>
-    </div>
-
-    <div class="row g-2 align-items-end">
-      <div class="col-md-6">
-        <label class="form-label">Single file (.pdb / .pdbqt)</label>
-        <input class="form-control" type="file" id="receptorFile" accept=".pdb,.pdbqt" disabled>
-      </div>
-      <div class="col-md-2">
-        <button class="btn btn-secondary w-100" id="btnUpReceptorFile" disabled>Upload</button>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">or ZIP a Receptors/ folder</label>
-        <input class="form-control" type="file" id="receptorsZip" accept=".zip" disabled>
-      </div>
-      <div class="col-md-1">
-        <button class="btn btn-secondary w-100" id="btnUpReceptorsZip" disabled>Upload</button>
-      </div>
-    </div>
-
-    <div class="row g-2 align-items-end mt-2">
-      <div class="col-md-3">
-        <label class="form-label">Optional: Fetch by PDB ID</label>
-        <input class="form-control" id="pdbFetch" placeholder="e.g., 3EKY" disabled>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Chains (A,B) — optional</label>
-        <input class="form-control" id="pdbChains" placeholder="A,B" disabled>
-      </div>
-      <div class="col-md-2">
-        <button class="btn btn-outline-info w-100" id="btnFetchPDB" disabled>Fetch & Prep</button>
-      </div>
-      <div class="col-md-4 small text-muted" id="receptorStatus"></div>
-    </div>
-
-    <!-- INLINE VIEWER -->
-    <div class="mt-3">
-      <div class="d-flex align-items-center mb-2">
-        <h6 class="m-0">Viewer</h6>
-        <i class="bi bi-info-circle ms-2 text-secondary" data-bs-toggle="tooltip"
-           title="Click atoms to build a selection (yellow dots). Or type a selection like ‘resname LIG’ or ‘chain A and resi 82’. Then Save center."></i>
-      </div>
-      <div id="viewport" style="width:100%;height:520px;border:1px solid #e5e7eb;border-radius:.5rem;background:#000;"></div>
-
-      <div class="row g-2 mt-2">
-        <div class="col-md-5">
-          <input id="viewerRel" class="form-control"
-                 placeholder="Receptors/<file>.pdb (leave empty to load by PDB ID above)">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-6">
+        <label class="form-label">Upload SINGLE receptor (.pdb / .cif / .pdbqt / .ent)
+          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Add a single structure file as a receptor."></i>
+        </label>
+        <div class="input-group">
+          <input id="receptorSingle" type="file" class="form-control" accept=".pdb,.cif,.pdbqt,.mmcif,.ent" disabled>
+          <button id="btnRecSingle" class="btn btn-upload btn-danger" disabled>Upload</button>
         </div>
-        <div class="col-md-4">
-          <input id="viewerSelection" class="form-control" placeholder="selection (e.g., resname LIG)">
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label">OR upload ZIP of Receptors/
+          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Upload a ZIP whose contents include .pdb/.cif/.mmcif/.ent files."></i>
+        </label>
+        <div class="input-group">
+          <input id="receptorZip" type="file" class="form-control" accept=".zip" disabled>
+          <button id="btnRecZip" class="btn btn-upload btn-danger" disabled>Upload ZIP</button>
         </div>
-        <div class="col-md-2">
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label">Upload FOLDER of Receptors
+          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Choose a folder; valid receptor files are uploaded."></i>
+        </label>
+        <div class="input-group">
+          <input id="receptorFolder" type="file" class="form-control" webkitdirectory directory multiple disabled>
+          <button id="btnRecFolder" class="btn btn-upload btn-danger" disabled>Upload Folder</button>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label">Fetch by PDB ID
+          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Download an entry from the PDB (optionally filtering chains)."></i>
+        </label>
+        <div class="input-group">
+          <input id="pdbFetch" class="form-control" placeholder="e.g., 3EKY" disabled>
+          <input id="pdbChains" class="form-control" style="max-width:160px" placeholder="Chains (optional)" disabled>
+          <button id="btnFetchPDB" class="btn btn-upload btn-danger" disabled>Fetch</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Receptor list -->
+    <div id="receptorList" class="mt-3 d-none"></div>
+
+    <!-- 1a: Box Generation -->
+    <div id="viewerBlock" class="mt-4 d-none">
+      <h6 class="section-label bg-orange">
+        1a) Box Generation
+        <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip"
+           title="Pick ONE: (a) Ligand code (+optional resi/chain), (b) Residue (name+resi+opt chain), (c) paste XYZ, or (d) click atoms in the viewer. Then Save center."></i>
+      </h6>
+      <div id="viewport" class="viewport"></div>
+
+      <div class="row g-2 align-items-center mt-2">
+        <div class="col-md-3">
           <div class="input-group">
-            <span class="input-group-text">Å</span>
-            <input id="boxSize" class="form-control" value="20" title="Docking box half-size in Å">
+            <span class="input-group-text" data-bs-toggle="tooltip" title="3-letter ligand code (e.g., ADP)">Lig</span>
+            <input id="ligCode" class="form-control" placeholder="ADP">
           </div>
         </div>
-        <div class="col-md-1 d-grid">
-          <button id="btnSaveCenter" class="btn btn-primary">Save center</button>
+        <div class="col-md-3">
+          <div class="input-group">
+            <span class="input-group-text">Resi</span>
+            <input id="ligResi" class="form-control" placeholder="(opt)">
+            <span class="input-group-text">Chain</span>
+            <input id="ligChain" class="form-control" style="max-width:70px" placeholder="(opt)">
+          </div>
+        </div>
+
+        <div class="col-md-4">
+          <div class="input-group">
+            <span class="input-group-text">Residue</span>
+            <input id="resName" class="form-control" style="max-width:90px" placeholder="GLU">
+            <input id="resId" class="form-control" style="max-width:90px" placeholder="82">
+            <input id="resChain" class="form-control" style="max-width:90px" placeholder="(opt)">
+          </div>
+        </div>
+
+        <div class="col-md-2">
+          <div class="input-group" data-bs-toggle="tooltip" title="Docking box half-size (Å)">
+            <span class="input-group-text">Å</span>
+            <input id="boxSize" class="form-control" value="20">
+          </div>
+        </div>
+
+        <div class="col-md-3 d-grid mt-2 mt-md-0">
+          <button id="btnSaveCenter" class="btn btn-warning">Save center</button>
+        </div>
+
+        <div class="col-md-6 mt-2">
+          <input id="xyzPaste" class="form-control" placeholder="Or paste XYZ as x,y,z">
+        </div>
+        <div class="col-md-2 mt-2 d-grid">
+          <button id="btnUseXYZ" class="btn btn-outline-secondary" data-bs-toggle="tooltip" title="Use pasted XYZ">Use XYZ</button>
+        </div>
+        <div class="col-md-3 mt-2 d-grid">
+          <button id="btnClearClicks" class="btn btn-outline-secondary" data-bs-toggle="tooltip" title="Clear clicked atoms">Clear clicked atoms</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1b: Convert to PDBQT -->
+    <div id="prepBlock" class="mt-4 d-none">
+      <h6 class="section-label bg-light">
+        1b) Convert to PDBQT (3a)
+        <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip"
+           title="Runs 3a_PDB2PDBQTbatch.py on your receptor(s). HET/chain removal is handled by these options."></i>
+      </h6>
+
+      <div class="row g-2">
+        <div class="col-md-6">
+          <div class="input-group" data-bs-toggle="tooltip" title="Comma list of HET codes to remove, or 'all'">
+            <span class="input-group-text">Remove HET</span>
+            <input id="rmHet" class="form-control" placeholder="all">
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="input-group" data-bs-toggle="tooltip" title="Optional chain removal (comma list)">
+            <span class="input-group-text">Remove chains</span>
+            <input id="rmChains" class="form-control" placeholder="e.g. B,C">
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="input-group">
+            <span class="input-group-text">Backend</span>
+            <select id="backend" class="form-select" data-bs-toggle="tooltip" title="auto tries ADT_py3 first, then Meeko, then MGL">
+              <option value="auto" selected>auto</option>
+              <option value="adt">ADT_py3</option>
+              <option value="meeko">meeko</option>
+              <option value="mgl">MGLTools</option>
+            </select>
+            <span class="input-group-text">AltLoc</span>
+            <select id="altloc" class="form-select" title="collapse picks highest-occupancy altloc per atom; all keeps every altloc">
+              <option value="collapse" selected>collapse</option>
+              <option value="all">all</option>
+            </select>
+          </div>
+
+          <div class="mt-2">
+            <label class="form-label">Detected HET codes (click to toggle into “Remove HET”)</label>
+            <div id="hetChips" class="d-flex flex-wrap gap-2"></div>
+            <small class="text-muted">Aggregated across uploaded receptors.</small>
+          </div>
         </div>
       </div>
 
-      <!-- Residue removal -->
-      <div id="removePanel" class="alert alert-light border mt-3 d-none">
-        <div class="d-flex align-items-center mb-2">
-          <strong class="me-2">Remove residues</strong>
-          <i class="bi bi-info-circle text-secondary" data-bs-toggle="tooltip"
-             title="Residues detected in the receptor PDB (often water/ions/ligand). Uncheck anything you want to KEEP, then Apply."></i>
+      <div class="d-flex align-items-center gap-2 mt-2">
+        <button id="btnRun3aSingle" class="btn btn-primary d-none">Prepare Protein — current</button>
+        <button id="btnRun3aAll" class="btn btn-primary d-none">Prepare All Proteins (3a)</button>
+        <span id="run3aHint" class="small text-muted">Create centers for all receptors first.</span>
+        <span id="runStatus" class="badge text-bg-secondary d-none">converting…</span>
+      </div>
+      <pre class="log mt-2" id="prepLog" style="display:none;"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- SUMMARY -->
+<div id="summaryCard" class="card border-0 shadow-sm mb-3 d-none">
+  <div class="card-header"><strong>Batch Summary</strong></div>
+  <div class="card-body"><div id="summaryBox" class="small"></div></div>
+</div>
+
+<!-- STEP 2 -->
+<div id="ligandStep" class="card step-card border-0 shadow-sm mb-3 d-none">
+  <div class="card-header step-header step-2">
+    <strong>2) Ligand Prep</strong>
+  </div>
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-6">
+        <label class="form-label">Single ligand (.sdf / .smiles / .csv)
+          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Upload a single ligand file. If CSV, provide SMILES and optional ID column names below."></i>
+        </label>
+        <div class="input-group">
+          <input id="ligSingle" type="file" class="form-control" accept=".sdf,.smiles,.csv" disabled>
+          <button id="btnLigSingle" class="btn btn-upload btn-danger" disabled>Upload</button>
         </div>
-        <div id="resCheckboxes" class="d-flex flex-wrap gap-2"></div>
-        <div class="mt-2 d-flex gap-2">
-          <button class="btn btn-sm btn-outline-secondary" id="btnSelectCommon">Select common (HOH, SOL, NA, CL)</button>
-          <button class="btn btn-sm btn-secondary" id="btnApplyRemoval">Apply removal (rewrite PDB)</button>
-          <div class="small text-muted" id="cleanStatus"></div>
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label">ZIP of Ligands/
+          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Upload a ZIP containing many ligand files."></i>
+        </label>
+        <div class="input-group">
+          <input id="ligZip" type="file" class="form-control" accept=".zip" disabled>
+          <button id="btnLigZip" class="btn btn-upload btn-danger" disabled>Upload ZIP</button>
         </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mt-2">
+      <div class="col-md-3">
+        <label class="form-label d-flex align-items-center gap-2">
+          # conformations
+          <i class="bi bi-info-circle" title="Per-ligand conformers during confgen."></i>
+        </label>
+        <input id="posesConf" class="form-control" value="64">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label d-flex align-items-center gap-2">
+          # docking poses
+          <i class="bi bi-info-circle" title="Vina poses per ligand."></i>
+        </label>
+        <input id="posesVina" class="form-control" value="9">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label d-flex align-items-center gap-2">
+          CSV SMILES column
+          <i class="bi bi-info-circle" title="Name of the SMILES column in your ligand CSV. Enabled only if you upload a CSV."></i>
+        </label>
+        <input id="csvSmilesCol" class="form-control" disabled>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label d-flex align-items-center gap-2">
+          CSV ID column
+          <i class="bi bi-info-circle" title="Optional ID column name in your ligand CSV. Enabled only if you upload a CSV."></i>
+        </label>
+        <input id="csvIdCol" class="form-control" disabled>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ============ LIGANDS PANEL ============ -->
-<div class="card shadow-sm mb-3">
+<!-- STEP 3 -->
+<div id="buildStep" class="card step-card border-0 shadow-sm mb-4 d-none">
+  <div class="card-header step-header step-3"><strong>3) Build LSF + Zip</strong></div>
   <div class="card-body">
-    <div class="d-flex align-items-center mb-2">
-      <h5 class="card-title mb-0">Ligands</h5>
-      <i class="bi bi-info-circle ms-2 text-secondary" data-bs-toggle="tooltip"
-         title="Single SDF/SMILES/CSV or a ZIP of a Ligands/ folder (SDF or SMILES). We autodetect and set confgen flags."></i>
-    </div>
-
-    <div class="row g-2 align-items-end">
-      <div class="col-md-4">
-        <label class="form-label">Single ligand (.sdf / .smiles / .csv)</label>
-        <input id="ligandFile" type="file" class="form-control" accept=".sdf,.smiles,.csv" disabled>
+    <div class="row g-2">
+      <div class="col-md-2">
+        <input id="queue" class="form-control" value="hihg" placeholder="Queue" data-bs-toggle="tooltip" title="LSF queue">
       </div>
       <div class="col-md-2">
-        <button id="btnUpLigFile" class="btn btn-secondary w-100" disabled>Upload</button>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">or ZIP a Ligands/ folder</label>
-        <input id="ligandsZip" type="file" class="form-control" accept=".zip" disabled>
+        <input id="project" class="form-control" value="brd" placeholder="Project" data-bs-toggle="tooltip" title="Charge code / project">
       </div>
       <div class="col-md-2">
-        <button id="btnUpLigZip" class="btn btn-secondary w-100" disabled>Upload</button>
+        <input id="walltime" class="form-control" value="96:00" placeholder="Walltime" data-bs-toggle="tooltip" title="HH:MM max runtime">
+      </div>
+      <div class="col-md-2">
+        <input id="workers" class="form-control" value="16" placeholder="Workers" data-bs-toggle="tooltip" title="# parallel workers">
+      </div>
+      <div class="col-md-2">
+        <input id="mem" class="form-control" value="2000" placeholder="mem/core (MB)" data-bs-toggle="tooltip" title="Memory per core">
+      </div>
+      <div class="col-md-2">
+        <input id="vinaPath" class="form-control" placeholder="Optional VINA_EXE" data-bs-toggle="tooltip" title="Path to non-default Vina binary">
       </div>
     </div>
-
     <div class="row g-2 mt-2">
-      <div class="col-md-4"><input class="form-control" id="csvSmilesCol" placeholder="CSV SMILES column (if CSV)"></div>
-      <div class="col-md-4"><input class="form-control" id="csvIdCol"     placeholder="CSV ID column (if CSV)"></div>
-      <div class="col-md-4 small text-muted" id="ligandStatus"></div>
-    </div>
-  </div>
-</div>
-
-<!-- ============ BUILD PANEL (with tooltips) ============ -->
-<div class="card shadow-sm">
-  <div class="card-body">
-    <div class="d-flex align-items-center mb-2">
-      <h5 class="card-title mb-0">Build LSF + Zip</h5>
-      <i class="bi bi-info-circle ms-2 text-secondary"
-         data-bs-toggle="tooltip"
-         title="Generates confgen & vina LSF scripts, submitters, a centers CSV, copies your scripts, and bundles the whole job directory into one ZIP for Pegasus."></i>
-    </div>
-
-    <div class="row g-3">
-      <div class="col-md-2">
-        <label class="form-label d-flex align-items-center gap-1">
-          Queue
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="LSF queue/partition on Pegasus. Use ‘hihg’ unless your cluster admin says otherwise."></i>
-        </label>
-        <input id="queue" class="form-control" value="hihg" placeholder="hihg">
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label d-flex align-items-center gap-1">
-          Project
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="LSF account/project code used for charging time (e.g., ‘brd’)."></i>
-        </label>
-        <input id="project" class="form-control" value="brd" placeholder="brd">
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label d-flex align-items-center gap-1">
-          Walltime
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="Maximum run time per job in HH:MM (e.g., 96:00 for 96 hours)."></i>
-        </label>
-        <input id="walltime" class="form-control" value="96:00" placeholder="96:00">
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label d-flex align-items-center gap-1">
-          Workers
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="Number of CPU cores requested per docking task. Matches -n in LSF."></i>
-        </label>
-        <input id="workers" class="form-control" value="16" placeholder="16">
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label d-flex align-items-center gap-1">
-          Mem / core (MB)
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="Memory per core in megabytes for LSF resource request (rusage[mem=...])."></i>
-        </label>
-        <input id="mem" class="form-control" value="2000" placeholder="2000">
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label d-flex align-items-center gap-1">
-          Optional VINA_EXE
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="Full path to a specific vina binary. Leave blank to use the default from your conda env."></i>
-        </label>
-        <input id="vinaPath" class="form-control" placeholder="/path/to/vina (optional)">
+      <div class="col-md-12">
+        <input id="envLine" class="form-control" placeholder="Env line (conda activate ...)—optional" data-bs-toggle="tooltip" title="Commands to set up your runtime env">
       </div>
     </div>
-
-    <div class="row g-3 mt-1">
-      <div class="col-md-3">
-        <label class="form-label d-flex align-items-center gap-1">
-          # Conformations
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="Number of conformers to generate per ligand during confgen (step before docking)."></i>
-        </label>
-        <input id="posesConf" class="form-control" value="64" placeholder="64">
-      </div>
-
-      <div class="col-md-3">
-        <label class="form-label d-flex align-items-center gap-1">
-          # Docking poses
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="Number of final docking poses to keep per ligand from AutoDock Vina."></i>
-        </label>
-        <input id="posesVina" class="form-control" value="9" placeholder="9">
-      </div>
-
-      <div class="col-md-6">
-        <label class="form-label d-flex align-items-center gap-1">
-          Env line (optional)
-          <i class="bi bi-info-circle text-secondary"
-             data-bs-toggle="tooltip"
-             title="Shell snippet executed in the job: typically conda activation and any exports. Example: ‘source …/conda.sh && conda activate vina_env’."></i>
-        </label>
-        <input id="envLine" class="form-control"
-               placeholder="source /…/conda.sh && conda activate vina_env (optional)">
-      </div>
-    </div>
-
     <div class="d-flex align-items-center gap-3 mt-3">
       <button id="btnBuild" class="btn btn-success" disabled>Build Zip</button>
       <a id="downloadLink" target="_blank"></a>
-      <span class="small text-muted" id="buildStatus"></span>
+      <span id="buildStatus" class="small text-muted"></span>
     </div>
   </div>
 </div>
 
-
+<script src="https://unpkg.com/ngl@latest/dist/ngl.js"></script>
 <script>
-// tiny helpers
 const $ = s => document.querySelector(s);
 const enable = (el, on=true)=>{ el.disabled=!on; el.classList.toggle('disabled',!on); };
-
-// globals
-let jobname=null, stage=null, comp=null, currentReceptorLabel="";
-let pickedAtoms=[]; // clicks
-
-// ========== Workspace ==========
-$('#btnNewWS').onclick = async () => {
-  const r = await fetch('/api/workspace', {method:'POST'});
-  const j = await r.json();
-  jobname = j.jobname;
-  $('#jobname').textContent = jobname;
-  ['receptorFile','btnUpReceptorFile','receptorsZip','btnUpReceptorsZip','pdbFetch','pdbChains','btnFetchPDB',
-   'ligandFile','btnUpLigFile','ligandsZip','btnUpLigZip','btnBuild'].forEach(id=>enable($('#'+id),true));
-  initViewer();
+const showToast = (msg, ms=2500)=>{
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.getElementById('toastStack').appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateY(8px)'; }, ms);
+  setTimeout(()=>{ el.remove(); }, ms+400);
 };
 
-// ========== Uploads ==========
-async function uploadForm(kind, fileEl){
-  if(!jobname) return alert('Create workspace first');
-  const f = fileEl.files[0]; if(!f) return alert('Choose a file');
-  const fd = new FormData();
-  fd.append('kind', kind);
-  fd.append('jobname', jobname);
-  fd.append('file', f);
-  const r = await fetch('/api/upload', {method:'POST', body:fd});
-  if(!r.ok) throw new Error('Upload failed');
-  return r.json();
+let jobname=null, state=null, stage=null, comp=null, currentRel=null, pickedAtoms=[];
+let prepPoll=null, lastCentersCount=0, latestSummary=null;
+
+function calcStatusFor(rel){
+  // Derive a UI status independent of backend's raw flag:
+  // NEW → no center; CENTERED → center row exists; PREPPED → converted file exists.
+  if(!latestSummary) return 'new';
+  const expected = rel.replace(/\.pdb$|\.cif$|\.mmcif$|\.ent$/i,'.pdbqt').split('/').pop();
+  const csvMapOK = latestSummary.expected_pdbqt.includes(expected);
+  const converted = latestSummary.converted_list.includes(expected);
+  if(converted) return 'prepped';
+  if(csvMapOK) return 'centered';
+  return 'new';
 }
 
-$('#btnUpReceptorFile').onclick = async ()=>{
-  try{
-    const j = await uploadForm('receptors_file', $('#receptorFile'));
-    $('#receptorStatus').textContent = 'Uploaded '+j.saved;
-    if(j.ext==='pdb'){ await loadResiduePanel(); }
-    if(j.relpath)     await loadViewerFromRel(j.relpath);
-  }catch(e){ alert(e.message); }
+function allReceptorsHaveCenters(){
+  if(!state || !state.receptors || !state.receptors.length || !latestSummary) return false;
+  const expected = latestSummary.expected_pdbqt || [];
+  return expected.length === state.receptors.length && latestSummary.have_rows_for_all;
+}
+
+function refreshStepVisibility(){
+  // 1b appears ONLY after all receptors have a saved center row
+  const haveCentersAll = !!latestSummary?.have_rows_for_all;
+  const expected = latestSummary?.expected_pdbqt?.length || 0;
+  const converted = latestSummary?.converted_count || 0;
+  const conversionDone = expected > 0 && converted >= expected;
+
+  // Show 1b only when all centers are present
+  const canShowPrep = haveCentersAll;
+  $('#prepBlock').classList.toggle('d-none', !canShowPrep);
+  $('#run3aHint').classList.toggle('d-none', haveCentersAll);
+
+  // Single vs All prepare buttons
+  const many = (state?.receptors?.length || 0) > 1;
+  $('#btnRun3aSingle').classList.toggle('d-none', many);
+  $('#btnRun3aAll').classList.toggle('d-none', !many);
+
+  // Enable run buttons only when all centers exist
+  enable($('#btnRun3aSingle'), haveCentersAll);
+  enable($('#btnRun3aAll'), haveCentersAll);
+
+  // Step 2 (Ligands) appears only after all expected PDBQT are converted
+  $('#ligandStep').classList.toggle('d-none', !conversionDone);
+  if(conversionDone){
+    ['ligSingle','ligZip'].forEach(id=>enable($('#'+id), true));
+    ['btnLigSingle','btnLigZip'].forEach(id=>{ const b=$('#'+id); enable(b,true); b.classList.remove('btn-danger'); b.classList.add('btn-success'); });
+  }else{
+    ['ligSingle','ligZip','btnLigSingle','btnLigZip'].forEach(id=>enable($('#'+id), false));
+  }
+
+  // Step 3 enabled only after ligands uploaded
+  const canBuild = conversionDone && state?.ligands_uploaded;
+  $('#buildStep').classList.toggle('d-none', !canBuild);
+  enable($('#btnBuild'), canBuild);
+}
+
+
+async function updateSummary(){
+  if(!jobname) return null;
+  const r = await fetch(`/api/summary?jobname=${encodeURIComponent(jobname)}`);
+  if(!r.ok) return null;
+  const j = await r.json();
+  latestSummary = j;
+
+  const card = $('#summaryCard'); const box = $('#summaryBox');
+  card.classList.remove('d-none');
+  box.innerHTML = `
+    <small><strong>Receptors:</strong> ${j.receptors_prepped}/${j.receptors_total} prepped (${j.centers_rows} centered)</small>
+    <small><strong>Centers CSV:</strong> ${j.centers_rows} row(s) — ${j.have_rows_for_all ? 'OK' : 'Missing rows'}</small>
+    <small><strong>Expected PDBQT:</strong> ${j.expected_pdbqt.join(', ') || '—'}</small>
+    <small><strong>Converted:</strong> ${j.converted_count} in ${j.conversion_out_dir}</small>`;
+  return j;
+}
+
+async function reloadState(){
+  if(!jobname) return;
+  const r = await fetch(`/api/receptors/list?jobname=${encodeURIComponent(jobname)}`);
+  state = await r.json();
+
+  const s = await updateSummary();
+  if(s && s.centers_rows > lastCentersCount){
+    showToast(`Center saved (${s.centers_rows}/${s.receptors_total})`);
+    lastCentersCount = s.centers_rows;
+  }
+  if(s?.have_rows_for_all) showToast("All centers set — you can prepare protein(s) now");
+
+  drawReceptorList();
+  refreshStepVisibility();
+  await loadHetChips();
+}
+
+/* Workspace */
+$('#btnNewWS').onclick = async ()=>{
+  const r = await fetch('/api/workspace', {method:'POST'}); const j = await r.json();
+  jobname = j.jobname; $('#jobname').textContent = jobname;
+  ['receptorSingle','receptorZip','receptorFolder','pdbFetch','pdbChains'].forEach(id=>enable($('#'+id),true));
+  ['btnRecSingle','btnRecZip','btnRecFolder','btnFetchPDB'].forEach(id=>{ const b=$('#'+id); enable(b,true); b.classList.remove('btn-danger'); b.classList.add('btn-success'); });
+  await reloadState();
 };
 
-$('#btnUpReceptorsZip').onclick = async ()=>{
-  try{
-    const j = await uploadForm('receptors', $('#receptorsZip'));
-    $('#receptorStatus').textContent = 'Unpacked: '+j.saved;
-    if(j.firstRel) await loadViewerFromRel(j.firstRel);
-  }catch(e){ alert(e.message); }
-};
+/* Receptor list */
+function drawReceptorList(){
+  const box = $('#receptorList'); box.innerHTML=''; const recs = state.receptors||[];
+  if(!recs.length){ box.classList.add('d-none'); return; }
+  box.classList.remove('d-none');
+  recs.forEach(r=>{
+    const uiStatus = calcStatusFor(r.rel);
+    const badgeClass = uiStatus==='prepped' ? 'badge-prepped' : uiStatus==='centered' ? 'badge-centered' : 'badge-new';
+    const row = document.createElement('div');
+    row.className = 'd-flex align-items-center justify-content-between py-1 border-bottom';
+    row.innerHTML = `<div class="d-flex align-items-center gap-2">
+                       <span class="me-2">${r.display}</span>
+                       <span class="badge ${badgeClass} text-uppercase">${uiStatus}</span>
+                     </div>
+                     <div class="d-flex gap-2">
+                       <button class="btn btn-sm btn-outline-primary">Open</button>
+                     </div>`;
+    row.querySelector('button').onclick = ()=> openReceptor(r.rel);
+    box.appendChild(row);
+  });
+}
 
-// PDB fetch
+/* Upload helpers */
+async function postForm(url, fd){ const r = await fetch(url,{method:'POST', body:fd}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+$('#btnRecSingle').onclick = async ()=>{
+  const f = $('#receptorSingle').files[0]; if(!f) return alert('Choose a file');
+  const fd = new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
+  await postForm('/api/receptors/upload', fd); await reloadState(); showToast(`Uploaded ${f.name}`);
+};
+$('#btnRecZip').onclick = async ()=>{
+  const f = $('#receptorZip').files[0]; if(!f) return alert('Choose a ZIP');
+  const fd = new FormData(); fd.append('jobname',jobname); fd.append('mode','zip'); fd.append('file',f);
+  await postForm('/api/receptors/upload', fd); await reloadState(); showToast(`Uploaded ZIP (${f.name})`);
+};
+$('#btnRecFolder').onclick = async ()=>{
+  const files=[...$('#receptorFolder').files]; if(!files.length) return alert('Pick a folder');
+  let n=0;
+  for(const f of files){ if(!/\.(pdb|cif|pdbqt|mmcif|ent)$/i.test(f.name)) continue;
+    const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
+    await postForm('/api/receptors/upload', fd); n++;
+  } await reloadState(); showToast(`Uploaded ${n} receptor(s) from folder`);
+};
 $('#btnFetchPDB').onclick = async ()=>{
-  try{
-    if(!jobname) return alert('Create workspace first');
-    const pdb = $('#pdbFetch').value.trim(); if(!pdb) return alert('Enter PDB ID');
-    const fd = new FormData();
-    fd.append('jobname', jobname);
-    fd.append('pdb', pdb);
-    fd.append('chains', $('#pdbChains').value.trim());
-    const r = await fetch('/api/fetch_pdb', {method:'POST', body:fd});
-    if(!r.ok) throw new Error('Fetch failed');
-    const j = await r.json();
-    $('#receptorStatus').textContent = 'Fetched '+pdb.toUpperCase()+'.pdb';
-    currentReceptorLabel = pdb.toUpperCase()+'.pdbqt';
-    await loadResiduePanel();
-    await loadViewerFromPDB(pdb);
-  }catch(e){ alert(e.message); }
+  const fd = new FormData(); fd.append('jobname',jobname); fd.append('pdb',$('#pdbFetch').value.trim()); fd.append('chains',$('#pdbChains').value.trim());
+  await postForm('/api/receptors/fetch', fd); await reloadState(); showToast('Fetched PDB');
 };
 
-// Ligands
-$('#btnUpLigFile').onclick = async ()=>{
-  try{
-    const j = await uploadForm('ligands_file', $('#ligandFile'));
-    $('#ligandStatus').textContent = `Uploaded ${j.saved} (detected: ${j.detect})`;
-  }catch(e){ alert(e.message); }
-};
-$('#btnUpLigZip').onclick = async ()=>{
-  try{
-    const j = await uploadForm('ligands', $('#ligandsZip'));
-    $('#ligandStatus').textContent = `Unpacked: ${j.saved} (detected: ${j.detect})`;
-  }catch(e){ alert(e.message); }
-};
+/* Viewer */
+function formatPick(p){
+  if(!p || !p.atom) return '';
+  const a = p.atom;
+  const chain = a.chainname || '';
+  const resn = a.resname || '';
+  const resi = (a.resno || a.resno === 0) ? a.resno : '';
+  const an   = a.atomname || a.name || '';
+  return `${chain}:${resn}${resi} • ${an}`;
+}
 
-// ========== Viewer ==========
 function initViewer(){
-  stage = new NGL.Stage('viewport');
-  window.addEventListener('resize', () => stage.handleResize());
+  if(typeof NGL === 'undefined'){ alert('NGL viewer failed to load.'); return; }
+  try{ if(stage){ stage.dispose(); stage = null; } }catch(e){}
+  stage = new NGL.Stage('viewport', { backgroundColor: 'white' });
+  window.addEventListener('resize', ()=>stage && stage.handleResize());
   pickedAtoms = [];
-  stage.signals.clicked.add(pickProxy=>{
-    if(!pickProxy || !pickProxy.atom) return;
-    const a = pickProxy.atom;
-    pickedAtoms.push([a.x,a.y,a.z]);
+
+  const tip = document.getElementById('hoverTip');
+  stage.signals.hovered.add(function (p){
+    if(!p || !p.atom){ tip.style.display='none'; return; }
+    tip.textContent = formatPick(p);
+    tip.style.display = 'block';
+    const rect = stage.viewer.container.getBoundingClientRect();
+    tip.style.left = (p.canvasPosition.x + rect.left + 12) + 'px';
+    tip.style.top  = (p.canvasPosition.y + rect.top  + 12) + 'px';
+  });
+  stage.signals.clicked.add(function(p){
+    tip.style.display='none';
+    if(!p || !p.atom) return;
+    pickedAtoms.push([p.atom.x, p.atom.y, p.atom.z]);
     drawPickMarkers();
+    document.getElementById('btnUseXYZ').classList.add('btn-warning');
   });
 }
 
 function drawPickMarkers(){
-  const old = stage.getComponentsByName('picks').list[0];
-  if(old) old.remove();
+  if(!stage) return;
+  stage.getComponentsByName('picks').list.forEach(c => stage.removeComponent(c));
   if(!pickedAtoms.length) return;
   const shape = new NGL.Shape('picks');
   pickedAtoms.forEach(p=> shape.addSphere(p, [1,0.6,0], 0.8));
-  stage.addComponentFromObject(shape).addRepresentation('buffer');
+  const comp = stage.addComponentFromObject(shape); comp.addRepresentation('buffer'); comp.name='picks';
 }
+document.getElementById('btnClearClicks').onclick = ()=>{ pickedAtoms=[]; drawPickMarkers(); };
+document.getElementById('btnUseXYZ').onclick = ()=>{
+  if(!document.getElementById('xyzPaste').value.trim()) return alert('Paste x,y,z first');
+  document.getElementById('ligCode').value='';
+  document.getElementById('ligResi').value='';
+  document.getElementById('ligChain').value='';
+  document.getElementById('resName').value='';
+  document.getElementById('resId').value='';
+  document.getElementById('resChain').value='';
+  pickedAtoms=[]; drawPickMarkers();
+};
 
-async function loadViewerFromRel(rel){
-  currentReceptorLabel = rel.split('/').pop();
-  const url = `/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`;
-  const test = rel.toLowerCase();
-  stage.removeAllComponents(); pickedAtoms=[];
-  if(test.endsWith('.pdbqt')){
-    comp = null;
-    $('#receptorStatus').innerHTML =
-      'Only <code>.pdbqt</code> found. Viewer needs a <strong>.pdb</strong> to render. '+
-      'Upload/fetch a PDB to pick a center (docking still works with PDBQT).';
-    return;
-  }
-  const res = await fetch(url);
-  if(!res.ok){ alert('Could not read receptor'); return; }
+async function openReceptor(rel){
+  if(prepPoll){ clearInterval(prepPoll); prepPoll=null; }
+  document.getElementById('runStatus').classList.add('d-none');
+  document.getElementById('prepLog').style.display='none';
+  document.getElementById('prepLog').textContent='';
+
+  currentRel = rel;
+  document.getElementById('viewerBlock').classList.remove('d-none');
+  initViewer();
+  if(!stage) return;
+
+  const res = await fetch(`/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`);
+  if(!res.ok){ alert('Failed to load receptor'); return; }
   const blob = await res.blob();
-  const ext = test.endsWith('.pdb') ? 'pdb' : test.split('.').pop();
-  comp = await stage.loadFile(new Blob([blob]), { ext, defaultRepresentation:true });
-  comp.addRepresentation('licorice', { sele:'hetero' });
-  stage.autoView();
-  $('#receptorStatus').textContent = 'Loaded '+rel;
+  const low = rel.toLowerCase();
+  const ext = (low.endsWith('.cif') || low.endsWith('.mmcif')) ? 'cif' : 'pdb';
+
+  comp = await stage.loadFile(new Blob([blob]), { ext });
+  comp.addRepresentation('cartoon', { pickable: true, opacity: .85 });
+  comp.addRepresentation('licorice', { sele: 'hetero OR not protein', pickable: true });
+  comp.addRepresentation('ball+stick', { sele: 'hetero', pickable: true });
+  comp.autoView();
+
+  await reloadState();
 }
 
-async function loadViewerFromPDB(pdbid){
-  stage.removeAllComponents(); pickedAtoms=[];
-  comp = await stage.loadFile(`https://files.rcsb.org/view/${pdbid}.pdb`, { defaultRepresentation:true });
-  comp.addRepresentation('licorice', { sele:'hetero' });
-  stage.autoView();
-  $('#receptorStatus').textContent = `Fetched ${pdbid.toUpperCase()}.pdb`;
-}
+/* Save center */
+document.getElementById('btnSaveCenter').onclick = async ()=>{
+  if(!jobname || !currentRel) return alert('Open a receptor first');
 
-function currentSelectionAtoms(){
-  // priority: typed selection > clicks
-  const txt = $('#viewerSelection').value.trim();
-  if(txt && comp){
-    const s = new NGL.Selection(txt);
-    const pts = [];
-    comp.structure.eachAtom(a=>{ if(s.test(a)) pts.push([a.x,a.y,a.z]); });
-    if(pts.length) return pts;
+  const lig = $('#ligCode').value.trim();
+  const lresi = $('#ligResi').value.trim();
+  const lch = $('#ligChain').value.trim();
+  const rn = $('#resName').value.trim();
+  const id = $('#resId').value.trim();
+  const ch = $('#resChain').value.trim();
+  const xyz = $('#xyzPaste').value.trim();
+
+  let payload=null;
+  if(lig && !rn && !id && !xyz && pickedAtoms.length===0) payload = {method:'ligand', lig_resname:lig, resi:lresi||null, chain:lch||null};
+  else if(!lig && rn && id && !xyz && pickedAtoms.length===0) payload = {method:'residue', resname:rn, resi:id, chain:ch||null};
+  else if(!lig && !rn && !id && xyz && pickedAtoms.length===0){
+    const m = xyz.split(',').map(s=>parseFloat(s.trim())).filter(v=>!Number.isNaN(v)); if(m.length!==3) return alert('XYZ must be x,y,z');
+    payload = {method:'xyz', center:m};
+  }else if(!lig && !rn && !id && !xyz && pickedAtoms.length){ payload = {method:'selection_atoms', atoms:pickedAtoms.slice()}; }
+  else return alert('Choose ONE method (ligand OR residue OR XYZ OR clicked atoms).');
+
+  const size = parseFloat($('#boxSize').value||'20');
+
+  // Save
+  const r = await fetch('/api/receptor/center',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({jobname, rel:currentRel, size, ...payload})
+  });
+  if(!r.ok){
+    const t=await r.text().catch(()=> 'Bad request');
+    return alert('Center save failed: '+t);
   }
-  return pickedAtoms.slice();
-}
-
-$('#btnSaveCenter').onclick = async ()=>{
-  if(!jobname) return alert('Create workspace first');
-  if(!comp)    return alert('Load a receptor or PDB first');
-  const pts = currentSelectionAtoms();
-  if(!pts.length) return alert('No atoms selected (click in viewer or type a selection).');
-  let cx=0,cy=0,cz=0; pts.forEach(p=>{cx+=p[0];cy+=p[1];cz+=p[2];});
-  cx/=pts.length; cy/=pts.length; cz/=pts.length;
-  const r = await fetch('/api/center', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      jobname,
-      receptor_label: currentReceptorLabel || 'receptor',
-      center:[cx,cy,cz],
-      size: parseFloat($('#boxSize').value||'20')
-    })
-  });
-  if(!r.ok) return alert('Failed to save center');
-  alert(`Saved center: ${cx.toFixed(3)}, ${cy.toFixed(3)}, ${cz.toFixed(3)}`);
-  pickedAtoms = []; drawPickMarkers();
-};
-
-// ========== Residue panel ==========
-function showRemovePanel(){ $('#removePanel').classList.remove('d-none'); }
-function hideRemovePanel(){ $('#removePanel').classList.add('d-none'); $('#resCheckboxes').innerHTML=''; }
-
-async function loadResiduePanel(){
-  const r = await fetch(`/api/list_residues?jobname=${encodeURIComponent(jobname)}`);
-  if(!r.ok){ hideRemovePanel(); return; }
   const j = await r.json();
-  const box = $('#resCheckboxes'); box.innerHTML='';
-  if(!j.resnames || !j.resnames.length){ hideRemovePanel(); return; }
-  j.resnames.forEach(name=>{
-    const id = 'res_'+name;
-    box.insertAdjacentHTML('beforeend',
-      `<div class="form-check form-check-inline">
-        <input class="form-check-input" type="checkbox" id="${id}" value="${name}" checked>
-        <label class="form-check-label" for="${id}">${name}</label>
-      </div>`);
-  });
-  showRemovePanel();
+
+  // Immediate positional toast
+  showToast(`Center set at (${j.center.map(x=>x.toFixed(2)).join(', ')})`);
+
+  // Refresh, then show CSV progress toast (appended/saved feeling)
+  await reloadState();           // updates latestSummary
+  const s = latestSummary;
+  if(s){
+    const rows = s.centers_rows;
+    const total = s.receptors_total || state?.receptors?.length || '?';
+    const verb = (rows > lastCentersCount) ? 'saved' : 'updated';
+    showToast(`Center ${verb} to centers.csv — ${rows}/${total} defined`);
+    lastCentersCount = rows;
+  }
+
+  // Visual hint: keep user focused on 1a until all centers exist
+  refreshStepVisibility();
+};
+
+
+/* HET chips (aggregate across all receptors) */
+async function loadHetChips(){
+  if(!jobname) return;
+  try{
+    const r = await fetch(`/api/het_counts?jobname=${encodeURIComponent(jobname)}`);
+    if(!r.ok) return;
+    const data = await r.json();
+    const hetCounts = data?.het_counts || {};
+    const pairs = Object.entries(hetCounts).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0]));
+    const box = $('#hetChips');
+    box.innerHTML = '';
+    if(!pairs.length){
+      box.innerHTML = '<span class="text-muted">No HET groups detected.</span>';
+      return;
+    }
+    const preset = new Set(($('#rmHet').value || '').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean));
+    pairs.forEach(([code,count])=>{
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-sm ' + (preset.has(code)?'btn-secondary text-white':'btn-outline-secondary');
+      b.textContent = `${code} (${count})`;
+      b.dataset.code = code;
+      b.onclick = ()=>{
+        const input = $('#rmHet');
+        const cur = (input.value || '').trim();
+        if(cur.toLowerCase() === 'all'){ input.value = code; }
+        else{
+          const set = new Set(cur ? cur.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean) : []);
+          if(set.has(code)) set.delete(code); else set.add(code);
+          input.value = [...set].join(',');
+        }
+        b.classList.toggle('btn-outline-secondary');
+        b.classList.toggle('btn-secondary'); b.classList.toggle('text-white');
+      };
+      box.appendChild(b);
+    });
+  }catch(e){}
 }
 
-$('#btnSelectCommon').onclick = ()=>{
-  const common = new Set(['HOH','SOL','WAT','NA','CL','K','MG','CA']);
-  document.querySelectorAll('#resCheckboxes input[type=checkbox]').forEach(cb=>{
-    cb.checked = common.has(cb.value);
-  });
-};
-
-$('#btnApplyRemoval').onclick = async ()=>{
-  const keep = [];
-  document.querySelectorAll('#resCheckboxes input[type=checkbox]').forEach(cb=>{
-    if(!cb.checked) keep.push(cb.value);  // unchecked = keep
-  });
-  const r = await fetch('/api/clean_receptor', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ jobname, keep_resnames: keep })
-  });
-  if(!r.ok) return alert('Cleanup failed');
-  const j = await r.json();  // { out_rel: "Receptors/<file>.cleaned.pdb" }
-  $('#cleanStatus').textContent = 'Cleaned → '+j.out_rel;
-  await loadViewerFromRel(j.out_rel);
-};
-
-// ========== Build ZIP ==========
-$('#btnBuild').onclick = async ()=>{
-  if(!jobname) return alert('Create workspace first');
+/* Run 3a */
+function startPrepPolling(){
+  $('#runStatus').classList.remove('d-none');
+  $('#prepLog').style.display='block';
+  if(prepPoll) clearInterval(prepPoll);
+  prepPoll = setInterval(async ()=>{
+    const r = await fetch(`/api/prep/status?jobname=${encodeURIComponent(jobname)}`); const j = await r.json();
+    $('#prepLog').textContent = j.log || '';
+    const rs = $('#runStatus');
+    if(j.done){
+      rs.classList.remove('text-bg-info','text-bg-secondary'); rs.classList.add('text-bg-success'); rs.textContent='converted';
+      clearInterval(prepPoll);
+      await reloadState();
+    }else if(j.running){
+      rs.classList.remove('text-bg-secondary'); rs.classList.add('text-bg-info'); rs.textContent='converting…';
+    }else{
+      rs.classList.remove('text-bg-info'); rs.classList.add('text-bg-secondary'); rs.textContent='queued…';
+    }
+  }, 1500);
+}
+async function start3a(mode){
   const fd = new FormData();
   fd.append('jobname', jobname);
-  fd.append('queue',   $('#queue').value);
-  fd.append('project', $('#project').value);
-  fd.append('walltime',$('#walltime').value);
-  fd.append('workers', $('#workers').value);
-  fd.append('mem_per_core',$('#mem').value);
+  fd.append('remove_het_csv', ($('#rmHet').value.trim() || 'all'));
+  fd.append('remove_chains_csv', $('#rmChains').value.trim());
+  fd.append('backend', $('#backend').value);
+  fd.append('altloc', $('#altloc').value);
+  fd.append('pdbqt_only', 'true');
+  fd.append('keep_clean_pdb', 'false');
+  fd.append('write_summary', 'false');
+
+  const r = await fetch('/api/prep/start',{method:'POST', body:fd});
+  if(!r.ok){ const t = await r.text(); return alert('Failed to start 3a: '+t); }
+  showToast(mode==='single' ? 'Preparing current receptor…' : 'Preparing all receptors…');
+  startPrepPolling();
+  refreshStepVisibility();
+}
+$('#btnRun3aSingle').onclick = ()=> start3a('single');
+$('#btnRun3aAll').onclick    = ()=> start3a('all');
+
+/* Ligands — UI feedback + CSV input enabling only when .csv */
+function updateCsvInputEnable(){
+  const f = $('#ligSingle').files[0];
+  const isCsv = !!(f && /\.csv$/i.test(f.name));
+  enable($('#csvSmilesCol'), isCsv);
+  enable($('#csvIdCol'), isCsv);
+}
+$('#ligSingle').addEventListener('change', updateCsvInputEnable);
+
+$('#btnLigSingle').onclick = async ()=>{
+  const f=$('#ligSingle').files[0]; if(!f) return alert('Pick a file');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
+  await postForm('/api/ligands/upload', fd);
+  showToast(`Ligand uploaded: ${f.name}`);
+  await reloadState();
+};
+$('#btnLigZip').onclick = async ()=>{
+  const f=$('#ligZip').files[0]; if(!f) return alert('Pick a ZIP');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','zip'); fd.append('file',f);
+  await postForm('/api/ligands/upload', fd);
+  showToast(`Ligand ZIP uploaded: ${f.name}`);
+  await reloadState();
+};
+
+/* Build */
+$('#btnBuild').onclick = async ()=>{
+  const fd=new FormData();
+  fd.append('jobname',jobname);
+  fd.append('queue',$('#queue').value); fd.append('project',$('#project').value);
+  fd.append('walltime',$('#walltime').value); fd.append('workers',$('#workers').value);
+  fd.append('mem_per_core',$('#mem').value); fd.append('env_line',$('#envLine').value); fd.append('vina_path',$('#vinaPath').value);
   fd.append('poses_conf',$('#posesConf').value);
   fd.append('poses_vina',$('#posesVina').value);
-  fd.append('env_line', $('#envLine').value);
-  fd.append('vina_path',$('#vinaPath').value);
-  fd.append('csv_smiles_col',$('#csvSmilesCol').value);
-  fd.append('csv_id_col',$('#csvIdCol').value);
+  fd.append('csv_smiles_col',$('#csvSmilesCol').value); fd.append('csv_id_col',$('#csvIdCol').value);
 
-  $('#buildStatus').textContent = 'Building...';
-  const r = await fetch('/api/build', {method:'POST', body:fd});
-  if(!r.ok){ $('#buildStatus').textContent = 'Failed'; return; }
-  const j = await r.json();
-  $('#downloadLink').href = '/download?path='+encodeURIComponent(j.zip);
-  $('#downloadLink').textContent = 'Download '+j.zip.split('/').pop();
-  $('#buildStatus').textContent = 'Ready';
+  $('#buildStatus').textContent='Building…';
+  const r = await fetch('/api/build',{method:'POST', body:fd});
+  if(!r.ok){ $('#buildStatus').textContent='Failed: '+await r.text(); return; }
+  const j=await r.json();
+  const dl = $('#downloadLink');
+  dl.href='/download?path='+encodeURIComponent(j.zip);
+  dl.textContent='Download '+j.zip.split('/').pop();
+  $('#buildStatus').textContent='Ready';
+  showToast('Job bundle ready');
 };
+
+/* Tooltips */
+document.addEventListener('DOMContentLoaded', ()=>{
+  [...document.querySelectorAll('[data-bs-toggle="tooltip"]')].forEach(el=> new bootstrap.Tooltip(el));
+});
 </script>
 {% endblock %}

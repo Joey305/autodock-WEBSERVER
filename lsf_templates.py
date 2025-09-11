@@ -46,12 +46,19 @@ VINA_BODY = (
 )
 
 
-def build_confgen_lsfs(jobroot: Path, lsf_dir: Path, poses: int, workers: int,
-                       queue: str, project: str, walltime: str, mem_per_core: int,
-                       email: str, env_line: str,
-                       lig_mode: str = "2", lig_filetype: str = "sdf",
-                       csv_smiles_col: str = "", csv_id_col: str = "",
-                       single_sdf_rel: str = ""):
+# lsf_templates.py
+from pathlib import Path
+
+def build_confgen_lsfs(jobroot: Path, lsf_dir: Path, *, poses:int, workers:int, queue:str,
+                       project:str, walltime:str, mem_per_core:int, email:str, env_line:str,
+                       lig_mode, lig_filetype, csv_smiles_col, csv_id_col, single_sdf_rel):
+    lsf_dir = Path(lsf_dir)
+    lsf_dir.mkdir(parents=True, exist_ok=True)   # <-- required
+    out = lsf_dir / "run_confgen_job.lsf"
+    header = "...your header..."
+    body   = "...your body..."
+    out.write_text(header + body)
+
     """
     lig_mode:
       "1" CSV of SMILES in workspace root or Ligands/
@@ -104,18 +111,22 @@ def build_confgen_lsfs(jobroot: Path, lsf_dir: Path, poses: int, workers: int,
     sub.write_text(f"#!/bin/bash\nbsub < {out.name}\n")
     sub.chmod(0o755)
 
+from datetime import datetime
 
+def build_vina_lsfs(jobroot: Path, lsf_dir: Path, poses: int, workers: int, queue: str,
+                    project: str, walltime: str, mem_per_core: int, email: str,
+                    env_line: str, vina_path: str | None = None):
+    jobroot = Path(jobroot)
+    lsf_dir = Path(lsf_dir)
+    lsf_dir.mkdir(parents=True, exist_ok=True)  # <-- Step 4b: ensure dir exists
 
-def build_vina_lsfs(jobroot: Path, lsf_dir: Path, poses: int, workers: int, queue: str, project: str,
-                    walltime: str, mem_per_core: int, email: str, env_line: str, vina_path: str | None = None):
     rec_dir = (jobroot / "Receptors").name
     lig_dir = (jobroot / "Ligands").name
-    # Centers CSV default name
+
+    # Centers CSV default name (prefer vina_centers*.csv if present)
     centers_csv = next((p.name for p in jobroot.glob("vina_centers*.csv")), "vina_centers.csv")
 
-    vina_pin = ""
-    if vina_path:
-        vina_pin = f'export VINA_EXE="{vina_path}"\n'
+    vina_pin = f'export VINA_EXE="{vina_path}"\n' if vina_path else ""
 
     jobtag = sanitize_name(f"vina_{jobroot.name}")
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -124,9 +135,14 @@ def build_vina_lsfs(jobroot: Path, lsf_dir: Path, poses: int, workers: int, queu
         queue=queue, workers=workers, mem_per_core=mem_per_core, email=email,
         env_line=env_line, vina_pin=vina_pin
     )
-    body = VINA_BODY.format(receptors=rec_dir, ligands=lig_dir, centers_csv=centers_csv, poses=poses)
+    body = VINA_BODY.format(
+        receptors=rec_dir, ligands=lig_dir,
+        centers_csv=centers_csv, poses=poses
+    )
+
     out = lsf_dir / f"run_{jobtag}.lsf"
     out.write_text(header + body)
-    (lsf_dir / "submit_all_vina.sh").write_text("#!/bin/bash\nbsub < {}\n".format(out.name))
-    (lsf_dir / "submit_all_vina.sh").chmod(0o755)
 
+    submit = lsf_dir / "submit_all_vina.sh"
+    submit.write_text(f"#!/bin/bash\nbsub < {out.name}\n")
+    submit.chmod(0o755)
