@@ -241,7 +241,7 @@ def main():
     # Defaults for LSF
     queue = "hihg"
     project = "brd"
-    walltime = "120:00"
+    walltime = "500:00"
     workers = 16
     mem_per_core = 2000
     email = "jxs794@miami.edu"

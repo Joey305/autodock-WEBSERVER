@@ -57,6 +57,7 @@ def create_app() -> Flask:
         if not current_user.is_authenticated:
             return redirect(url_for("auth.login"))
         return render_template("home.html", max_receptors=app.config["MAX_RECEPTORS"])
+    
 
     # ---------- STATE HELPERS ----------
     def _ws(jobname: str) -> Path:
@@ -72,45 +73,191 @@ def create_app() -> Flask:
     def _save_state(ws: Path, obj: Dict[str, Any]):
         (ws / "_state.json").write_text(json.dumps(obj, indent=2))
 
-    # ---------- CENTERS CSV HELPERS ----------
+    # ---------- CENTERS CSV HELPERS (now canonical: PDB_ID,X,Y,Z,SIZE) ----------
     def _centers_csv_path(ws: Path, st: Dict[str, Any]) -> Path:
+        """
+        Ensure a centers CSV exists. Canonical headers are:
+            PDB_ID,X,Y,Z,SIZE
+        """
         name = st.get("centers_csv") or "vina_centers.csv"
         p = ws / name
         if not p.exists():
             with p.open("w", newline="") as f:
-                csv.writer(f).writerow(["receptor_pdbqt", "center_x", "center_y", "center_z", "size"])
+                csv.writer(f).writerow(["PDB_ID", "X", "Y", "Z", "SIZE"])
         return p
 
     def _read_centers(ws: Path, st: Dict[str, Any]) -> Dict[str, Tuple[float, float, float, float]]:
+        """
+        Read centers as a dict: {PDB_ID: (X,Y,Z,SIZE)}.
+        Accepts either the new schema (PDB_ID,X,Y,Z,SIZE) or the legacy schema
+        (receptor_pdbqt, center_x, center_y, center_z, size).
+        """
         p = _centers_csv_path(ws, st)
         out: Dict[str, Tuple[float, float, float, float]] = {}
         with p.open() as f:
             r = csv.DictReader(f)
+            # Normalize header names
+            fields = { (h or "").strip().upper(): h for h in (r.fieldnames or []) }
+
+            has_new = all(k in fields for k in ("PDB_ID","X","Y","Z"))
+            has_old = all(k in fields for k in ("RECEPTOR_PDBQT","CENTER_X","CENTER_Y","CENTER_Z"))
+
             for row in r:
                 try:
-                    out[row["receptor_pdbqt"]] = (
-                        float(row["center_x"]), float(row["center_y"]),
-                        float(row["center_z"]), float(row["size"])
-                    )
+                    if has_new:
+                        key = row.get(fields["PDB_ID"], "").strip()
+                        x = float(row.get(fields["X"], "0"))
+                        y = float(row.get(fields["Y"], "0"))
+                        z = float(row.get(fields["Z"], "0"))
+                        s = float(row.get(fields.get("SIZE","SIZE"), row.get("SIZE", "20") ))
+                    elif has_old:
+                        key = row.get(fields["RECEPTOR_PDBQT"], "").strip()
+                        x = float(row.get(fields["CENTER_X"], "0"))
+                        y = float(row.get(fields["CENTER_Y"], "0"))
+                        z = float(row.get(fields["CENTER_Z"], "0"))
+                        s = float(row.get(fields.get("SIZE","SIZE"), row.get("size", "20")))
+                    else:
+                        # Unknown schema; skip row
+                        continue
+                    if key:
+                        out[key] = (x, y, z, s)
                 except Exception:
                     continue
         return out
 
     def _write_centers(ws: Path, st: Dict[str, Any], mapping: Dict[str, Tuple[float, float, float, float]]):
+        """
+        Write centers using the canonical schema: PDB_ID,X,Y,Z,SIZE
+        """
         p = _centers_csv_path(ws, st)
         with p.open("w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["receptor_pdbqt", "center_x", "center_y", "center_z", "size"])
+            w.writerow(["PDB_ID", "X", "Y", "Z", "SIZE"])
             for k, (x, y, z, s) in mapping.items():
                 w.writerow([k, x, y, z, s])
 
     def _upsert_center_row(ws: Path, st: Dict[str, Any], receptor_pdbqt: str,
                            center: Tuple[float, float, float], size: float):
+        """
+        Upsert by PDB_ID (we use the PDBQT filename key). Always writes canonical schema.
+        """
         mapping = _read_centers(ws, st)
-        mapping[receptor_pdbqt] = (float(center[0]), float(center[1]),
-                                   float(center[2]), float(size))
+        mapping[receptor_pdbqt] = (float(center[0]), float(center[1]), float(center[2]), float(size))
         _write_centers(ws, st, mapping)
 
+    def _clean_pdb(
+        in_path: Path,
+        out_path: Path,
+        remove_hets: list[str],
+        remove_chains: list[str],
+        remove_all_hets: bool = False,
+        altloc_mode: str = "collapse",
+    ):
+        """
+        Clean PDB file:
+        - Remove selected HETATMs, chains, or all HETATMs.
+        - Handle altLoc (collapse=first conformer only).
+        - Renumber atoms sequentially (required for valid CONECT).
+        - Drop or fix CONECT records to only reference surviving atoms.
+        """
+        serial_map = {}
+        seen_altlocs = {}
+        new_lines = []
+        new_serial = 1
+
+        with open(in_path) as fin:
+            for line in fin:
+                rec = line[:6].strip().upper()
+
+                if rec in ("ATOM", "HETATM"):
+                    resname = line[17:20].strip().upper()
+                    chain   = line[21].strip().upper()
+                    altloc  = line[16].strip()
+                    old_serial = int(line[6:11])
+
+                    if remove_all_hets and rec == "HETATM":
+                        continue
+                    if resname in remove_hets:
+                        continue
+                    if chain in remove_chains:
+                        continue
+
+                    if altloc and altloc_mode == "collapse":
+                        key = (line[12:16].strip(), resname, chain)
+                        if key in seen_altlocs:
+                            continue
+                        seen_altlocs[key] = True
+
+                    serial_map[old_serial] = new_serial
+                    line = line[:6] + f"{new_serial:5d}" + line[11:]
+                    new_lines.append(line)
+                    new_serial += 1
+
+                elif rec == "CONECT":
+                    continue
+                else:
+                    new_lines.append(line)
+
+        # rebuild CONECT
+        with open(in_path) as fin:
+            for line in fin:
+                if not line.startswith("CONECT"):
+                    continue
+                refs = [line[i:i+5] for i in range(6, len(line), 5) if line[i:i+5].strip()]
+                refs = [int(r) for r in refs if r.strip()]
+                new_refs = [serial_map[r] for r in refs if r in serial_map]
+                if not new_refs:
+                    continue
+                base_old = int(line[6:11])
+                if base_old not in serial_map:
+                    continue
+                base_new = serial_map[base_old]
+                new_line = f"CONECT{base_new:5d}" + "".join(f"{r:5d}" for r in new_refs) + "\n"
+                new_lines.append(new_line)
+
+        with open(out_path, "w") as fout:
+            fout.writelines(new_lines)
+
+
+
+
+
+    
+    # ---------- PDB/PDBQT first-model stripper ----------
+    def _write_first_model_only(src_path: Path, dst_path: Path) -> None:
+        """
+        Copy src_path to dst_path but keep only the first MODEL...ENDMDL block.
+        If no MODEL lines exist, copy the whole file. Works for .pdb and .pdbqt.
+        """
+        in_model = False
+        got_model = False
+        buf = []
+        with open(src_path, "r") as fin:
+            for line in fin:
+                # PDB / PDBQT are column-based but MODEL/ENDMDL are at column 1
+                rec = line[:6].strip().upper()
+                if rec == "MODEL" and not got_model:
+                    in_model = True
+                    got_model = True
+                    buf.append(line)
+                    continue
+                if rec == "ENDMDL" and in_model:
+                    buf.append(line)
+                    in_model = False
+                    break  # stop after first model
+                if in_model:
+                    buf.append(line)
+
+        if got_model:
+            # We captured a MODEL block
+            dst_path.write_text("".join(buf))
+        else:
+            # No MODEL section; copy the whole file
+            dst_path.write_text(src_path.read_text())
+
+    
+    
+    
     # ---------- WORKSPACE ----------
     @app.post("/api/workspace")
     @login_required
@@ -410,6 +557,8 @@ def create_app() -> Flask:
         })
 
     # ---------- 3a CONVERSION (batch) ----------
+
+
     @app.post("/api/prep/start")
     @login_required
     def api_prep_start():
@@ -424,51 +573,48 @@ def create_app() -> Flask:
         recs = st.get("receptors", [])
         if not recs:
             return ("Add receptors first.", 400)
+
         csv_map = _read_centers(ws, st)
         expected = [Path(r["rel"]).name for r in recs]
-        expected = [n.replace(".pdb", ".pdbqt").replace(".cif", ".pdbqt").replace(".mmcif", ".pdbqt").replace(".ent", ".pdbqt") for n in expected]
+        expected = [n.replace(".pdb", ".pdbqt").replace(".cif", ".pdbqt")
+                    .replace(".mmcif", ".pdbqt").replace(".ent", ".pdbqt") for n in expected]
         if not all(n in csv_map for n in expected):
             return ("Centers CSV missing one or more receptors. Save a center for each receptor first.", 400)
 
-        py = (APP_ROOT / "3a_PDB2PDBQTbatch.py").resolve()
-        if not py.exists():
-            return ("3a_PDB2PDBQTbatch.py not found at " + str(py), 500)
+        remove_hets = []
+        remove_all_hets = False
+        if f.get("remove_het_csv"):
+            if f.get("remove_het_csv").lower() == "all":
+                remove_all_hets = True
+            else:
+                remove_hets = [x.strip().upper() for x in f.get("remove_het_csv").split(",") if x.strip()]
+        remove_chains = [x.strip().upper() for x in f.get("remove_chains_csv","").split(",") if x.strip()]
+        altloc_mode = f.get("altloc", "collapse")
 
         out_dir = (rec_dir.parent / "Receptors_PDBQT").resolve()
         log_path = (ws / "prep3a.log").resolve()
-
-        cmd = [
-            "python", str(py),
-            "--folder", str(rec_dir.resolve()),
-            "--headless",
-            "--mode", "batch",
-            "--backend", f.get("backend", "auto"),
-            "--altloc", f.get("altloc", "collapse"),
-            "--output-dir", str(out_dir),
-        ]
-
-        rm = (f.get("remove_het_csv", "").strip() or "all")
-        if rm.lower() == "all":
-            cmd += ["--remove-het", "all"]
-        elif rm:
-            cmd += ["--remove-het", rm]
-
-        ch = f.get("remove_chains_csv", "").strip()
-        if ch:
-            cmd += ["--remove-chains", ch]
-
-        pdbqt_only = (f.get("pdbqt_only", "true").lower() != "false")
-        cmd += ["--pdbqt-only"] if pdbqt_only else ["--no-pdbqt-only"]
-        if f.get("keep_clean_pdb", "false").lower() == "true":
-            cmd += ["--keep-clean-pdb"]
+        out_dir.mkdir(exist_ok=True)
 
         with open(log_path, "w") as logf:
-            proc = subprocess.Popen(cmd, cwd=str(ws), stdout=logf, stderr=subprocess.STDOUT)
+            for r in recs:
+                in_path = rec_dir / Path(r["rel"]).name
+                cleaned_path = ws / f"{Path(r['rel']).stem}_clean.pdb"
+                out_path = out_dir / Path(r["rel"]).with_suffix(".pdbqt").name
 
-        st["prep_job"] = {"pid": proc.pid, "log": str(log_path), "out_dir": str(out_dir)}
+                _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
+
+                cmd = ["obabel", str(cleaned_path), "-O", str(out_path), "-xr"]
+                logf.write(f"Running: {' '.join(cmd)}\n")
+                result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
+                if result.returncode != 0 or not out_path.exists():
+                    logf.write(f"[ERROR] Failed to convert {in_path}\n")
+
+        st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
         _save_state(ws, st)
-        return jsonify({"pid": proc.pid})
+        return jsonify({"done": True, "out_dir": str(out_dir)})
 
+
+    
     # ---------- 3a CONVERSION (single) ----------
     @app.post("/api/prep/start_one")
     @login_required
@@ -484,47 +630,45 @@ def create_app() -> Flask:
         st = _load_state(ws)
         csv_map = _read_centers(ws, st)
         name = Path(rel).name
-        expected = name.replace(".pdb",".pdbqt").replace(".cif",".pdbqt").replace(".mmcif",".pdbqt").replace(".ent",".pdbqt")
+        expected = name.replace(".pdb",".pdbqt").replace(".cif",".pdbqt") \
+                    .replace(".mmcif",".pdbqt").replace(".ent",".pdbqt")
         if expected not in csv_map:
             return ("Save a center for this receptor first.", 400)
 
-        py = (APP_ROOT / "3a_PDB2PDBQTbatch.py").resolve()
-        if not py.exists():
-            return ("3a_PDB2PDBQTbatch.py not found at " + str(py), 500)
+        remove_hets = []
+        remove_all_hets = False
+        if f.get("remove_het_csv"):
+            if f.get("remove_het_csv").lower() == "all":
+                remove_all_hets = True
+            else:
+                remove_hets = [x.strip().upper() for x in f.get("remove_het_csv").split(",") if x.strip()]
+        remove_chains = [x.strip().upper() for x in f.get("remove_chains_csv","").split(",") if x.strip()]
+        altloc_mode = f.get("altloc", "collapse")
 
         out_dir = (rec_dir.parent / "Receptors_PDBQT").resolve()
         log_path = (ws / "prep3a.log").resolve()
+        out_dir.mkdir(exist_ok=True)
 
-        cmd = [
-            "python", str(py),
-            "--folder", str(rec_dir.resolve()),
-            "--headless",
-            "--mode", "batch",
-            "--backend", f.get("backend", "auto"),
-            "--altloc", f.get("altloc", "collapse"),
-            "--output-dir", str(out_dir),
-            "--files", name
-        ]
+        in_path = rec_dir / name
+        cleaned_path = ws / f"{Path(name).stem}_clean.pdb"
+        out_path = out_dir / Path(name).with_suffix(".pdbqt").name
 
-        rm = (f.get("remove_het_csv", "").strip() or "all")
-        if rm.lower() == "all":
-            cmd += ["--remove-het", "all"]
-        elif rm:
-            cmd += ["--remove-het", rm]
-
-        ch = f.get("remove_chains_csv", "").strip()
-        if ch:
-            cmd += ["--remove-chains", ch]
-
-        pdbqt_only = (f.get("pdbqt_only", "true").lower() != "false")
-        cmd += ["--pdbqt-only"] if pdbqt_only else ["--no-pdbqt-only"]
+        _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
 
         with open(log_path, "a") as logf:
-            proc = subprocess.Popen(cmd, cwd=str(ws), stdout=logf, stderr=subprocess.STDOUT)
+            cmd = ["obabel", str(cleaned_path), "-O", str(out_path), "-xr"]
+            logf.write(f"Running: {' '.join(cmd)}\n")
+            result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
+            if result.returncode != 0 or not out_path.exists():
+                logf.write(f"[ERROR] Failed to convert {in_path}\n")
 
-        st["prep_job"] = {"pid": proc.pid, "log": str(log_path), "out_dir": str(out_dir)}
+        st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
         _save_state(ws, st)
-        return jsonify({"pid": proc.pid})
+        return jsonify({"done": True, "out": str(out_path)})
+
+
+
+
 
     # ---------- 3a STATUS ----------
     @app.get("/api/prep/status")
@@ -605,44 +749,91 @@ def create_app() -> Flask:
         st = _load_state(ws)
         if not st["receptors"]:
             return ("add receptors first", 400)
+
+        # Verify centers CSV covers all expected receptors
         csv_map = _read_centers(ws, st)
         expected = [Path(r["rel"]).name for r in st["receptors"]]
-        expected = [n.replace(".pdb", ".pdbqt").replace(".cif", ".pdbqt").replace(".mmcif", ".pdbqt").replace(".ent", ".pdbqt") for n in expected]
+        expected = [
+            n.replace(".pdb", ".pdbqt")
+            .replace(".cif", ".pdbqt")
+            .replace(".mmcif", ".pdbqt")
+            .replace(".ent", ".pdbqt")
+            for n in expected
+        ]
         if not all(n in csv_map for n in expected):
             return ("centers csv is incomplete", 400)
+
         if not st.get("ligands_uploaded"):
             return ("upload ligands first", 400)
 
+        # Build the job tree (copies real scripts, receptors, ligands, etc.)
         jobroot = assemble_job_tree(ws, ws / "Receptors", ws / "Ligands")
+        lsf_dir = jobroot  # write .lsf files directly into jobroot
 
-        # Ensure LSF directory exists BEFORE template writers touch it
-        lsf_dir = (jobroot / "LSF")
-        lsf_dir.mkdir(parents=True, exist_ok=True)
+        # ---------- Normalize inputs from the form (no frontend changes required) ----------
+        def _get_int(*keys, default):
+            for k in keys:
+                v = f.get(k, "").strip()
+                if v:
+                    try:
+                        return int(v)
+                    except Exception:
+                        pass
+            return int(default)
 
-        poses_conf = int(f.get("poses_conf", 64))
-        poses_vina = int(f.get("poses_vina", 9))
+        def _get_str(*keys, default=""):
+            for k in keys:
+                v = f.get(k)
+                if v is not None and v.strip() != "":
+                    return v.strip()
+            return default
 
+        # Shared parameters
+        workers      = _get_int("workers", "ncores", default=16)
+        queue        = _get_str("queue", default="hihg")
+        project      = _get_str("project", default="brd")
+        mem_per_core = _get_int("mem_per_core", "mem", default=2000)
+        email        = current_user.email
+        env_line     = _get_str("env_line", default=current_app.config["DEFAULT_ENV_LINE"])
+
+        # ConfGen parameters
+        poses_conf        = _get_int("confgen_poses", "poses_conf", "poses", default=64)
+        confgen_walltime  = _get_str("confgen_walltime", "walltime_confgen", default="48:00")
+        lig_mode          = _get_str("lig_mode", default="2")  # "1" CSV, "2" folder, "3" single SDF
+        lig_filetype      = _get_str("lig_filetype", "filetype", default="sdf")  # default to sdf
+        csv_smiles_col    = _get_str("csv_smiles_col", "smiles_col", default="")
+        csv_id_col        = _get_str("csv_id_col", "id_col", default="")
+        single_sdf_rel    = _get_str("single_sdf_rel", "single_sdf", default="")
+
+        # Vina parameters
+        poses_vina        = _get_int("vina_poses", "poses_vina", default=20)
+        vina_walltime     = _get_str("vina_walltime", "walltime_vina", "walltime", default="96:00")
+        vina_path         = _get_str("vina_path", "vina_exe", default="") or None
+
+        # ---------- Emit LSFs ----------
         build_confgen_lsfs(
             jobroot, lsf_dir, poses=poses_conf,
-            workers=int(f.get("workers", 16)), queue=f.get("queue", "hihg"),
-            project=f.get("project", "brd"), walltime=f.get("walltime", "96:00"),
-            mem_per_core=int(f.get("mem_per_core", 2000)), email=current_user.email,
-            env_line=f.get("env_line") or current_app.config["DEFAULT_ENV_LINE"],
-            lig_mode=None, lig_filetype=None, csv_smiles_col=f.get("csv_smiles_col", ""),
-            csv_id_col=f.get("csv_id_col", ""), single_sdf_rel=None
-        )
-        build_vina_lsfs(
-            jobroot, lsf_dir, poses=poses_vina,
-            workers=int(f.get("workers", 16)), queue=f.get("queue", "hihg"),
-            project=f.get("project", "brd"), walltime=f.get("walltime", "96:00"),
-            mem_per_core=int(f.get("mem_per_core", 2000)), email=current_user.email,
-            env_line=f.get("env_line") or current_app.config["DEFAULT_ENV_LINE"],
-            vina_path=f.get("vina_path") or None
+            workers=workers, queue=queue, project=project, walltime=confgen_walltime,
+            mem_per_core=mem_per_core, email=email, env_line=env_line,
+            lig_mode=lig_mode, lig_filetype=lig_filetype,
+            csv_smiles_col=csv_smiles_col, csv_id_col=csv_id_col,
+            single_sdf_rel=(single_sdf_rel or None)
         )
 
+        build_vina_lsfs(
+            jobroot, lsf_dir, poses=poses_vina,
+            workers=workers, queue=queue, project=project, walltime=vina_walltime,
+            mem_per_core=mem_per_core, email=email, env_line=env_line,
+            vina_path=vina_path
+        )
+
+        # Optional tag-based rename (no-op unless TAG column exists)
         rename_centers_with_tags(jobroot)
+
+        # Zip the job folder
         z = zip_job_tree(jobroot)
         return jsonify({"zip": str(z)})
+
 
     # ---------- DOWNLOAD ----------
     @app.get("/download")

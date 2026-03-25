@@ -1,87 +1,79 @@
 {% extends 'base.html' %}
 {% block content %}
 <style>
-  input[type="file"].form-control { background:#3b3b3b !important; color:#eaeaea !important; border-color:#2c2c2c !important; }
-  .btn-upload { transition: filter .15s, background-color .15s, border-color .15s, opacity .15s; }
-  .btn-upload.btn-danger { cursor:not-allowed; opacity:.85; }
-  .btn-upload.btn-success { cursor:pointer; }
-  .badge-prepped { background:#28a745 !important; }
-  .badge-centered { background:#ffc107 !important; color:#3a2f00 !important; }
-  .badge-new { background:#6c757d !important; }
-  .section-label.bg-light { background:#eef2f7 !important; }
-  .section-label.bg-orange { background:#fff4e6 !important; }
-  #summaryBox small { display:block; line-height:1.2; }
-  .viewport { height:420px; border:1px solid #e5e7eb; border-radius:.5rem; }
-  .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 1100; }
-
-  #hoverTip {
-    position: absolute; pointer-events: none; z-index: 50;
-    background: rgba(32,32,32,.85); color: #eee; border-radius: 6px;
-    padding: 4px 8px; font-size: 12px; display:none;
+  :root{
+    --ink:#0f172a;--muted:#6b7280;--ok:#16a34a;--warn:#f59e0b;--info:#3b82f6;--bad:#ef4444;
+    --panel:#ffffff;--soft:#f8fafc;
   }
-  .toast {
-    position: fixed; right: 16px; bottom: 16px; z-index: 1080;
-    background: #212529; color: #fff; padding: 10px 14px; border-radius: 8px;
-    box-shadow: 0 6px 20px rgba(0,0,0,.25); margin-top: 8px;
+  .step-card{border:0;background:var(--panel);box-shadow:0 8px 28px rgba(2,6,23,.08);border-radius:14px}
+  .step-header{background:#0f172a;color:#fff;border-radius:14px 14px 0 0;padding:.8rem 1rem}
+  .viewport{height:460px;border:1px solid #e5e7eb;border-radius:10px;background:#fff}
+  .badge-pipe{font-size:.72rem;border-radius:999px;padding:.28rem .6rem}
+  .b-new{background:#e5e7eb;color:#374151}
+  .b-centering{background:#fde68a;color:#854d0e}
+  .b-centered{background:#bfdbfe;color:#1e3a8a}
+  .b-prepped{background:#bbf7d0;color:#065f46}
+  .row-receptor{padding:.55rem 0}
+  .pill{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .6rem;border-radius:999px;background:#f1f5f9;font-size:.8rem;color:#111}
+  .chip-check{display:inline-flex;align-items:center;gap:.35rem;margin:.22rem .4rem .22rem 0;padding:.25rem .55rem;border:1px solid #cbd5e1;border-radius:999px;background:#f8fafc}
+  /* Hide carousel chrome */
+  #viewerCarousel .carousel-indicators,
+  #viewerCarousel .carousel-control-prev,
+  #viewerCarousel .carousel-control-next { display:none!important; }
+  .floating-toast{
+    position:fixed; bottom:20px; right:20px; background:#0f172a;color:#fff; padding:.6rem .9rem;
+    border-radius:10px; box-shadow:0 12px 30px rgba(2,6,23,.25); z-index:1100; opacity:0; transform:translateY(8px);
+    transition:all .25s ease;
   }
-  #toastStack { position: fixed; right: 16px; bottom: 16px; z-index: 1080; display:flex; flex-direction:column; gap:8px; }
+  .floating-toast.show{opacity:1; transform:translateY(0)}
 </style>
-
-<div id="hoverTip"></div>
-<div id="toastStack"></div>
-<div class="toast-container" id="toasts"></div>
 
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h3 class="m-0">Build a Docking Job</h3>
-  <div>
-    <button id="btnNewWS" class="btn btn-outline-primary" data-bs-toggle="tooltip" title="Start a fresh workspace"><i class="bi bi-asterisk"></i> New Workspace</button>
-    <span class="ms-3 text-muted">Job: <span id="jobname" class="fw-semibold">—</span></span>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-muted">Job: <span id="jobname" class="fw-semibold">—</span></span>
+    <button id="btnNewWS" class="btn btn-outline-primary"><i class="bi bi-asterisk"></i> New Workspace</button>
   </div>
 </div>
 
 <!-- STEP 1 -->
-<div class="card step-card border-0 shadow-sm mb-3">
-  <div class="card-header step-header step-1">
+<div class="step-card mb-3">
+  <div class="step-header">
     <strong>1) Protein Prep</strong>
-    <span class="badge bg-secondary ms-2">Up to {{ max_receptors }} receptors per batch</span>
+    <span id="flowPill" class="pill ms-2"><i class="bi bi-diagram-3"></i><span>Single receptor workflow</span></span>
   </div>
   <div class="card-body">
+
+    <!-- Upload / Fetch -->
     <div class="row g-3 align-items-end">
       <div class="col-lg-6">
-        <label class="form-label">Upload SINGLE receptor (.pdb / .cif / .pdbqt / .ent)
-          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Add a single structure file as a receptor."></i>
-        </label>
+        <label class="form-label">Upload SINGLE receptor (.pdb / .cif / .pdbqt / .ent)</label>
         <div class="input-group">
           <input id="receptorSingle" type="file" class="form-control" accept=".pdb,.cif,.pdbqt,.mmcif,.ent" disabled>
-          <button id="btnRecSingle" class="btn btn-upload btn-danger" disabled>Upload</button>
+          <button id="btnRecSingle" class="btn btn-success" disabled>Upload</button>
         </div>
       </div>
       <div class="col-lg-6">
-        <label class="form-label">OR upload ZIP of Receptors/
-          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Upload a ZIP whose contents include .pdb/.cif/.mmcif/.ent files."></i>
-        </label>
+        <label class="form-label">OR upload ZIP of Receptors/</label>
         <div class="input-group">
           <input id="receptorZip" type="file" class="form-control" accept=".zip" disabled>
-          <button id="btnRecZip" class="btn btn-upload btn-danger" disabled>Upload ZIP</button>
+          <button id="btnRecZip" class="btn btn-success" disabled>Upload ZIP</button>
         </div>
       </div>
       <div class="col-lg-6">
-        <label class="form-label">Upload FOLDER of Receptors
-          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Choose a folder; valid receptor files are uploaded."></i>
-        </label>
+        <label class="form-label">Upload FOLDER of Receptors</label>
         <div class="input-group">
-          <input id="receptorFolder" type="file" class="form-control" webkitdirectory directory multiple disabled>
-          <button id="btnRecFolder" class="btn btn-upload btn-danger" disabled>Upload Folder</button>
+          <input id="receptorFolder" type="file" class="form-control" webkitdirectory multiple disabled>
+          <button id="btnRecFolder" class="btn btn-success" disabled>Upload Folder</button>
         </div>
+        <div class="text-muted small mt-1">Folder chooser count may include hidden items; only receptor file types are ingested.</div>
       </div>
       <div class="col-lg-6">
-        <label class="form-label">Fetch by PDB ID
-          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Download an entry from the PDB (optionally filtering chains)."></i>
-        </label>
+        <label class="form-label">Fetch by PDB ID</label>
         <div class="input-group">
           <input id="pdbFetch" class="form-control" placeholder="e.g., 3EKY" disabled>
-          <input id="pdbChains" class="form-control" style="max-width:160px" placeholder="Chains (optional)" disabled>
-          <button id="btnFetchPDB" class="btn btn-upload btn-danger" disabled>Fetch</button>
+          <input id="pdbChains" class="form-control" placeholder="Chains (optional)" style="max-width:180px" disabled>
+          <button id="btnFetchPDB" class="btn btn-success" disabled>Fetch</button>
         </div>
       </div>
     </div>
@@ -89,214 +81,141 @@
     <!-- Receptor list -->
     <div id="receptorList" class="mt-3 d-none"></div>
 
-    <!-- 1a: Box Generation -->
-    <div id="viewerBlock" class="mt-4 d-none">
-      <h6 class="section-label bg-orange">
-        1a) Box Generation
-        <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip"
-           title="Pick ONE: (a) Ligand code (+optional resi/chain), (b) Residue (name+resi+opt chain), (c) paste XYZ, or (d) click atoms in the viewer. Then Save center."></i>
-      </h6>
-      <div id="viewport" class="viewport"></div>
+    <!-- 1a: viewer (carousel) -->
+    <div id="carouselWrap" class="mt-4 d-none">
+      <h6 class="mb-2">1a) Box Generation</h6>
+      <div id="viewerCarousel" class="carousel slide" data-bs-interval="false">
+        <div class="carousel-inner" id="carouselInner"></div>
+      </div>
 
+      <!-- box inputs -->
       <div class="row g-2 align-items-center mt-2">
-        <div class="col-md-3">
-          <div class="input-group">
-            <span class="input-group-text" data-bs-toggle="tooltip" title="3-letter ligand code (e.g., ADP)">Lig</span>
-            <input id="ligCode" class="form-control" placeholder="ADP">
-          </div>
-        </div>
-        <div class="col-md-3">
-          <div class="input-group">
-            <span class="input-group-text">Resi</span>
-            <input id="ligResi" class="form-control" placeholder="(opt)">
-            <span class="input-group-text">Chain</span>
-            <input id="ligChain" class="form-control" style="max-width:70px" placeholder="(opt)">
-          </div>
-        </div>
-
+        <div class="col-md-3"><div class="input-group"><span class="input-group-text">Lig</span><input id="ligCode" class="form-control" placeholder="ADP"></div></div>
         <div class="col-md-4">
           <div class="input-group">
-            <span class="input-group-text">Residue</span>
-            <input id="resName" class="form-control" style="max-width:90px" placeholder="GLU">
-            <input id="resId" class="form-control" style="max-width:90px" placeholder="82">
-            <input id="resChain" class="form-control" style="max-width:90px" placeholder="(opt)">
+            <span class="input-group-text">Resi</span><input id="ligResi" class="form-control" placeholder="(opt)" style="max-width:90px">
+            <span class="input-group-text">Chain</span><input id="ligChain" class="form-control" placeholder="(opt)" style="max-width:90px">
           </div>
         </div>
-
-        <div class="col-md-2">
-          <div class="input-group" data-bs-toggle="tooltip" title="Docking box half-size (Å)">
-            <span class="input-group-text">Å</span>
-            <input id="boxSize" class="form-control" value="20">
-          </div>
-        </div>
-
-        <div class="col-md-3 d-grid mt-2 mt-md-0">
-          <button id="btnSaveCenter" class="btn btn-warning">Save center</button>
-        </div>
-
-        <div class="col-md-6 mt-2">
-          <input id="xyzPaste" class="form-control" placeholder="Or paste XYZ as x,y,z">
-        </div>
-        <div class="col-md-2 mt-2 d-grid">
-          <button id="btnUseXYZ" class="btn btn-outline-secondary" data-bs-toggle="tooltip" title="Use pasted XYZ">Use XYZ</button>
-        </div>
-        <div class="col-md-3 mt-2 d-grid">
-          <button id="btnClearClicks" class="btn btn-outline-secondary" data-bs-toggle="tooltip" title="Clear clicked atoms">Clear clicked atoms</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 1b: Convert to PDBQT -->
-    <div id="prepBlock" class="mt-4 d-none">
-      <h6 class="section-label bg-light">
-        1b) Convert to PDBQT (3a)
-        <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip"
-           title="Runs 3a_PDB2PDBQTbatch.py on your receptor(s). HET/chain removal is handled by these options."></i>
-      </h6>
-
-      <div class="row g-2">
-        <div class="col-md-6">
-          <div class="input-group" data-bs-toggle="tooltip" title="Comma list of HET codes to remove, or 'all'">
-            <span class="input-group-text">Remove HET</span>
-            <input id="rmHet" class="form-control" placeholder="all">
-          </div>
-        </div>
-        <div class="col-md-6">
-          <div class="input-group" data-bs-toggle="tooltip" title="Optional chain removal (comma list)">
-            <span class="input-group-text">Remove chains</span>
-            <input id="rmChains" class="form-control" placeholder="e.g. B,C">
-          </div>
-        </div>
-
-        <div class="col-md-6">
+        <div class="col-md-5">
           <div class="input-group">
-            <span class="input-group-text">Backend</span>
-            <select id="backend" class="form-select" data-bs-toggle="tooltip" title="auto tries ADT_py3 first, then Meeko, then MGL">
-              <option value="auto" selected>auto</option>
-              <option value="adt">ADT_py3</option>
-              <option value="meeko">meeko</option>
-              <option value="mgl">MGLTools</option>
-            </select>
-            <span class="input-group-text">AltLoc</span>
-            <select id="altloc" class="form-select" title="collapse picks highest-occupancy altloc per atom; all keeps every altloc">
-              <option value="collapse" selected>collapse</option>
-              <option value="all">all</option>
-            </select>
-          </div>
-
-          <div class="mt-2">
-            <label class="form-label">Detected HET codes (click to toggle into “Remove HET”)</label>
-            <div id="hetChips" class="d-flex flex-wrap gap-2"></div>
-            <small class="text-muted">Aggregated across uploaded receptors.</small>
+            <span class="input-group-text">Residue</span>
+            <input id="resName" class="form-control" placeholder="GLU" style="max-width:110px">
+            <input id="resId" class="form-control" placeholder="82" style="max-width:110px">
+            <input id="resChain" class="form-control" placeholder="(opt)" style="max-width:110px">
           </div>
         </div>
+        <div class="col-md-6"><input id="xyzPaste" class="form-control" placeholder="Or paste XYZ as x,y,z"></div>
+        <div class="col-md-2 d-grid"><button id="btnUseXYZ" class="btn btn-outline-secondary">Use XYZ</button></div>
+        <div class="col-md-2 d-grid"><button id="btnClearClicks" class="btn btn-outline-secondary">Clear atoms</button></div>
+        <div class="col-md-2"><div class="input-group"><span class="input-group-text">Å</span><input id="boxSize" class="form-control" value="20"></div></div>
+        <div class="col-12 d-grid"><button id="btnSaveCenter" class="btn btn-warning"><i class="bi bi-bullseye"></i> Save center</button></div>
       </div>
-
-      <div class="d-flex align-items-center gap-2 mt-2">
-        <button id="btnRun3aSingle" class="btn btn-primary d-none">Prepare Protein — current</button>
-        <button id="btnRun3aAll" class="btn btn-primary d-none">Prepare All Proteins (3a)</button>
-        <span id="run3aHint" class="small text-muted">Create centers for all receptors first.</span>
-        <span id="runStatus" class="badge text-bg-secondary d-none">converting…</span>
-      </div>
-      <pre class="log mt-2" id="prepLog" style="display:none;"></pre>
     </div>
-  </div>
-</div>
 
-<!-- SUMMARY -->
-<div id="summaryCard" class="card border-0 shadow-sm mb-3 d-none">
-  <div class="card-header"><strong>Batch Summary</strong></div>
-  <div class="card-body"><div id="summaryBox" class="small"></div></div>
+    <!-- 1b: Single-receptor prep (checkboxes; hidden until a receptor is OPENED) -->
+    <div id="stagingMini" class="mt-4 d-none">
+      <h6 class="mb-2">1b) Protein Preparation (3a)</h6>
+
+      <div class="border rounded-4 p-3">
+        <div class="fw-semibold mb-1">HETATM to remove</div>
+        <div id="miniHet" class="mb-2 small text-muted">Open a receptor to populate…</div>
+
+        <div class="fw-semibold mb-1">Chains to remove</div>
+        <div id="miniChains" class="mb-2 small text-muted">Open a receptor to populate…</div>
+
+        <div class="row g-2">
+          <div class="col-md-6">
+            <div class="input-group">
+              <span class="input-group-text">Backend</span>
+              <select id="backend" class="form-select">
+                <option value="auto" selected>auto</option>
+                <option value="adt">ADT_py3</option>
+                <option value="meeko">meeko</option>
+                <option value="mgl">MGLTools</option>
+              </select>
+              <span class="input-group-text">AltLoc</span>
+              <select id="altloc" class="form-select">
+                <option value="collapse" selected>collapse</option>
+                <option value="all">all</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 mt-3">
+          <button id="btnPrepCurrent" class="btn btn-primary"><i class="bi bi-gear"></i> Prepare Protein</button>
+          <span id="runStatusSingle" class="badge text-bg-secondary d-none">queued…</span>
+        </div>
+
+        <!-- Single-mode live log -->
+        <pre id="prepLogSingle" class="mt-2" style="display:none; max-height:280px; overflow:auto; background:#0b1020; color:#e5edff; border-radius:10px; padding:12px"></pre>
+      </div>
+    </div>
+
+    <!-- 1c: Multi-receptor prep -->
+    <div id="prepPanel" class="mt-4 d-none">
+      <div class="step-card">
+        <div class="step-header"><strong>1c) Preparation</strong></div>
+        <div class="card-body">
+          <div class="mb-2">Select HETATMs and chains to remove for each receptor:</div>
+          <div id="prepList"></div>
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <button id="btnPrepAll" class="btn btn-outline-primary"><i class="bi bi-collection"></i> Prepare All Receptors</button>
+            <span id="runStatusBatch" class="badge text-bg-secondary d-none">queued…</span>
+          </div>
+          <!-- Multi-mode live log -->
+          <pre id="prepLogBatch" class="mt-2" style="display:none; max-height:280px; overflow:auto; background:#0b1020; color:#e5edff; border-radius:10px; padding:12px"></pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
 </div>
 
 <!-- STEP 2 -->
-<div id="ligandStep" class="card step-card border-0 shadow-sm mb-3 d-none">
-  <div class="card-header step-header step-2">
-    <strong>2) Ligand Prep</strong>
-  </div>
+<div id="ligandStep" class="step-card mb-3 d-none">
+  <div class="step-header"><strong>2) Ligand Prep</strong></div>
   <div class="card-body">
     <div class="row g-3 align-items-end">
-      <div class="col-lg-6">
-        <label class="form-label">Single ligand (.sdf / .smiles / .csv)
-          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Upload a single ligand file. If CSV, provide SMILES and optional ID column names below."></i>
-        </label>
+      <div class="col-lg-7">
+        <label class="form-label">Single ligand (.sdf / .smiles / .csv)</label>
         <div class="input-group">
           <input id="ligSingle" type="file" class="form-control" accept=".sdf,.smiles,.csv" disabled>
-          <button id="btnLigSingle" class="btn btn-upload btn-danger" disabled>Upload</button>
+          <button id="btnLigSingle" class="btn btn-success" disabled>Upload</button>
         </div>
       </div>
-      <div class="col-lg-6">
-        <label class="form-label">ZIP of Ligands/
-          <i class="bi bi-info-circle ms-1" data-bs-toggle="tooltip" title="Upload a ZIP containing many ligand files."></i>
-        </label>
+      <div class="col-lg-5">
+        <label class="form-label">ZIP of Ligands/</label>
         <div class="input-group">
           <input id="ligZip" type="file" class="form-control" accept=".zip" disabled>
-          <button id="btnLigZip" class="btn btn-upload btn-danger" disabled>Upload ZIP</button>
+          <button id="btnLigZip" class="btn btn-success" disabled>Upload ZIP</button>
         </div>
       </div>
     </div>
-
     <div class="row g-3 mt-2">
-      <div class="col-md-3">
-        <label class="form-label d-flex align-items-center gap-2">
-          # conformations
-          <i class="bi bi-info-circle" title="Per-ligand conformers during confgen."></i>
-        </label>
-        <input id="posesConf" class="form-control" value="64">
-      </div>
-      <div class="col-md-3">
-        <label class="form-label d-flex align-items-center gap-2">
-          # docking poses
-          <i class="bi bi-info-circle" title="Vina poses per ligand."></i>
-        </label>
-        <input id="posesVina" class="form-control" value="9">
-      </div>
-      <div class="col-md-3">
-        <label class="form-label d-flex align-items-center gap-2">
-          CSV SMILES column
-          <i class="bi bi-info-circle" title="Name of the SMILES column in your ligand CSV. Enabled only if you upload a CSV."></i>
-        </label>
-        <input id="csvSmilesCol" class="form-control" disabled>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label d-flex align-items-center gap-2">
-          CSV ID column
-          <i class="bi bi-info-circle" title="Optional ID column name in your ligand CSV. Enabled only if you upload a CSV."></i>
-        </label>
-        <input id="csvIdCol" class="form-control" disabled>
-      </div>
+      <div class="col-md-3"><label class="form-label"># conformations</label><input id="posesConf" class="form-control" value="64"></div>
+      <div class="col-md-3"><label class="form-label"># docking poses</label><input id="posesVina" class="form-control" value="9"></div>
+      <div class="col-md-3"><label class="form-label">CSV SMILES column</label><input id="csvSmilesCol" class="form-control" disabled></div>
+      <div class="col-md-3"><label class="form-label">CSV ID column</label><input id="csvIdCol" class="form-control" disabled></div>
     </div>
   </div>
 </div>
 
 <!-- STEP 3 -->
-<div id="buildStep" class="card step-card border-0 shadow-sm mb-4 d-none">
-  <div class="card-header step-header step-3"><strong>3) Build LSF + Zip</strong></div>
+<div id="buildStep" class="step-card mb-4 d-none">
+  <div class="step-header"><strong>3) Build LSF + Zip</strong></div>
   <div class="card-body">
     <div class="row g-2">
-      <div class="col-md-2">
-        <input id="queue" class="form-control" value="hihg" placeholder="Queue" data-bs-toggle="tooltip" title="LSF queue">
-      </div>
-      <div class="col-md-2">
-        <input id="project" class="form-control" value="brd" placeholder="Project" data-bs-toggle="tooltip" title="Charge code / project">
-      </div>
-      <div class="col-md-2">
-        <input id="walltime" class="form-control" value="96:00" placeholder="Walltime" data-bs-toggle="tooltip" title="HH:MM max runtime">
-      </div>
-      <div class="col-md-2">
-        <input id="workers" class="form-control" value="16" placeholder="Workers" data-bs-toggle="tooltip" title="# parallel workers">
-      </div>
-      <div class="col-md-2">
-        <input id="mem" class="form-control" value="2000" placeholder="mem/core (MB)" data-bs-toggle="tooltip" title="Memory per core">
-      </div>
-      <div class="col-md-2">
-        <input id="vinaPath" class="form-control" placeholder="Optional VINA_EXE" data-bs-toggle="tooltip" title="Path to non-default Vina binary">
-      </div>
+      <div class="col-md-2"><input id="queue"   class="form-control" value="hihg"   placeholder="Queue"></div>
+      <div class="col-md-2"><input id="project" class="form-control" value="brd"    placeholder="Project"></div>
+      <div class="col-md-2"><input id="walltime"class="form-control" value="96:00"  placeholder="Walltime"></div>
+      <div class="col-md-2"><input id="workers" class="form-control" value="16"     placeholder="Workers"></div>
+      <div class="col-md-2"><input id="mem"     class="form-control" value="2000"   placeholder="mem/core (MB)"></div>
+      <div class="col-md-2"><input id="vinaPath"class="form-control" placeholder="Optional VINA_EXE"></div>
     </div>
     <div class="row g-2 mt-2">
-      <div class="col-md-12">
-        <input id="envLine" class="form-control" placeholder="Env line (conda activate ...)—optional" data-bs-toggle="tooltip" title="Commands to set up your runtime env">
-      </div>
+      <div class="col-md-12"><input id="envLine" class="form-control" placeholder="Env line (conda activate ...)—optional"></div>
     </div>
     <div class="d-flex align-items-center gap-3 mt-3">
       <button id="btnBuild" class="btn btn-success" disabled>Build Zip</button>
@@ -306,430 +225,427 @@
   </div>
 </div>
 
+<div id="toast" class="floating-toast">Saved!</div>
+
 <script src="https://unpkg.com/ngl@latest/dist/ngl.js"></script>
 <script>
-const $ = s => document.querySelector(s);
-const enable = (el, on=true)=>{ el.disabled=!on; el.classList.toggle('disabled',!on); };
-const showToast = (msg, ms=2500)=>{
-  const el = document.createElement('div');
-  el.className = 'toast';
-  el.textContent = msg;
-  document.getElementById('toastStack').appendChild(el);
-  setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateY(8px)'; }, ms);
-  setTimeout(()=>{ el.remove(); }, ms+400);
-};
+/* ---------- helpers ---------- */
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const enable = (el,on=true)=>{ el.disabled=!on; };
+const toast = (msg, ms=1400)=>{ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), ms); };
 
-let jobname=null, state=null, stage=null, comp=null, currentRel=null, pickedAtoms=[];
-let prepPoll=null, lastCentersCount=0, latestSummary=null;
+/* ---------- state ---------- */
+let jobname=null, state=null, isMulti=false;
+let currentRel=null;
+let stagesByRel = {};
+let slideByRel  = new Map();
+let carousel=null;
+let pickedAtoms=[];
+let prepPoll=null;
 
-function calcStatusFor(rel){
-  // Derive a UI status independent of backend's raw flag:
-  // NEW → no center; CENTERED → center row exists; PREPPED → converted file exists.
-  if(!latestSummary) return 'new';
-  const expected = rel.replace(/\.pdb$|\.cif$|\.mmcif$|\.ent$/i,'.pdbqt').split('/').pop();
-  const csvMapOK = latestSummary.expected_pdbqt.includes(expected);
-  const converted = latestSummary.converted_list.includes(expected);
-  if(converted) return 'prepped';
-  if(csvMapOK) return 'centered';
-  return 'new';
+/* ---------- carousel ---------- */
+function ensureCarousel(){ if(!carousel){ carousel=new bootstrap.Carousel($('#viewerCarousel'),{interval:false,ride:false,touch:false,keyboard:false,wrap:false}); } }
+function safeId(rel){ return 'vp-'+btoa(rel).replace(/=/g,'').replace(/[+/]/g,'_'); }
+function ensureSlide(rel){
+  if(slideByRel.has(rel)) return slideByRel.get(rel);
+  const inner=$('#carouselInner');
+  const idx=inner.children.length;
+  const vpId=safeId(rel);
+  const item=document.createElement('div');
+  item.className='carousel-item'+(idx===0?' active':'');
+  item.innerHTML=`<div id="${vpId}" class="viewport"></div>`;
+  inner.appendChild(item);
+  const rec={idx, vpId}; slideByRel.set(rel,rec);
+  return rec;
+}
+function getStage(rel, vpId){
+  if(stagesByRel[rel]) return stagesByRel[rel];
+  const stage=new NGL.Stage(vpId,{backgroundColor:'white'});
+  window.addEventListener('resize', ()=>stage.handleResize());
+  stage.signals.clicked.add(p=>{
+    if(!p || !p.atom) return;
+    pickedAtoms.push([p.atom.x, p.atom.y, p.atom.z]);
+    drawPickMarkersOn(stage);
+  });
+  stagesByRel[rel]=stage;
+  return stage;
+}
+function disposeStage(rel){
+  const st=stagesByRel[rel];
+  if(st){ try{ st.removeAllComponents(); st.dispose(); }catch{} }
+  delete stagesByRel[rel];
+}
+function drawPickMarkersOn(stage){
+  stage.getComponentsByName('picks').list.forEach(c=> stage.removeComponent(c));
+  if(!pickedAtoms.length) return;
+  const shape=new NGL.Shape('picks');
+  pickedAtoms.forEach(p=> shape.addSphere(p,[1,0.8,0],0.9));
+  const c=stage.addComponentFromObject(shape); c.addRepresentation('buffer'); c.name='picks';
 }
 
-function allReceptorsHaveCenters(){
-  if(!state || !state.receptors || !state.receptors.length || !latestSummary) return false;
-  const expected = latestSummary.expected_pdbqt || [];
-  return expected.length === state.receptors.length && latestSummary.have_rows_for_all;
-}
-
-function refreshStepVisibility(){
-  // 1b appears ONLY after all receptors have a saved center row
-  const haveCentersAll = !!latestSummary?.have_rows_for_all;
-  const expected = latestSummary?.expected_pdbqt?.length || 0;
-  const converted = latestSummary?.converted_count || 0;
-  const conversionDone = expected > 0 && converted >= expected;
-
-  // Show 1b only when all centers are present
-  const canShowPrep = haveCentersAll;
-  $('#prepBlock').classList.toggle('d-none', !canShowPrep);
-  $('#run3aHint').classList.toggle('d-none', haveCentersAll);
-
-  // Single vs All prepare buttons
-  const many = (state?.receptors?.length || 0) > 1;
-  $('#btnRun3aSingle').classList.toggle('d-none', many);
-  $('#btnRun3aAll').classList.toggle('d-none', !many);
-
-  // Enable run buttons only when all centers exist
-  enable($('#btnRun3aSingle'), haveCentersAll);
-  enable($('#btnRun3aAll'), haveCentersAll);
-
-  // Step 2 (Ligands) appears only after all expected PDBQT are converted
-  $('#ligandStep').classList.toggle('d-none', !conversionDone);
-  if(conversionDone){
-    ['ligSingle','ligZip'].forEach(id=>enable($('#'+id), true));
-    ['btnLigSingle','btnLigZip'].forEach(id=>{ const b=$('#'+id); enable(b,true); b.classList.remove('btn-danger'); b.classList.add('btn-success'); });
-  }else{
-    ['ligSingle','ligZip','btnLigSingle','btnLigZip'].forEach(id=>enable($('#'+id), false));
-  }
-
-  // Step 3 enabled only after ligands uploaded
-  const canBuild = conversionDone && state?.ligands_uploaded;
-  $('#buildStep').classList.toggle('d-none', !canBuild);
-  enable($('#btnBuild'), canBuild);
+/* --- Add once at top --- */
+async function convertToPDBQT(file,pH=7.4){
+  const data=await file.text();
+  const ob=await OpenBabel(); // loads the wasm
+  const conv=new ob.OBConversion();
+  conv.SetInAndOutFormats("pdb","pdbqt");
+  const mol=new ob.OBMol();
+  conv.ReadString(mol,data);
+  ob.addHydrogens(mol,true,pH);
+  const out=conv.WriteString(mol);
+  return new Blob([out],{type:"text/plain"});
 }
 
 
-async function updateSummary(){
-  if(!jobname) return null;
-  const r = await fetch(`/api/summary?jobname=${encodeURIComponent(jobname)}`);
-  if(!r.ok) return null;
-  const j = await r.json();
-  latestSummary = j;
 
-  const card = $('#summaryCard'); const box = $('#summaryBox');
-  card.classList.remove('d-none');
-  box.innerHTML = `
-    <small><strong>Receptors:</strong> ${j.receptors_prepped}/${j.receptors_total} prepped (${j.centers_rows} centered)</small>
-    <small><strong>Centers CSV:</strong> ${j.centers_rows} row(s) — ${j.have_rows_for_all ? 'OK' : 'Missing rows'}</small>
-    <small><strong>Expected PDBQT:</strong> ${j.expected_pdbqt.join(', ') || '—'}</small>
-    <small><strong>Converted:</strong> ${j.converted_count} in ${j.conversion_out_dir}</small>`;
-  return j;
-}
+/* ---------- workspace ---------- */
+async function newWS(){
+  // hard reset UI
+  Object.keys(stagesByRel).forEach(disposeStage);
+  stagesByRel={}; slideByRel.clear(); $('#carouselInner').innerHTML='';
+  $('#carouselWrap').classList.add('d-none'); $('#stagingMini').classList.add('d-none'); $('#prepPanel').classList.add('d-none');
+  $('#ligandStep').classList.add('d-none'); $('#buildStep').classList.add('d-none');
+  $('#miniHet').innerHTML='Open a receptor to populate…'; $('#miniChains').innerHTML='Open a receptor to populate…';
+  currentRel=null; state=null; isMulti=false; pickedAtoms=[]; if(prepPoll) clearInterval(prepPoll);
 
-async function reloadState(){
-  if(!jobname) return;
-  const r = await fetch(`/api/receptors/list?jobname=${encodeURIComponent(jobname)}`);
-  state = await r.json();
-
-  const s = await updateSummary();
-  if(s && s.centers_rows > lastCentersCount){
-    showToast(`Center saved (${s.centers_rows}/${s.receptors_total})`);
-    lastCentersCount = s.centers_rows;
-  }
-  if(s?.have_rows_for_all) showToast("All centers set — you can prepare protein(s) now");
-
-  drawReceptorList();
-  refreshStepVisibility();
-  await loadHetChips();
-}
-
-/* Workspace */
-$('#btnNewWS').onclick = async ()=>{
-  const r = await fetch('/api/workspace', {method:'POST'}); const j = await r.json();
-  jobname = j.jobname; $('#jobname').textContent = jobname;
+  const r=await fetch('/api/workspace',{method:'POST'}); const j=await r.json();
+  jobname=j.jobname; $('#jobname').textContent=jobname;
   ['receptorSingle','receptorZip','receptorFolder','pdbFetch','pdbChains'].forEach(id=>enable($('#'+id),true));
-  ['btnRecSingle','btnRecZip','btnRecFolder','btnFetchPDB'].forEach(id=>{ const b=$('#'+id); enable(b,true); b.classList.remove('btn-danger'); b.classList.add('btn-success'); });
-  await reloadState();
-};
+  ['btnRecSingle','btnRecZip','btnRecFolder','btnFetchPDB'].forEach(id=>enable($('#'+id),true));
+  await reloadAll();
+}
+$('#btnNewWS').onclick=newWS;
 
-/* Receptor list */
+/* ---------- server state ---------- */
+async function fetchState(){
+  const r=await fetch(`/api/receptors/list?jobname=${encodeURIComponent(jobname)}`); state=await r.json();
+  isMulti=(state?.receptors?.length||0)>1;
+  $('#flowPill span').textContent = isMulti ? 'Multi receptor workflow' : 'Single receptor workflow';
+}
+async function fetchSummary(){ const r=await fetch(`/api/summary?jobname=${encodeURIComponent(jobname)}`); return r.json(); }
+async function reloadAll(){ if(!jobname) return; await fetchState(); drawReceptorList(); await gatePanels(); }
+
+/* ---------- receptor list ---------- */
+function badgeFor(r){
+  const st=r.status||'new';
+  if(st==='prepped')  return `<span class="badge-pipe b-prepped">PREPPED</span>`;
+  if(st==='centered') return `<span class="badge-pipe b-centered">CENTERED</span>`;
+  if(st==='centering')return `<span class="badge-pipe b-centering">CENTERING</span>`;
+  return `<span class="badge-pipe b-new">NEW</span>`;
+}
 function drawReceptorList(){
-  const box = $('#receptorList'); box.innerHTML=''; const recs = state.receptors||[];
+  const box=$('#receptorList'); box.innerHTML='';
+  const recs=state?.receptors||[];
   if(!recs.length){ box.classList.add('d-none'); return; }
   box.classList.remove('d-none');
+
   recs.forEach(r=>{
-    const uiStatus = calcStatusFor(r.rel);
-    const badgeClass = uiStatus==='prepped' ? 'badge-prepped' : uiStatus==='centered' ? 'badge-centered' : 'badge-new';
-    const row = document.createElement('div');
-    row.className = 'd-flex align-items-center justify-content-between py-1 border-bottom';
-    row.innerHTML = `<div class="d-flex align-items-center gap-2">
-                       <span class="me-2">${r.display}</span>
-                       <span class="badge ${badgeClass} text-uppercase">${uiStatus}</span>
-                     </div>
-                     <div class="d-flex gap-2">
-                       <button class="btn btn-sm btn-outline-primary">Open</button>
-                     </div>`;
-    row.querySelector('button').onclick = ()=> openReceptor(r.rel);
+    const row=document.createElement('div'); row.className='d-flex align-items-center justify-content-between row-receptor border-bottom';
+    row.innerHTML=`
+      <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-sm btn-outline-primary btn-open"><i class="bi bi-box-arrow-in-right"></i> Open</button>
+        <span class="fw-semibold fs-6">${r.display}</span>
+        ${badgeFor(r)}
+      </div>`;
+    row.querySelector('.btn-open').onclick=()=>openReceptor(r.rel);
     box.appendChild(row);
   });
 }
 
-/* Upload helpers */
-async function postForm(url, fd){ const r = await fetch(url,{method:'POST', body:fd}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
-$('#btnRecSingle').onclick = async ()=>{
-  const f = $('#receptorSingle').files[0]; if(!f) return alert('Choose a file');
-  const fd = new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
-  await postForm('/api/receptors/upload', fd); await reloadState(); showToast(`Uploaded ${f.name}`);
+/* ---------- uploads ---------- */
+async function postForm(url, fd){ const r=await fetch(url,{method:'POST', body:fd}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+$('#btnRecSingle').onclick=async()=>{
+  const f=$('#receptorSingle').files[0]; if(!f) return alert('Choose a file');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
+  await postForm('/api/receptors/upload', fd); await reloadAll();
 };
-$('#btnRecZip').onclick = async ()=>{
-  const f = $('#receptorZip').files[0]; if(!f) return alert('Choose a ZIP');
-  const fd = new FormData(); fd.append('jobname',jobname); fd.append('mode','zip'); fd.append('file',f);
-  await postForm('/api/receptors/upload', fd); await reloadState(); showToast(`Uploaded ZIP (${f.name})`);
+$('#btnRecZip').onclick=async()=>{
+  const f=$('#receptorZip').files[0]; if(!f) return alert('Choose a ZIP');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','zip'); fd.append('file',f);
+  await postForm('/api/receptors/upload', fd); await reloadAll();
 };
-$('#btnRecFolder').onclick = async ()=>{
+$('#btnRecFolder').onclick=async()=>{
   const files=[...$('#receptorFolder').files]; if(!files.length) return alert('Pick a folder');
-  let n=0;
-  for(const f of files){ if(!/\.(pdb|cif|pdbqt|mmcif|ent)$/i.test(f.name)) continue;
+  let count=0;
+  for(const f of files){
+    if(!/\.(pdb|cif|pdbqt|mmcif|ent)$/i.test(f.name)) continue;
     const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
-    await postForm('/api/receptors/upload', fd); n++;
-  } await reloadState(); showToast(`Uploaded ${n} receptor(s) from folder`);
+    await postForm('/api/receptors/upload', fd); count++;
+  }
+  toast(`Uploaded ${count} receptor${count===1?'':'s'}.`); await reloadAll();
 };
-$('#btnFetchPDB').onclick = async ()=>{
-  const fd = new FormData(); fd.append('jobname',jobname); fd.append('pdb',$('#pdbFetch').value.trim()); fd.append('chains',$('#pdbChains').value.trim());
-  await postForm('/api/receptors/fetch', fd); await reloadState(); showToast('Fetched PDB');
+$('#btnFetchPDB').onclick=async()=>{
+  const fd=new FormData();
+  fd.append('jobname',jobname); fd.append('pdb',$('#pdbFetch').value.trim()); fd.append('chains',$('#pdbChains').value.trim());
+  await postForm('/api/receptors/fetch', fd); await reloadAll();
 };
 
-/* Viewer */
-function formatPick(p){
-  if(!p || !p.atom) return '';
-  const a = p.atom;
-  const chain = a.chainname || '';
-  const resn = a.resname || '';
-  const resi = (a.resno || a.resno === 0) ? a.resno : '';
-  const an   = a.atomname || a.name || '';
-  return `${chain}:${resn}${resi} • ${an}`;
-}
-
-function initViewer(){
-  if(typeof NGL === 'undefined'){ alert('NGL viewer failed to load.'); return; }
-  try{ if(stage){ stage.dispose(); stage = null; } }catch(e){}
-  stage = new NGL.Stage('viewport', { backgroundColor: 'white' });
-  window.addEventListener('resize', ()=>stage && stage.handleResize());
-  pickedAtoms = [];
-
-  const tip = document.getElementById('hoverTip');
-  stage.signals.hovered.add(function (p){
-    if(!p || !p.atom){ tip.style.display='none'; return; }
-    tip.textContent = formatPick(p);
-    tip.style.display = 'block';
-    const rect = stage.viewer.container.getBoundingClientRect();
-    tip.style.left = (p.canvasPosition.x + rect.left + 12) + 'px';
-    tip.style.top  = (p.canvasPosition.y + rect.top  + 12) + 'px';
+/* ---------- open receptor ---------- */
+async function parsePdbForOptions(rel){
+  const txt = await (await fetch(`/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`)).text();
+  const hets=new Set(), chains=new Set();
+  txt.split(/\r?\n/).forEach(line=>{
+    if(line.startsWith('ATOM')||line.startsWith('HETATM')){
+      const rn=line.slice(17,20).trim().toUpperCase();
+      const ch=line[21]?.toUpperCase();
+      if(line.startsWith('HETATM')) hets.add(rn);
+      if(ch && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
+    }
   });
-  stage.signals.clicked.add(function(p){
-    tip.style.display='none';
-    if(!p || !p.atom) return;
-    pickedAtoms.push([p.atom.x, p.atom.y, p.atom.z]);
-    drawPickMarkers();
-    document.getElementById('btnUseXYZ').classList.add('btn-warning');
-  });
+  return {hets, chains, raw:txt};
 }
-
-function drawPickMarkers(){
-  if(!stage) return;
-  stage.getComponentsByName('picks').list.forEach(c => stage.removeComponent(c));
-  if(!pickedAtoms.length) return;
-  const shape = new NGL.Shape('picks');
-  pickedAtoms.forEach(p=> shape.addSphere(p, [1,0.6,0], 0.8));
-  const comp = stage.addComponentFromObject(shape); comp.addRepresentation('buffer'); comp.name='picks';
+function chips(set, cls, checked=false){
+  const arr=[...set].sort();
+  if(!arr.length) return '<span class="text-muted">None detected</span>';
+  return arr.map(v=>`<label class="chip-check"><input type="checkbox" class="${cls}" value="${v}" ${checked?'checked':''}> ${v}</label>`).join('');
 }
-document.getElementById('btnClearClicks').onclick = ()=>{ pickedAtoms=[]; drawPickMarkers(); };
-document.getElementById('btnUseXYZ').onclick = ()=>{
-  if(!document.getElementById('xyzPaste').value.trim()) return alert('Paste x,y,z first');
-  document.getElementById('ligCode').value='';
-  document.getElementById('ligResi').value='';
-  document.getElementById('ligChain').value='';
-  document.getElementById('resName').value='';
-  document.getElementById('resId').value='';
-  document.getElementById('resChain').value='';
-  pickedAtoms=[]; drawPickMarkers();
-};
-
+function renderMiniOptions({hets, chains}){
+  $('#miniHet').innerHTML   = chips(hets,'het-mini',true);
+  $('#miniChains').innerHTML= chips(chains,'chain-mini',false);
+}
 async function openReceptor(rel){
-  if(prepPoll){ clearInterval(prepPoll); prepPoll=null; }
-  document.getElementById('runStatus').classList.add('d-none');
-  document.getElementById('prepLog').style.display='none';
-  document.getElementById('prepLog').textContent='';
+  currentRel=rel;
+  state.receptors.forEach(r=>{ if(r.rel===rel) r.status='centering'; });
+  drawReceptorList();
 
-  currentRel = rel;
-  document.getElementById('viewerBlock').classList.remove('d-none');
-  initViewer();
-  if(!stage) return;
+  $('#carouselWrap').classList.remove('d-none');
+  ensureCarousel();
+  const {idx, vpId}=ensureSlide(rel);
+  carousel.to(idx);
 
-  const res = await fetch(`/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`);
-  if(!res.ok){ alert('Failed to load receptor'); return; }
-  const blob = await res.blob();
-  const low = rel.toLowerCase();
-  const ext = (low.endsWith('.cif') || low.endsWith('.mmcif')) ? 'cif' : 'pdb';
+  pickedAtoms=[];
+  const {hets, chains, raw} = await parsePdbForOptions(rel);
+  renderMiniOptions({hets, chains});
 
-  comp = await stage.loadFile(new Blob([blob]), { ext });
-  comp.addRepresentation('cartoon', { pickable: true, opacity: .85 });
-  comp.addRepresentation('licorice', { sele: 'hetero OR not protein', pickable: true });
-  comp.addRepresentation('ball+stick', { sele: 'hetero', pickable: true });
+  let stage=getStage(rel, vpId);
+  try{ stage.removeAllComponents(); }catch{}
+  const low=rel.toLowerCase();
+  const ext=(low.endsWith('.cif')||low.endsWith('.mmcif'))?'cif':'pdb';
+  const blob=new Blob([raw],{type:'text/plain'});
+  const comp=await stage.loadFile(blob,{ext});
+  comp.addRepresentation('cartoon',{pickable:true,opacity:.92,colorScheme:'chainname'});
+  comp.addRepresentation('licorice',{sele:'hetero OR not protein',pickable:true});
+  comp.addRepresentation('ball+stick',{sele:'hetero',pickable:true});
   comp.autoView();
 
-  await reloadState();
+  // show 1b only after a receptor is OPENED in single flow
+  await gatePanels(true);
 }
 
-/* Save center */
-document.getElementById('btnSaveCenter').onclick = async ()=>{
-  if(!jobname || !currentRel) return alert('Open a receptor first');
-
-  const lig = $('#ligCode').value.trim();
-  const lresi = $('#ligResi').value.trim();
-  const lch = $('#ligChain').value.trim();
-  const rn = $('#resName').value.trim();
-  const id = $('#resId').value.trim();
-  const ch = $('#resChain').value.trim();
-  const xyz = $('#xyzPaste').value.trim();
-
+/* ---------- centering ---------- */
+$('#btnClearClicks').onclick = ()=>{ pickedAtoms=[]; const st=stagesByRel[currentRel]; if(st) drawPickMarkersOn(st); };
+$('#btnUseXYZ').onclick = ()=>{
+  if(!$('#xyzPaste').value.trim()) return alert('Paste x,y,z first');
+  ['ligCode','ligResi','ligChain','resName','resId','resChain'].forEach(id=> $('#'+id).value='');
+  pickedAtoms=[]; const st=stagesByRel[currentRel]; if(st) drawPickMarkersOn(st);
+};
+$('#btnSaveCenter').onclick=async()=>{
+  if(!jobname||!currentRel) return alert('Open a receptor first');
+  const lig=$('#ligCode').value.trim(), lresi=$('#ligResi').value.trim(), lch=$('#ligChain').value.trim();
+  const rn=$('#resName').value.trim(), id=$('#resId').value.trim(), ch=$('#resChain').value.trim();
+  const xyz=$('#xyzPaste').value.trim();
   let payload=null;
-  if(lig && !rn && !id && !xyz && pickedAtoms.length===0) payload = {method:'ligand', lig_resname:lig, resi:lresi||null, chain:lch||null};
-  else if(!lig && rn && id && !xyz && pickedAtoms.length===0) payload = {method:'residue', resname:rn, resi:id, chain:ch||null};
+  if(lig && !rn && !id && !xyz && pickedAtoms.length===0) payload={method:'ligand', lig_resname:lig, resi:lresi||null, chain:lch||null};
+  else if(!lig && rn && id && !xyz && pickedAtoms.length===0) payload={method:'residue', resname:rn, resi:id, chain:ch||null};
   else if(!lig && !rn && !id && xyz && pickedAtoms.length===0){
-    const m = xyz.split(',').map(s=>parseFloat(s.trim())).filter(v=>!Number.isNaN(v)); if(m.length!==3) return alert('XYZ must be x,y,z');
-    payload = {method:'xyz', center:m};
-  }else if(!lig && !rn && !id && !xyz && pickedAtoms.length){ payload = {method:'selection_atoms', atoms:pickedAtoms.slice()}; }
-  else return alert('Choose ONE method (ligand OR residue OR XYZ OR clicked atoms).');
+    const m=xyz.split(',').map(s=>parseFloat(s.trim())).filter(v=>!Number.isNaN(v)); if(m.length!==3) return alert('XYZ must be x,y,z');
+    payload={method:'xyz', center:m};
+  }else if(!lig && !rn && !id && !xyz && pickedAtoms.length){
+    payload={method:'selection_atoms', atoms:pickedAtoms.slice()};
+  }else return alert('Choose ONE method (ligand OR residue OR XYZ OR clicked atoms).');
 
-  const size = parseFloat($('#boxSize').value||'20');
+  const size=parseFloat($('#boxSize').value||'20');
+  const r=await fetch('/api/receptor/center',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobname, rel:currentRel, size, ...payload})});
+  if(!r.ok){ return alert('Center save failed: '+await r.text()); }
+  await r.json();
+  toast('Center saved ✓');
 
-  // Save
-  const r = await fetch('/api/receptor/center',{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({jobname, rel:currentRel, size, ...payload})
-  });
-  if(!r.ok){
-    const t=await r.text().catch(()=> 'Bad request');
-    return alert('Center save failed: '+t);
+  state.receptors.forEach(rr=>{ if(rr.rel===currentRel) rr.status='centered'; });
+  drawReceptorList();
+
+  if(isMulti){
+    // close viewer and wait for others to be centered
+    disposeStage(currentRel);
+    $('#carouselWrap').classList.add('d-none');
+    currentRel=null;
   }
-  const j = await r.json();
-
-  // Immediate positional toast
-  showToast(`Center set at (${j.center.map(x=>x.toFixed(2)).join(', ')})`);
-
-  // Refresh, then show CSV progress toast (appended/saved feeling)
-  await reloadState();           // updates latestSummary
-  const s = latestSummary;
-  if(s){
-    const rows = s.centers_rows;
-    const total = s.receptors_total || state?.receptors?.length || '?';
-    const verb = (rows > lastCentersCount) ? 'saved' : 'updated';
-    showToast(`Center ${verb} to centers.csv — ${rows}/${total} defined`);
-    lastCentersCount = rows;
-  }
-
-  // Visual hint: keep user focused on 1a until all centers exist
-  refreshStepVisibility();
+  await gatePanels();
 };
 
-
-/* HET chips (aggregate across all receptors) */
-async function loadHetChips(){
-  if(!jobname) return;
-  try{
-    const r = await fetch(`/api/het_counts?jobname=${encodeURIComponent(jobname)}`);
-    if(!r.ok) return;
-    const data = await r.json();
-    const hetCounts = data?.het_counts || {};
-    const pairs = Object.entries(hetCounts).sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0]));
-    const box = $('#hetChips');
-    box.innerHTML = '';
-    if(!pairs.length){
-      box.innerHTML = '<span class="text-muted">No HET groups detected.</span>';
-      return;
-    }
-    const preset = new Set(($('#rmHet').value || '').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean));
-    pairs.forEach(([code,count])=>{
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'btn btn-sm ' + (preset.has(code)?'btn-secondary text-white':'btn-outline-secondary');
-      b.textContent = `${code} (${count})`;
-      b.dataset.code = code;
-      b.onclick = ()=>{
-        const input = $('#rmHet');
-        const cur = (input.value || '').trim();
-        if(cur.toLowerCase() === 'all'){ input.value = code; }
-        else{
-          const set = new Set(cur ? cur.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean) : []);
-          if(set.has(code)) set.delete(code); else set.add(code);
-          input.value = [...set].join(',');
-        }
-        b.classList.toggle('btn-outline-secondary');
-        b.classList.toggle('btn-secondary'); b.classList.toggle('text-white');
-      };
-      box.appendChild(b);
-    });
-  }catch(e){}
+/* ---------- gating for panels ---------- */
+function statusAllCentered(){
+  const recs=state?.receptors||[];
+  return recs.length>0 && recs.every(r=>r.status==='centered' || r.status==='prepped');
 }
-
-/* Run 3a */
-function startPrepPolling(){
-  $('#runStatus').classList.remove('d-none');
-  $('#prepLog').style.display='block';
-  if(prepPoll) clearInterval(prepPoll);
-  prepPoll = setInterval(async ()=>{
-    const r = await fetch(`/api/prep/status?jobname=${encodeURIComponent(jobname)}`); const j = await r.json();
-    $('#prepLog').textContent = j.log || '';
-    const rs = $('#runStatus');
-    if(j.done){
-      rs.classList.remove('text-bg-info','text-bg-secondary'); rs.classList.add('text-bg-success'); rs.textContent='converted';
-      clearInterval(prepPoll);
-      await reloadState();
-    }else if(j.running){
-      rs.classList.remove('text-bg-secondary'); rs.classList.add('text-bg-info'); rs.textContent='converting…';
+async function gatePanels(openedNow=false){
+  if(isMulti){
+    // Hide single panel in multi flow
+    $('#stagingMini').classList.add('d-none');
+    if(statusAllCentered()){
+      await buildPrepPanel();
+      $('#prepPanel').classList.remove('d-none');
     }else{
-      rs.classList.remove('text-bg-info'); rs.classList.add('text-bg-secondary'); rs.textContent='queued…';
+      $('#prepPanel').classList.add('d-none');
     }
-  }, 1500);
+  }else{
+    // Single flow: show 1b ONLY after a receptor is opened (currentRel set)
+    $('#prepPanel').classList.add('d-none');
+    $('#stagingMini').classList.toggle('d-none', !currentRel);
+  }
 }
-async function start3a(mode){
-  const fd = new FormData();
-  fd.append('jobname', jobname);
-  fd.append('remove_het_csv', ($('#rmHet').value.trim() || 'all'));
-  fd.append('remove_chains_csv', $('#rmChains').value.trim());
+
+/* ---------- 1c list ---------- */
+let prepListToken=null;
+async function buildPrepPanel(){
+  const token=(state?.receptors||[]).map(r=>r.rel).sort().join('|');
+  if(prepListToken===token) return;
+  prepListToken=token;
+
+  const list=$('#prepList'); list.innerHTML='';
+  const seen=new Set();
+  for(const r of state.receptors){
+    if(seen.has(r.rel)) continue; seen.add(r.rel);
+    const {hets, chains}=await parsePdbForOptions(r.rel);
+    const card=document.createElement('div'); card.className='border rounded-4 p-3 mb-3';
+    card.innerHTML=`
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <div class="fw-bold fs-5">${r.display}</div>
+        <span class="badge-pipe b-centered">CENTERED</span>
+      </div>
+      <div class="fw-semibold mb-1">HETATM to remove</div>
+      <div class="mb-2">${chips(hets,'het',true).replaceAll('class="het"', `class="het" data-rel="${r.rel}"`)}</div>
+      <div class="fw-semibold mb-1">Chains to remove</div>
+      <div>${chips(chains,'chain',false).replaceAll('class="chain"', `class="chain" data-rel="${r.rel}"`)}</div>
+    `;
+    list.appendChild(card);
+  }
+}
+
+/* ---------- start prep (single & batch) ---------- */
+function showLogArea(isBatch){
+  const badge = isBatch ? $('#runStatusBatch') : $('#runStatusSingle');
+  const log   = isBatch ? $('#prepLogBatch')   : $('#prepLogSingle');
+  badge.classList.remove('d-none'); badge.classList.remove('text-bg-success'); badge.classList.add('text-bg-info');
+  badge.textContent='converting…';
+  log.style.display='block'; log.textContent='';
+}
+function writeLog(text, isBatch){
+  const log = isBatch ? $('#prepLogBatch') : $('#prepLogSingle');
+  log.textContent = text || '';
+}
+function doneLog(isBatch){
+  const badge = isBatch ? $('#runStatusBatch') : $('#runStatusSingle');
+  badge.classList.remove('text-bg-info'); badge.classList.add('text-bg-success'); badge.textContent='PDBQT ready';
+}
+$('#btnPrepCurrent').onclick = startPrepSingle;
+$('#btnPrepAll').onclick     = startPrepBatch;
+
+async function startPrepSingle(){
+  if(!currentRel){ alert('Open a receptor first'); return; }
+  const het = $$('#miniHet input.het-mini:checked').map(i=>i.value);
+  const ch  = $$('#miniChains input.chain-mini:checked').map(i=>i.value);
+
+  const fd=new FormData();
+  fd.append('jobname',jobname);
+  fd.append('remove_het_csv', het.length ? het.join(',') : 'all');
+  fd.append('remove_chains_csv', ch.join(','));
   fd.append('backend', $('#backend').value);
   fd.append('altloc', $('#altloc').value);
-  fd.append('pdbqt_only', 'true');
-  fd.append('keep_clean_pdb', 'false');
-  fd.append('write_summary', 'false');
+  fd.append('pdbqt_only','true'); fd.append('keep_clean_pdb','false'); fd.append('write_summary','false');
 
-  const r = await fetch('/api/prep/start',{method:'POST', body:fd});
-  if(!r.ok){ const t = await r.text(); return alert('Failed to start 3a: '+t); }
-  showToast(mode==='single' ? 'Preparing current receptor…' : 'Preparing all receptors…');
-  startPrepPolling();
-  refreshStepVisibility();
+  const resp=await fetch('/api/prep/start',{method:'POST', body:fd});
+  if(!resp.ok){ alert('Failed to start 3a (single): '+await resp.text()); return; }
+  toast('Protein preparation started');
+  showLogArea(false);
+  pollPrep(false);
 }
-$('#btnRun3aSingle').onclick = ()=> start3a('single');
-$('#btnRun3aAll').onclick    = ()=> start3a('all');
+async function startPrepBatch(){
+  const hetSet=new Set(), chainSet=new Set();
+  $$('#prepList input.het:checked').forEach(i=>hetSet.add(i.value));
+  $$('#prepList input.chain:checked').forEach(i=>chainSet.add(i.value));
 
-/* Ligands — UI feedback + CSV input enabling only when .csv */
-function updateCsvInputEnable(){
-  const f = $('#ligSingle').files[0];
-  const isCsv = !!(f && /\.csv$/i.test(f.name));
-  enable($('#csvSmilesCol'), isCsv);
-  enable($('#csvIdCol'), isCsv);
+  const fd=new FormData();
+  fd.append('jobname',jobname);
+  fd.append('remove_het_csv', hetSet.size? [...hetSet].join(',') : 'all');
+  fd.append('remove_chains_csv', [...chainSet].join(','));
+  fd.append('backend', $('#backend').value);
+  fd.append('altloc', $('#altloc').value);
+  fd.append('pdbqt_only','true'); fd.append('keep_clean_pdb','false'); fd.append('write_summary','false');
+
+  const resp=await fetch('/api/prep/start',{method:'POST', body:fd});
+  if(!resp.ok){ alert('Failed to start 3a (batch): '+await resp.text()); return; }
+  toast('Batch protein preparation started');
+  showLogArea(true);
+  await gateLigandsAndBuild(true);
+  pollPrep(true);
 }
-$('#ligSingle').addEventListener('change', updateCsvInputEnable);
 
-$('#btnLigSingle').onclick = async ()=>{
+/* ---------- poll prep ---------- */
+function pollPrep(isBatch){
+  if(prepPoll) clearInterval(prepPoll);
+  prepPoll=setInterval(async ()=>{
+    const rr=await fetch(`/api/prep/status?jobname=${encodeURIComponent(jobname)}`); const j=await rr.json();
+    writeLog(j.log || '', isBatch);
+    if(j.done){
+      clearInterval(prepPoll);
+      doneLog(isBatch);
+      await reloadAll();
+      await gateLigandsAndBuild(true);
+    }else{
+      await gateLigandsAndBuild(true);
+    }
+  }, 2000);
+}
+
+/* ---------- ligands ---------- */
+$('#ligSingle').onchange=()=>{ const f=$('#ligSingle').files[0]; const isCSV=!!(f&&/\.csv$/i.test(f.name)); enable($('#csvSmilesCol'),isCSV); enable($('#csvIdCol'),isCSV); };
+$('#btnLigSingle').onclick=async()=>{
   const f=$('#ligSingle').files[0]; if(!f) return alert('Pick a file');
   const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
-  await postForm('/api/ligands/upload', fd);
-  showToast(`Ligand uploaded: ${f.name}`);
-  await reloadState();
+  await postForm('/api/ligands/upload', fd); toast(`Ligand uploaded: ${f.name}`); await reloadAll(); await gateLigandsAndBuild();
 };
-$('#btnLigZip').onclick = async ()=>{
+$('#btnLigZip').onclick=async()=>{
   const f=$('#ligZip').files[0]; if(!f) return alert('Pick a ZIP');
   const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','zip'); fd.append('file',f);
-  await postForm('/api/ligands/upload', fd);
-  showToast(`Ligand ZIP uploaded: ${f.name}`);
-  await reloadState();
+  await postForm('/api/ligands/upload', fd); toast('Ligand ZIP uploaded'); await reloadAll(); await gateLigandsAndBuild();
 };
 
-/* Build */
-$('#btnBuild').onclick = async ()=>{
+/* ---------- gating for steps 2 & 3 ---------- */
+async function gateLigandsAndBuild(started=false, s=null){
+  s = s || await fetchSummary();
+  const expected=(s.expected_pdbqt||[]).length, converted=(s.converted_count||0);
+  const conversionStarted = started || converted>0;
+  const conversionDone = expected>0 && converted>=expected;
+
+  $('#ligandStep').classList.toggle('d-none', !conversionStarted);
+  [$('#ligSingle'),$('#ligZip'),$('#btnLigSingle'),$('#btnLigZip')].forEach(el=> enable(el, conversionStarted));
+
+  const canBuild = conversionDone && (s.ligands_uploaded || state?.ligands_uploaded);
+  $('#buildStep').classList.toggle('d-none', !conversionStarted);
+  enable($('#btnBuild'), canBuild);
+}
+
+/* ---------- build ---------- */
+$('#btnBuild').onclick=async()=>{
   const fd=new FormData();
   fd.append('jobname',jobname);
   fd.append('queue',$('#queue').value); fd.append('project',$('#project').value);
   fd.append('walltime',$('#walltime').value); fd.append('workers',$('#workers').value);
-  fd.append('mem_per_core',$('#mem').value); fd.append('env_line',$('#envLine').value); fd.append('vina_path',$('#vinaPath').value);
-  fd.append('poses_conf',$('#posesConf').value);
-  fd.append('poses_vina',$('#posesVina').value);
+  fd.append('mem_per_core',$('#mem').value); fd.append('env_line',$('#envLine').value);
+  fd.append('vina_path',$('#vinaPath').value);
+  fd.append('poses_conf',$('#posesConf').value); fd.append('poses_vina',$('#posesVina').value);
   fd.append('csv_smiles_col',$('#csvSmilesCol').value); fd.append('csv_id_col',$('#csvIdCol').value);
-
   $('#buildStatus').textContent='Building…';
-  const r = await fetch('/api/build',{method:'POST', body:fd});
+  const r=await fetch('/api/build',{method:'POST', body:fd});
   if(!r.ok){ $('#buildStatus').textContent='Failed: '+await r.text(); return; }
-  const j=await r.json();
-  const dl = $('#downloadLink');
-  dl.href='/download?path='+encodeURIComponent(j.zip);
-  dl.textContent='Download '+j.zip.split('/').pop();
-  $('#buildStatus').textContent='Ready';
-  showToast('Job bundle ready');
+  const j=await r.json(); const dl=$('#downloadLink'); dl.href='/download?path='+encodeURIComponent(j.zip); dl.textContent='Download '+j.zip.split('/').pop(); $('#buildStatus').textContent='Ready';
 };
 
-/* Tooltips */
+/* ---------- init ---------- */
 document.addEventListener('DOMContentLoaded', ()=>{
-  [...document.querySelectorAll('[data-bs-toggle="tooltip"]')].forEach(el=> new bootstrap.Tooltip(el));
+  // Auto-create a workspace so uploads are enabled immediately.
+  newWS();
 });
 </script>
 {% endblock %}

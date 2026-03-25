@@ -364,6 +364,12 @@ def scan_all(files, folder):
 
 def clean_structure_to_pdb(in_path, out_pdb_path, residues_to_drop, chains_to_drop, altloc_policy="collapse"):
     st = gemmi.read_structure(in_path)
+
+    # # ✅ Only keep first model
+    # if len(st) > 1:
+    #     st = gemmi.Structure(st[0])  # keep only first model
+
+
     new_st = gemmi.Structure()
     new_st.cell = st.cell
     new_st.spacegroup_hm = st.spacegroup_hm

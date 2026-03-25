@@ -1,0 +1,458 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+  :root{ --bg:#0a1118; --panel:#0f172a; --ink:#e5e7eb; --muted:#9ca3af;
+         --brand:#22d3ee; --accent:#0ea5e9; --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --hair:rgba(255,255,255,.08); }
+  .dock-h1{font-weight:800; letter-spacing:.2px;}
+  .stage-card{background:rgba(15,23,42,.7); border:1px solid var(--hair); border-radius:14px; box-shadow:0 12px 28px rgba(0,0,0,.18);}
+  .stage-head{background:linear-gradient(135deg,#0f172a,#0b1321); color:#eaf6ff; border-bottom:1px solid var(--hair);
+              border-top-left-radius:14px;border-top-right-radius:14px}
+  .chip{display:inline-flex;align-items:center;gap:.5rem;background:#0b1220;border:1px solid var(--hair);color:var(--muted);
+        padding:.25rem .55rem;border-radius:999px;font-size:.85rem}
+  .flag{padding:.2rem .5rem;border-radius:999px;font-weight:700;font-size:.75rem}
+  .NEW{background:#0b1220;color:#9ca3af;border:1px solid var(--hair)}
+  .CONVERTING{background:#161400;color:#facc15;border:1px solid #554c0a}
+  .CONVERTED{background:#061923;color:#67e8f9;border:1px solid #14414d}
+  .STAGED{background:#071c16;color:#86efac;border:1px solid #14412c}
+  .PREPPED{background:#0b1626;color:#93c5fd;border:1px solid #263c6b}
+  .btn-brand{background:linear-gradient(135deg,var(--accent),var(--brand));border:none;color:#041118;font-weight:700}
+  .help{color:#7dd3fc; cursor:help}
+  .viewer{width:100%;height:520px;background:#050b12;border:1px solid var(--hair);border-radius:10px}
+  .coach{position:fixed;right:24px;bottom:24px;max-width:420px;background:#0f172a;border:1px solid var(--hair);
+         color:#e5e7eb;border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.45);padding:12px 14px;display:none;z-index:50}
+  .toast-mini{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:#071c16;border:1px solid #14412c;
+              color:#c6f6d5;padding:.4rem .8rem;border-radius:10px;display:none;z-index:70}
+  .progress{height:8px;background:#0b1220;border-radius:999px}
+  .progress-bar{background:linear-gradient(90deg,#0ea5e9,#22d3ee);border-radius:999px}
+  .muted{color:var(--muted)}
+</style>
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="dock-h1 text-light">Build a Docking Job</h1>
+  <a class="btn btn-sm btn-outline-info" href="/workspace/new"><i class="bi bi-stars me-1"></i> New Workspace</a>
+</div>
+
+<!-- 1) Protein Prep (uploads + flow switch) -->
+<div class="stage-card mb-4">
+  <div class="stage-head p-3 d-flex align-items-center">
+    <div class="fw-bold">1) Protein Prep</div>
+    <span class="ms-3 small chip"><i class="bi bi-diagram-3 me-1"></i><span id="flowLabel">Single receptor workflow</span></span>
+    <div class="ms-auto d-flex align-items-center gap-2">
+      <span class="small muted me-2">Flow:</span>
+      <div class="btn-group btn-group-sm" role="group">
+        <button id="singleBtn" class="btn btn-outline-light active">Single</button>
+        <button id="multiBtn" class="btn btn-outline-light">Multiple</button>
+      </div>
+    </div>
+  </div>
+  <div class="p-3">
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <label class="form-label text-light">Upload SINGLE receptor (.pdb / .cif / .pdbqt / .ent)
+          <i class="bi bi-info-circle-fill help" title="Upload exactly one receptor file."></i>
+        </label>
+        <div class="input-group">
+          <input id="singleFile" class="form-control" type="file" />
+          <button id="uploadSingle" class="btn btn-brand">Upload</button>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label text-light">OR upload ZIP of Receptors/
+          <i class="bi bi-info-circle-fill help" title="Upload a .zip containing multiple receptor files."></i>
+        </label>
+        <div class="input-group">
+          <input id="zipRecs" class="form-control" type="file" />
+          <button id="uploadZip" class="btn btn-brand">Upload ZIP</button>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label text-light">Upload FOLDER of Receptors
+          <i class="bi bi-info-circle-fill help" title="Pick a folder; browser will upload the contained files."></i>
+        </label>
+        <div class="input-group">
+          <input id="folderRecs" class="form-control" type="file" webkitdirectory directory multiple />
+          <button id="uploadFolder" class="btn btn-brand">Upload Folder</button>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label text-light">Fetch by PDB ID
+          <i class="bi bi-info-circle-fill help" title="Fetch from RCSB by 4-letter id; optional chain filter (e.g., A,B)."></i>
+        </label>
+        <div class="input-group">
+          <input id="pdbId" class="form-control" placeholder="e.g., 3EKY"/>
+          <input id="chainFilter" class="form-control" placeholder="Chains (optional)"/>
+          <button id="fetchPdb" class="btn btn-brand">Fetch</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- quick status chips -->
+    <div id="miniSummary" class="mt-3 d-flex flex-wrap gap-2">
+      <span class="chip"><i class="bi bi-cpu me-1"></i> Receptors: <span id="recCount">0</span></span>
+      <span class="chip"><i class="bi bi-filetype-csv me-1"></i> Centers CSV: <span id="csvRows">0</span> rows</span>
+      <span class="chip"><i class="bi bi-box-seam me-1"></i> Converted: <span id="convCount">0</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- receptor rows -->
+<div id="recList" class="mb-3"></div>
+
+<!-- 1a) Box Generation -->
+<div id="viewerCard" class="stage-card mb-4" style="display:none;">
+  <div class="stage-head p-3 d-flex align-items-center">
+    <div class="fw-bold">1a) Box Generation</div>
+    <i class="bi bi-info-circle-fill ms-2 help" title="Click atoms to select a center (yellow spheres). Multiple clicks are averaged. Or paste XYZ."></i>
+    <button id="openPath" class="btn btn-sm btn-outline-light ms-auto" disabled>Open (path)</button>
+  </div>
+  <div class="p-3">
+    <div id="ngl" class="viewer mb-3"></div>
+
+    <div class="row g-2 align-items-center">
+      <div class="col-12 col-md-2 d-flex gap-2">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text">Resi</span>
+          <input id="resi" class="form-control" placeholder="opt"/>
+        </div>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text">Chain</span>
+          <input id="chain" class="form-control" placeholder="opt"/>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-3">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text">Residue</span>
+          <input id="resName" class="form-control" placeholder="GLU"/>
+          <span class="input-group-text">Å</span>
+          <input id="boxSize" class="form-control" value="20"/>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-5">
+        <input id="xyzPaste" class="form-control form-control-sm" placeholder="Or paste XYZ as x,y,z"/>
+      </div>
+
+      <div class="col-12 col-md-2 d-flex gap-2">
+        <button id="useXyz" class="btn btn-outline-info btn-sm w-50">Use XYZ</button>
+        <button id="clearAtoms" class="btn btn-outline-light btn-sm w-50">Clear atoms</button>
+      </div>
+    </div>
+
+    <div class="mt-3 d-grid">
+      <button id="saveCenter" class="btn btn-brand"><i class="bi bi-geo-alt-fill me-1"></i>Save center</button>
+    </div>
+  </div>
+</div>
+<div id="savedToast" class="toast-mini"><i class="bi bi-check2-circle me-1"></i> Data saved</div>
+
+<!-- 1b) Protein Staging -->
+<div id="stageCard" class="stage-card mb-4" style="display:none;">
+  <div class="stage-head p-3 d-flex align-items-center">
+    <div class="fw-bold">1b) Protein Staging</div>
+    <i class="bi bi-info-circle-fill ms-2 help" title="Choose what to remove before preparation. Click HET codes to toggle."></i>
+    <div id="stageFlag" class="ms-auto flag STAGED" style="display:none;">STAGED</div>
+  </div>
+  <div class="p-3">
+    <div class="row g-2">
+      <div class="col-lg-6">
+        <label class="form-label text-light">Remove HET</label>
+        <input id="removeHet" class="form-control" value="all"/>
+        <div id="hetPills" class="mt-2 d-flex flex-wrap gap-2"></div>
+        <small class="muted">Aggregated across uploaded receptors.</small>
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label text-light">Remove chains</label>
+        <input id="removeChains" class="form-control" placeholder="e.g., B,C"/>
+        <div class="row mt-2 g-2">
+          <div class="col-6">
+            <label class="form-label text-light">Backend</label>
+            <select id="backend" class="form-select"><option value="auto">auto</option><option>adt_module</option></select>
+          </div>
+          <div class="col-6">
+            <label class="form-label text-light">AltLoc</label>
+            <select id="altloc" class="form-select"><option value="collapse">collapse</option><option value="keep">keep</option></select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-3 d-flex gap-2">
+      <button id="stageNext" class="btn btn-outline-light w-100"><i class="bi bi-boxes me-1"></i>Stage Protein</button>
+      <button id="stageAll" class="btn btn-outline-light w-100" style="display:none;"><i class="bi bi-collection me-1"></i>Stage NEXT Protein</button>
+    </div>
+    <small class="muted d-block mt-2" id="stageHint"></small>
+  </div>
+</div>
+
+<!-- 1c) Protein Preparation -->
+<div id="prepCard" class="stage-card mb-4" style="display:none;">
+  <div class="stage-head p-3 d-flex align-items-center">
+    <div class="fw-bold">1c) Protein Preparation</div>
+    <i class="bi bi-info-circle-fill ms-2 help" title="Generate PDBQT. You can choose ligands while this runs."></i>
+    <div id="prepBadge" class="ms-auto flag CONVERTING" style="display:none;">CONVERTING</div>
+  </div>
+  <div class="p-3">
+    <div class="d-flex gap-2">
+      <button id="prepBtn" class="btn btn-brand"><i class="bi bi-gear-wide-connected me-1"></i>Prepare Protein</button>
+      <button id="prepAllBtn" class="btn btn-brand" style="display:none;"><i class="bi bi-cpu me-1"></i>Prepare ALL Proteins</button>
+      <button id="clearSelections" class="btn btn-outline-danger ms-auto"><i class="bi bi-trash3 me-1"></i>Clear selections</button>
+    </div>
+    <pre id="prepLog" class="mt-3" style="background:#0a0f18;color:#d1d5db;border-radius:10px;padding:12px;max-height:280px;overflow:auto;display:none;"></pre>
+    <div class="mt-3">
+      <div class="progress"><div id="prepProgress" class="progress-bar" style="width:0%"></div></div>
+      <div class="mt-2 d-flex gap-2 flex-wrap" id="summaryChips"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 2) Ligand Prep (unlocked while prepping) -->
+<div id="ligandCard" class="stage-card mb-4" style="display:none;">
+  <div class="stage-head p-3 d-flex align-items-center">
+    <div class="fw-bold">2) Ligand Prep</div>
+  </div>
+  <div class="p-3">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-6">
+        <label class="form-label text-light">Single ligand (.sdf / .smiles / .csv)</label>
+        <div class="input-group">
+          <input id="ligSingle" class="form-control" type="file"/>
+          <button id="ligUpload" class="btn btn-brand">Upload</button>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <label class="form-label text-light">ZIP of Ligands/</label>
+        <div class="input-group">
+          <input id="ligZip" class="form-control" type="file"/>
+          <button id="ligZipUpload" class="btn btn-brand">Upload ZIP</button>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label text-light"># conformations</label>
+        <input id="nConf" class="form-control" value="64"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label text-light"># docking poses</label>
+        <input id="nPoses" class="form-control" value="9"/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label text-light">CSV SMILES column</label>
+        <input id="csvSmilesCol" class="form-control" disabled/>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label text-light">CSV ID column</label>
+        <input id="csvIdCol" class="form-control" disabled/>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 3) Build LSF + Zip -->
+<div id="buildCard" class="stage-card mb-4" style="display:none;">
+  <div class="stage-head p-3 d-flex align-items-center">
+    <div class="fw-bold">3) Build LSF + Zip</div>
+  </div>
+  <div class="p-3">
+    <div class="row g-3">
+      <div class="col-md-3"><input id="queue" class="form-control" value="hihg" placeholder="queue"/></div>
+      <div class="col-md-3"><input id="project" class="form-control" value="brd" placeholder="project"/></div>
+      <div class="col-md-3"><input id="wall" class="form-control" value="96:00" placeholder="wall hh:mm"/></div>
+      <div class="col-md-3"><input id="cores" class="form-control" value="16" placeholder="cores"/></div>
+      <div class="col-md-3"><input id="mem" class="form-control" value="2000" placeholder="mem (MB)"/></div>
+      <div class="col-md-9"><input id="envline" class="form-control" placeholder="Env line (conda activate ...)—optional"/></div>
+    </div>
+    <div class="d-flex gap-2 mt-3">
+      <button id="buildZip" class="btn btn-brand"><i class="bi bi-archive me-1"></i>Build Zip</button>
+      <a id="downloadZip" class="btn btn-outline-light disabled" href="#" download style="pointer-events:none;"><i class="bi bi-download me-1"></i>Download job.zip</a>
+      <span id="buildStatus" class="small muted ms-2"></span>
+    </div>
+  </div>
+</div>
+
+<!-- coachmark -->
+<div id="coach" class="coach">
+  <div class="d-flex align-items-start gap-2">
+    <div class="pt-1"><i class="bi bi-cursor-fill text-info"></i></div>
+    <div class="flex-grow-1">
+      <div class="fw-bold">Next step</div>
+      <div class="small">Click <b>Open</b> on a receptor to start Box Generation.</div>
+    </div>
+    <div class="text-secondary" id="coachClose" style="cursor:pointer"><i class="bi bi-x-lg"></i></div>
+  </div>
+</div>
+
+<script>
+/* ============= SMALL CONTROLLER ============= */
+/* Uses the same /api/... endpoints you already have. Only UI plumbing here. */
+
+const $ = s => document.querySelector(s);
+const post = (url, data) => fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json());
+const postFD = (url, fd) => fetch(url,{method:'POST',body:fd}).then(r=>r.json());
+
+const store = { flow:'single', receptors:[], current:null, centers:0, converted:0 };
+
+function flagHTML(s){ return `<span class="flag ${s}">${s}</span>`; }
+function updateMini(){ $("#recCount").textContent=store.receptors.length; $("#csvRows").textContent=store.centers; $("#convCount").textContent=store.converted; }
+
+/* --- flow switch --- */
+$("#singleBtn").onclick=()=>{store.flow='single';$("#flowLabel").textContent='Single receptor workflow';$("#multiBtn").classList.remove('active');$("#singleBtn").classList.add('active');};
+$("#multiBtn").onclick=()=>{store.flow='multi';$("#flowLabel").textContent='Multiple receptor workflow';$("#singleBtn").classList.remove('active');$("#multiBtn").classList.add('active');};
+
+/* --- uploads (wire to your backend) --- */
+$("#uploadSingle").onclick=async()=>{
+  const f=$("#singleFile").files[0]; if(!f) return;
+  const fd=new FormData(); fd.append('file',f);
+  const j=await postFD('/api/receptors/upload_one',fd);
+  addRec(j.name,j.path);
+};
+$("#uploadZip").onclick=async()=>{
+  const f=$("#zipRecs").files[0]; if(!f) return;
+  const j=await postFD('/api/receptors/upload_zip', new FormData().append('file',f));
+};
+$("#uploadFolder").onclick=async()=>{
+  const files=[...$("#folderRecs").files];
+  for(const f of files){ const fd=new FormData(); fd.append('file',f); const j=await postFD('/api/receptors/upload_one',fd); addRec(j.name,j.path); }
+};
+$("#fetchPdb").onclick=async()=>{
+  const id=$("#pdbId").value.trim(); const chains=$("#chainFilter").value.trim();
+  if(!id) return;
+  const j=await post('/api/receptors/fetch',{pdb:id,chains});
+  addRec(j.name,j.path);
+};
+
+function addRec(name,path){
+  store.receptors.push({name,path,state:'NEW'}); renderRecList(); updateMini();
+  setTimeout(()=>{ if(!store.current) $("#coach").style.display='block'; },3000);
+}
+function renderRecList(){
+  const host=$("#recList"); host.innerHTML='';
+  store.receptors.forEach(r=>{
+    const row=document.createElement('div');
+    row.className='d-flex align-items-center justify-content-between py-2 border-bottom border-dark-subtle';
+    row.innerHTML=`<div class="d-flex align-items-center gap-2">
+      <button class="btn btn-sm btn-outline-info openBtn">Open</button>
+      <span class="text-light fw-semibold">${r.name}</span>
+      ${flagHTML(r.state)}
+    </div><div class="small muted">${r.path||''}</div>`;
+    row.querySelector('.openBtn').onclick=()=>openRec(r.name);
+    host.appendChild(row);
+  });
+}
+
+/* --- viewer (NGL loaded by base.html) --- */
+let stage, comp, picks=[];
+async function openRec(name){
+  $("#coach").style.display='none';
+  const r=store.receptors.find(x=>x.name===name);
+  if(!r) return;
+
+  // ensure single component
+  if(!stage){ stage=new NGL.Stage("ngl",{backgroundColor:"#050b12"}); window.addEventListener("resize",()=>stage.handleResize()); }
+  if(comp){ stage.removeComponent(comp); comp=null; }
+  picks.length=0; // reset picks
+
+  // get file blob from server
+  const res=await fetch('/api/receptors/get_pdb?name='+encodeURIComponent(name));
+  const blob=await res.blob();
+  comp=await stage.loadFile(new Blob([blob]),{ext:'pdb'});
+  comp.addRepresentation("cartoon",{colorScheme:"chainname"});
+  comp.addRepresentation("ball+stick",{sele:"hetero"});
+  stage.autoView();
+  store.current=name; $("#openPath").disabled=false;
+
+  // pick to yellow spheres
+  stage.signals.clicked.removeAll();
+  stage.signals.clicked.add(p=>{
+    if(!p||!p.atom) return;
+    const v=p.atom.positionToVector3(); picks.push([v.x,v.y,v.z]); drawPickMarkers();
+  });
+
+  $("#viewerCard").style.display='block';
+  $("#stageCard").style.display='block';
+  $("#stageHint").textContent = (store.flow==='multi')
+    ? "Stage this protein; the viewer will close and the next one will be opened."
+    : "Stage applies to this receptor. Then prepare.";
+}
+function drawPickMarkers(){
+  if(!stage) return;
+  stage.getComponentsByName('picks').list.forEach(c=>stage.removeComponent(c));
+  if(!picks.length) return;
+  const shape=new NGL.Shape('picks'); picks.forEach(p=>shape.addSphere(p,[1,0.85,0],1.0));
+  const sh=stage.addComponentFromObject(shape); sh.addRepresentation("buffer"); sh.name='picks';
+}
+$("#clearAtoms").onclick=()=>{picks=[];drawPickMarkers();};
+$("#useXyz").onclick=()=>{ if(!$("#xyzPaste").value.trim()) return; picks=[]; drawPickMarkers(); };
+
+/* --- save center --- */
+$("#saveCenter").onclick=async()=>{
+  if(!store.current) return;
+  let center=null;
+  const xyz=$("#xyzPaste").value.trim();
+  if(xyz){ const m=xyz.split(',').map(Number); if(m.length!==3) return alert('XYZ must be x,y,z'); center=m; }
+  else{
+    if(picks.length===0) return alert('Pick at least one atom or paste XYZ.');
+    let x=0,y=0,z=0; picks.forEach(a=>{x+=a[0];y+=a[1];z+=a[2];}); center=[x/picks.length,y/picks.length,z/picks.length];
+  }
+  await post('/api/centers/save',{receptor:store.current,center_xyz:center,size:parseFloat($("#boxSize").value)||20});
+  $("#savedToast").style.display='block'; setTimeout(()=>$("#savedToast").style.display='none',1100);
+  const r=store.receptors.find(x=>x.name===store.current); r.state='CONVERTED'; renderRecList();
+  store.centers++; updateMini();
+};
+
+/* --- staging --- */
+function stageParams(){
+  return { remove_het: $("#removeHet").value.trim()||"all",
+           remove_chains: ($("#removeChains").value.trim()||'').split(',').map(s=>s.trim()).filter(Boolean),
+           backend: $("#backend").value, altloc: $("#altloc").value };
+}
+$("#stageNext").onclick=async()=>{
+  if(!store.current) return;
+  await post('/api/stage/save',{ receptor:store.current, params:stageParams() });
+  const r=store.receptors.find(x=>x.name===store.current); r.state='STAGED'; renderRecList();
+  if(comp){ stage.removeComponent(comp); comp=null; }
+  $("#viewerCard").style.display='none';
+  if(store.flow==='multi'){
+    const next=store.receptors.find(x=>x.state==='NEW'); if(next) openRec(next.name);
+    else { $("#prepCard").style.display='block'; $("#prepAllBtn").style.display='inline-block'; $("#ligandCard").style.display='block'; }
+  }else{
+    $("#prepCard").style.display='block'; $("#ligandCard").style.display='block';
+  }
+};
+
+/* --- prep --- */
+async function runPrep(names){
+  $("#prepLog").style.display='block'; $("#prepBadge").style.display='inline-block'; $("#prepBadge").textContent='CONVERTING';
+  $("#prepProgress").style.width='18%';
+  await post('/api/prep/run',{receptors:names, params:stageParams()});
+  const poll=setInterval(async()=>{
+    const s=await fetch('/api/prep/status').then(r=>r.json());
+    $("#prepLog").textContent=s.log||''; $("#prepProgress").style.width=(s.progress||0)+'%';
+    if(s.done){ clearInterval(poll); $("#prepBadge").textContent='PREPPED';
+      names.forEach(n=>{ const r=store.receptors.find(x=>x.name===n); if(r) r.state='PREPPED'; });
+      renderRecList(); $("#buildCard").style.display='block'; store.converted=s.converted||store.converted; updateMini(); }
+  },1000);
+}
+$("#prepBtn").onclick=()=> runPrep(store.current?[store.current]:store.receptors.map(r=>r.name));
+$("#prepAllBtn").onclick=()=> runPrep(store.receptors.map(r=>r.name));
+
+/* --- ligand --- */
+$("#ligUpload").onclick=async()=>{ const f=$("#ligSingle").files[0]; if(!f) return;
+  const fd=new FormData(); fd.append('file',f); await postFD('/api/ligands/upload_one',fd);
+  if(/\.csv$/i.test(f.name)){ $("#csvSmilesCol").disabled=false; $("#csvIdCol").disabled=false; } };
+$("#ligZipUpload").onclick=async()=>{ const f=$("#ligZip").files[0]; if(!f) return;
+  const fd=new FormData(); fd.append('file',f); await postFD('/api/ligands/upload_zip',fd); };
+
+/* --- build zip --- */
+$("#buildZip").onclick=async()=>{
+  $("#buildStatus").textContent='Building…';
+  const j = await post('/api/build',{ queue:$("#queue").value, project:$("#project").value, wall:$("#wall").value,
+    cores:$("#cores").value, mem:$("#mem").value, env:$("#envline").value,
+    smiles_col:$("#csvSmilesCol").value, id_col:$("#csvIdCol").value });
+  const a=$("#downloadZip"); a.href=j.url; a.classList.remove('disabled'); a.style.pointerEvents='auto';
+  $("#buildStatus").textContent='Ready';
+};
+
+/* --- coachmark --- */
+$("#coachClose").onclick=()=> $("#coach").style.display='none';
+</script>
+{% endblock %}
