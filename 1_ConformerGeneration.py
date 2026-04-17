@@ -15,6 +15,17 @@ from rdkit.Chem import AllChem
 from rdkit import Chem
 from pathlib import Path
 from rdkit.Chem.MolStandardize import rdMolStandardize
+# =============================
+# 1) ADD THESE IMPORTS
+# =============================
+
+try:
+    from dimorphite_dl import protonate_smiles
+    HAVE_DIMORPHITE = True
+except Exception:
+    protonate_smiles = None
+    HAVE_DIMORPHITE = False
+
 
 # ----------------- CLI -----------------
 def build_args():
@@ -46,6 +57,25 @@ def build_args():
 
     # Mode 3 (SDF)
     p.add_argument("--sdf", help="Path to a single multi-record .sdf (mode=3)")
+    # =============================
+    # 2) ADD THESE CLI ARGS
+    # inside build_args()
+    # =============================
+
+    p.add_argument("--enumerate-protomers", action="store_true",
+                   help="Enumerate protonation/ionization states with Dimorphite-DL")
+    p.add_argument("--ph-min", type=float, default=6.8,
+                   help="Minimum pH for protonation-state enumeration")
+    p.add_argument("--ph-max", type=float, default=7.4,
+                   help="Maximum pH for protonation-state enumeration")
+    p.add_argument("--ph-precision", type=float, default=0.5,
+                   help="Dimorphite precision parameter")
+    p.add_argument("--max-protomers", type=int, default=4,
+                   help="Maximum protomer states to keep per ligand")
+    p.add_argument("--max-tautomers", type=int, default=4,
+                   help="Maximum tautomer states to keep per protomer")
+    p.add_argument("--max-transforms", type=int, default=200,
+                   help="RDKit tautomer transform cap")
 
     return p.parse_args()
 
@@ -293,23 +323,185 @@ def rebuild_from_smiles(mol: Chem.Mol) -> Chem.Mol | None:
         return None
 
 
+# =============================
+# 3) ADD THESE HELPERS
+# place them near your other utils
+# =============================
+
+def keep_largest_fragment(mol: Chem.Mol) -> Chem.Mol | None:
+    if mol is None:
+        return None
+    try:
+        frags = Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
+        return max(frags, key=lambda m: m.GetNumAtoms()) if frags else mol
+    except Exception:
+        return mol
+
+
+def mol_key(mol: Chem.Mol) -> str:
+    """Canonical key for deduplicating states."""
+    try:
+        m = Chem.Mol(mol)
+        m = Chem.RemoveHs(m)
+        return Chem.MolToSmiles(m, isomericSmiles=True)
+    except Exception:
+        try:
+            return Chem.MolToSmiles(mol, isomericSmiles=True)
+        except Exception:
+            return f"mol_{id(mol)}"
+
+
+def standardize_preserve_state(mol: Chem.Mol) -> Chem.Mol | None:
+    """
+    Standardize gently, but DO NOT reionize.
+    Reionizer would tend to collapse your protomer diversity.
+    """
+    if mol is None:
+        return None
+
+    mol = keep_largest_fragment(mol)
+    if mol is None:
+        return None
+
+    try:
+        mol = rdMolStandardize.Cleanup(mol)
+    except Exception:
+        pass
+
+    return mol
+
+
+def enumerate_protomers(
+    mol: Chem.Mol,
+    enumerate_protomers_flag: bool = False,
+    ph_min: float = 6.8,
+    ph_max: float = 7.4,
+    ph_precision: float = 0.5,
+    max_protomers: int = 4,
+) -> list[Chem.Mol]:
+    """
+    Return one or more protonation/ionization states.
+    If enumeration is off, returns a single standardized state.
+    """
+    mol = standardize_preserve_state(mol)
+    if mol is None:
+        return []
+
+    if not enumerate_protomers_flag:
+        return [mol]
+
+    if not HAVE_DIMORPHITE:
+        raise RuntimeError(
+            "--enumerate-protomers requested, but dimorphite_dl is not installed. "
+            "Install with: pip install dimorphite_dl"
+        )
+
+    smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
+
+    try:
+        variants = protonate_smiles(
+            smiles,
+            ph_min=ph_min,
+            ph_max=ph_max,
+            precision=ph_precision,
+            max_variants=max_protomers
+        )
+    except Exception as e:
+        print(f"⚠️ Protomer enumeration failed; falling back to single state: {e}")
+        return [mol]
+
+    out = []
+    seen = set()
+
+    for item in variants:
+        # Some versions may return strings; if labels are enabled in future,
+        # handle tuples/lists defensively.
+        psmi = item[0] if isinstance(item, (tuple, list)) else item
+        pmol = Chem.MolFromSmiles(psmi)
+        if pmol is None:
+            continue
+
+        pmol = standardize_preserve_state(pmol)
+        if pmol is None:
+            continue
+
+        key = mol_key(pmol)
+        if key not in seen:
+            seen.add(key)
+            out.append(pmol)
+
+        if len(out) >= max_protomers:
+            break
+
+    return out or [mol]
+
+
+def enumerate_tautomers(
+    mol: Chem.Mol,
+    max_tautomers: int = 4,
+    max_transforms: int = 200,
+) -> list[Chem.Mol]:
+    """
+    Enumerate tautomers for ONE protomer.
+    """
+    mol = standardize_preserve_state(mol)
+    if mol is None:
+        return []
+
+    try:
+        te = rdMolStandardize.TautomerEnumerator()
+        te.SetMaxTautomers(int(max_tautomers))
+        te.SetMaxTransforms(int(max_transforms))
+
+        res = te.Enumerate(mol)
+        candidates = list(res.tautomers)
+    except Exception as e:
+        print(f"⚠️ Tautomer enumeration failed; falling back to single tautomer: {e}")
+        candidates = [mol]
+
+    out = []
+    seen = set()
+
+    for tmol in candidates:
+        tmol = standardize_preserve_state(tmol)
+        if tmol is None:
+            continue
+
+        key = mol_key(tmol)
+        if key not in seen:
+            seen.add(key)
+            out.append(tmol)
+
+        if len(out) >= max_tautomers:
+            break
+
+    return out or [mol]
+
+
+
 
 # ----------------- workers -----------------
+# =============================
+# 4) REPLACE generate_poses()
+# =============================
 
 def generate_poses(task):
     """
-    task: (ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL)
+    task:
+      (
+        ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts
+      )
 
-    Output contract (matches your older script):
-      TMP:  tmp_dir/<ligand_id>/<ligand_id>_pose{i}.sdf   (kept unless --remove-tmp)
-      OUT:  pdbqt_dir/<ligand_id>_pose{i}.pdbqt           (top-level)
+    Enumerates:
+      protomer -> tautomer -> conformers
 
-    Adds tautomer generation WITHOUT exploding state counts:
-      - chooses ONE canonical tautomer
-      - generates num_confs conformers for that tautomer
-      - converts EVERY SDF → MOL2 → PDBQT
+    Output names:
+      ligand_p01_t01_c001.pdbqt
+      ligand_p01_t01_c002.pdbqt
+      ligand_p01_t02_c001.pdbqt
+      ...
     """
-    ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL = task
+    ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts = task
 
     lig_tmp_dir = tmp_dir / ligand_id
     lig_tmp_dir.mkdir(exist_ok=True, parents=True)
@@ -320,7 +512,7 @@ def generate_poses(task):
         print(f"❌ {ligand_id}: could not parse molblock")
         return 0
 
-    # 2) Rebuild via SMILES for consistency (same as your old script)
+    # 2) Rebuild via SMILES for consistency
     try:
         smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
         mol = Chem.MolFromSmiles(smiles)
@@ -331,77 +523,208 @@ def generate_poses(task):
         print(f"❌ {ligand_id}: SMILES rebuild failed")
         return 0
 
-    # 3) Pick ONE tautomer (canonical) — prevents 1000-tautomer slowdown
-    mol = pick_canonical_tautomer(mol, max_tautomers=32, max_transforms=200)
-    if mol is None:
-        print(f"❌ {ligand_id}: tautomer selection failed")
-        return 0
-
-    # 4) Add Hs then generate conformers
+    # 3) Enumerate protomers
     try:
-        mol, conf_ids = embed_and_optimize(mol, num_confs)
+        protomers = enumerate_protomers(
+            mol,
+            enumerate_protomers_flag=state_opts["enumerate_protomers"],
+            ph_min=state_opts["ph_min"],
+            ph_max=state_opts["ph_max"],
+            ph_precision=state_opts["ph_precision"],
+            max_protomers=state_opts["max_protomers"],
+        )
     except Exception as e:
-        print(f"❌ {ligand_id}: embed/opt failed: {e}")
+        print(f"❌ {ligand_id}: protomer enumeration failed: {e}")
         return 0
 
-
-    if not conf_ids:
-        print(f"❌ {ligand_id}: no conformers generated")
+    if not protomers:
+        print(f"❌ {ligand_id}: no protomers generated")
         return 0
 
     written = 0
-    total = len(conf_ids)
 
-    for i, cid in enumerate(conf_ids, start=1):
-        sdf_path  = lig_tmp_dir / f"{ligand_id}_pose{i}.sdf"
-        mol2_path = lig_tmp_dir / f"{ligand_id}_pose{i}.mol2"
-        pdbqt_path = pdbqt_dir / f"{ligand_id}_pose{i}.pdbqt"
+    for p_idx, pmol in enumerate(protomers, start=1):
+        # 4) Enumerate tautomers for each protomer
+        tautomers = enumerate_tautomers(
+            pmol,
+            max_tautomers=state_opts["max_tautomers"],
+            max_transforms=state_opts["max_transforms"],
+        )
 
-        # Write SDF pose
-        try:
-            Chem.MolToMolFile(mol, str(sdf_path), confId=int(cid))
-        except Exception as e:
-            print(f"❌ {ligand_id}: failed writing SDF pose {i} (confId={cid}): {e}")
+        if not tautomers:
             continue
 
-
-        # Convert SDF → MOL2 (with gasteiger)
-        try:
-            subprocess.run(
-                [OBABEL, "-isdf", str(sdf_path),
-                 "-omol2", "-O", str(mol2_path),
-                 "--partialcharge", "gasteiger"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-        except subprocess.CalledProcessError:
-            print(f"❌ OpenBabel failed (SDF→MOL2) for {ligand_id} pose {i}")
-            continue
-
-        # Convert MOL2 → PDBQT
-        try:
-            subprocess.run(
-                [OBABEL, "-imol2", str(mol2_path),
-                 "-opdbqt", "-O", str(pdbqt_path)],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            written += 1
-        except subprocess.CalledProcessError:
-            print(f"❌ OpenBabel failed (MOL2→PDBQT) for {ligand_id} pose {i}")
-            continue
-        finally:
-            # Keep SDF in TMP (by design). MOL2 is intermediate: delete it.
+        for t_idx, tmol in enumerate(tautomers, start=1):
+            # 5) Conformer generation per tautomer
             try:
-                if mol2_path.exists():
-                    mol2_path.unlink()
-            except Exception:
-                pass
+                conf_mol, conf_ids = embed_and_optimize(Chem.Mol(tmol), num_confs)
+            except Exception as e:
+                print(f"⚠️ {ligand_id} p{p_idx:02d} t{t_idx:02d}: embed/opt failed: {e}")
+                continue
 
-    print(f"[OK] {ligand_id}: {written}/{total} poses written → {pdbqt_dir}")
+            if not conf_ids:
+                continue
+
+            state_prefix = f"{ligand_id}_p{p_idx:02d}_t{t_idx:02d}"
+            state_tmp_dir = lig_tmp_dir / state_prefix
+            state_tmp_dir.mkdir(exist_ok=True, parents=True)
+
+            for c_idx, cid in enumerate(conf_ids, start=1):
+                sdf_path = state_tmp_dir / f"{state_prefix}_c{c_idx:03d}.sdf"
+                mol2_path = state_tmp_dir / f"{state_prefix}_c{c_idx:03d}.mol2"
+                pdbqt_path = pdbqt_dir / f"{state_prefix}_c{c_idx:03d}.pdbqt"
+
+                # Write SDF conformer
+                try:
+                    Chem.MolToMolFile(conf_mol, str(sdf_path), confId=int(cid))
+                except Exception as e:
+                    print(f"❌ {state_prefix}: failed writing conformer {c_idx}: {e}")
+                    continue
+
+                # Convert SDF -> MOL2 with Gasteiger charges
+                try:
+                    subprocess.run(
+                        [OBABEL, "-isdf", str(sdf_path),
+                         "-omol2", "-O", str(mol2_path),
+                         "--partialcharge", "gasteiger"],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                except subprocess.CalledProcessError:
+                    print(f"❌ OpenBabel failed (SDF→MOL2) for {state_prefix} c{c_idx:03d}")
+                    continue
+
+                # Convert MOL2 -> PDBQT
+                try:
+                    subprocess.run(
+                        [OBABEL, "-imol2", str(mol2_path),
+                         "-opdbqt", "-O", str(pdbqt_path)],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    written += 1
+                except subprocess.CalledProcessError:
+                    print(f"❌ OpenBabel failed (MOL2→PDBQT) for {state_prefix} c{c_idx:03d}")
+                    continue
+                finally:
+                    try:
+                        if mol2_path.exists():
+                            mol2_path.unlink()
+                    except Exception:
+                        pass
+
+    print(f"[OK] {ligand_id}: {written} total structures written → {pdbqt_dir}")
     return written
+
+
+# def generate_poses(task):
+#     """
+#     task: (ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL)
+
+#     Output contract (matches your older script):
+#       TMP:  tmp_dir/<ligand_id>/<ligand_id>_pose{i}.sdf   (kept unless --remove-tmp)
+#       OUT:  pdbqt_dir/<ligand_id>_pose{i}.pdbqt           (top-level)
+
+#     Adds tautomer generation WITHOUT exploding state counts:
+#       - chooses ONE canonical tautomer
+#       - generates num_confs conformers for that tautomer
+#       - converts EVERY SDF → MOL2 → PDBQT
+#     """
+#     ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL = task
+
+#     lig_tmp_dir = tmp_dir / ligand_id
+#     lig_tmp_dir.mkdir(exist_ok=True, parents=True)
+
+#     # 1) Load molblock
+#     mol = Chem.MolFromMolBlock(molblock, sanitize=True, removeHs=False)
+#     if mol is None:
+#         print(f"❌ {ligand_id}: could not parse molblock")
+#         return 0
+
+#     # 2) Rebuild via SMILES for consistency (same as your old script)
+#     try:
+#         smiles = Chem.MolToSmiles(mol, isomericSmiles=True)
+#         mol = Chem.MolFromSmiles(smiles)
+#         if mol is None:
+#             print(f"❌ {ligand_id}: could not rebuild from SMILES")
+#             return 0
+#     except Exception:
+#         print(f"❌ {ligand_id}: SMILES rebuild failed")
+#         return 0
+
+#     # 3) Pick ONE tautomer (canonical) — prevents 1000-tautomer slowdown
+#     mol = pick_canonical_tautomer(mol, max_tautomers=32, max_transforms=200)
+#     if mol is None:
+#         print(f"❌ {ligand_id}: tautomer selection failed")
+#         return 0
+
+#     # 4) Add Hs then generate conformers
+#     try:
+#         mol, conf_ids = embed_and_optimize(mol, num_confs)
+#     except Exception as e:
+#         print(f"❌ {ligand_id}: embed/opt failed: {e}")
+#         return 0
+
+
+#     if not conf_ids:
+#         print(f"❌ {ligand_id}: no conformers generated")
+#         return 0
+
+#     written = 0
+#     total = len(conf_ids)
+
+#     for i, cid in enumerate(conf_ids, start=1):
+#         sdf_path  = lig_tmp_dir / f"{ligand_id}_pose{i}.sdf"
+#         mol2_path = lig_tmp_dir / f"{ligand_id}_pose{i}.mol2"
+#         pdbqt_path = pdbqt_dir / f"{ligand_id}_pose{i}.pdbqt"
+
+#         # Write SDF pose
+#         try:
+#             Chem.MolToMolFile(mol, str(sdf_path), confId=int(cid))
+#         except Exception as e:
+#             print(f"❌ {ligand_id}: failed writing SDF pose {i} (confId={cid}): {e}")
+#             continue
+
+
+#         # Convert SDF → MOL2 (with gasteiger)
+#         try:
+#             subprocess.run(
+#                 [OBABEL, "-isdf", str(sdf_path),
+#                  "-omol2", "-O", str(mol2_path),
+#                  "--partialcharge", "gasteiger"],
+#                 check=True,
+#                 stdout=subprocess.DEVNULL,
+#                 stderr=subprocess.DEVNULL
+#             )
+#         except subprocess.CalledProcessError:
+#             print(f"❌ OpenBabel failed (SDF→MOL2) for {ligand_id} pose {i}")
+#             continue
+
+#         # Convert MOL2 → PDBQT
+#         try:
+#             subprocess.run(
+#                 [OBABEL, "-imol2", str(mol2_path),
+#                  "-opdbqt", "-O", str(pdbqt_path)],
+#                 check=True,
+#                 stdout=subprocess.DEVNULL,
+#                 stderr=subprocess.DEVNULL
+#             )
+#             written += 1
+#         except subprocess.CalledProcessError:
+#             print(f"❌ OpenBabel failed (MOL2→PDBQT) for {ligand_id} pose {i}")
+#             continue
+#         finally:
+#             # Keep SDF in TMP (by design). MOL2 is intermediate: delete it.
+#             try:
+#                 if mol2_path.exists():
+#                     mol2_path.unlink()
+#             except Exception:
+#                 pass
+
+#     print(f"[OK] {ligand_id}: {written}/{total} poses written → {pdbqt_dir}")
+#     return written
 
 
 
@@ -673,11 +996,13 @@ def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBAB
     print(f"📦 Output PDBQT: {pdbqt_dir}")
     print(f"🗂  TMP SDF:     {tmp_dir} (will {'be removed' if remove_tmp else 'be KEPT'})")
 
-    # Build work items
-    work_items = [
-        (ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL)
-        for (ligand_id, molblock) in tasks
-    ]
+    # # Build work items
+    # work_items = [
+    #     (ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL)
+    #     for (ligand_id, molblock) in tasks
+    # ]
+    work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts)
+              for (ligand_id, molblock) in tasks]
 
     written_total = 0
     try:
@@ -721,6 +1046,25 @@ if __name__ == "__main__":
 
     # Resolve obabel path now (fail early if missing)
     OBABEL = obabel_path(args.obabel_bin)
+    # =============================
+    # 5) ADD THIS IN main
+    # after OBABEL = obabel_path(...)
+    # =============================
+
+    if args.enumerate_protomers and not HAVE_DIMORPHITE:
+        print("❌ --enumerate-protomers requires dimorphite_dl.")
+        print("   Install with: pip install dimorphite_dl")
+        sys.exit(2)
+
+    state_opts = {
+        "enumerate_protomers": args.enumerate_protomers,
+        "ph_min": args.ph_min,
+        "ph_max": args.ph_max,
+        "ph_precision": args.ph_precision,
+        "max_protomers": args.max_protomers,
+        "max_tautomers": args.max_tautomers,
+        "max_transforms": args.max_transforms,
+    }
 
     # Interactive fallback if mode not provided
     if mode is None:
@@ -783,7 +1127,9 @@ if __name__ == "__main__":
         print(f"📦 Output PDBQT: {pdbqt_dir}")
         print(f"🗂  TMP SDF:     {tmp_dir} (will {'NOT ' if args.remove_tmp else ''}be removed at end)")
 
-        work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL) for (ligand_id, molblock) in tasks]
+        # work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL) for (ligand_id, molblock) in tasks]
+        work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts)
+              for (ligand_id, molblock) in tasks]
 
         written_total = 0
         try:
@@ -886,7 +1232,9 @@ if __name__ == "__main__":
         print(f"🗂  TMP SDF:     {tmp_dir} (will {'be removed' if args.remove_tmp else 'be KEPT'})")
 
 
-        work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL) for (ligand_id, molblock) in tasks]
+        # work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL) for (ligand_id, molblock) in tasks]
+        work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts)
+              for (ligand_id, molblock) in tasks]
 
         written_total = 0
         try:

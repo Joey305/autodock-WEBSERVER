@@ -18,7 +18,6 @@ from pymol import cmd
 from rdkit import Chem
 from rdkit.Chem import rdFMCS, rdMolAlign
 from rdkit.Chem.rdmolfiles import SDWriter
-from rdkit.Geometry import Point3D
 
 # ==================== regex & name helpers ====================
 POSE_PAT   = re.compile(r"__pose(\d+)$")
@@ -51,8 +50,44 @@ def list_and_select(prompt, options):
     print(f"\n📁 {prompt}")
     for i, opt in enumerate(options, 1):
         print(f"{i}. {opt}")
-    idx = int(input("🔢 Select: ")) - 1
+    idx = int(input("🔢 Select: ").strip()) - 1
     return options[idx]
+
+def list_and_select_multiple(prompt, options):
+    print(f"\n📁 {prompt}")
+    for i, opt in enumerate(options, 1):
+        print(f"{i}. {opt}")
+    print("\n🔢 Select one or more by number, comma-separated.")
+    print("   Examples: 1,5,20")
+    print("   Or type: all")
+    raw = input("🔢 Select: ").strip()
+
+    if not raw:
+        raise SystemExit("❌ No receptor folders selected.")
+
+    if raw.lower() == "all":
+        return options[:]
+
+    chosen = []
+    seen = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if not part.isdigit():
+            raise SystemExit(f"❌ Invalid selection: {part}")
+        idx = int(part) - 1
+        if idx < 0 or idx >= len(options):
+            raise SystemExit(f"❌ Selection out of range: {part}")
+        opt = options[idx]
+        if opt not in seen:
+            chosen.append(opt)
+            seen.add(opt)
+
+    if not chosen:
+        raise SystemExit("❌ No valid receptor folders selected.")
+
+    return chosen
 
 def safe_float(x, default=1e9):
     try:
@@ -99,17 +134,11 @@ def load_csv_grouped(csv_path: Path, top_n: int, mode: str):
     if not rows:
         raise SystemExit("❌ CSV is empty.")
 
-    # --------------------------------------------------
-    # Required columns
-    # --------------------------------------------------
     required = ["Receptor", "Ligand", "Pose"]
     missing = [k for k in required if k not in rows[0]]
     if missing:
         raise SystemExit(f"❌ CSV missing required columns: {missing}")
 
-    # --------------------------------------------------
-    # Detect binding affinity column
-    # --------------------------------------------------
     bind_col = (
         "Binding_Affinity"
         if "Binding_Affinity" in rows[0]
@@ -123,30 +152,19 @@ def load_csv_grouped(csv_path: Path, top_n: int, mode: str):
     if bind_col:
         rows.sort(key=lambda r: safe_float(r.get(bind_col, "1e9")))
 
-    # --------------------------------------------------
-    # Detect CSV style (simple vs provenance)
-    # --------------------------------------------------
     style = detect_csv_style(rows)
 
-    # --------------------------------------------------
-    # 🔥 DERIVE BaseLigand ONCE, BEFORE GROUPING 🔥
-    # --------------------------------------------------
     for row in rows:
         base = base_ligand_from_outfile(row.get("OutFile", ""))
         if base:
             row["BaseLigand"] = base
         else:
-            # fallback for legacy/simple CSVs
             row["BaseLigand"] = strip_pose_suffix(row["Ligand"])
 
-    # --------------------------------------------------
-    # Group rows
-    # --------------------------------------------------
     grouped = defaultdict(list)
 
     if mode == "per_ligand":
-        # Top N poses PER ligand (multi-state objects)
-        per_combo_counts = defaultdict(lambda: defaultdict(int))  # receptor → base_ligand → count
+        per_combo_counts = defaultdict(lambda: defaultdict(int))
 
         for row in rows:
             rec  = row["Receptor"]
@@ -157,7 +175,6 @@ def load_csv_grouped(csv_path: Path, top_n: int, mode: str):
                 per_combo_counts[rec][base] += 1
 
     elif mode == "per_receptor":
-        # Top N ligands PER receptor (best pose only)
         seen_bases = defaultdict(set)
 
         for row in rows:
@@ -186,6 +203,7 @@ def resolve_outfile_provenance(row: dict, cwd: Path) -> Path | None:
             cand = cwd / tail
             if cand.is_file():
                 return cand
+
     rr = (row.get("ResultsRoot") or "").strip()
     rd = (row.get("ReceptorDir") or "").strip()
     ld = (row.get("LigandDir") or "").strip()
@@ -193,6 +211,7 @@ def resolve_outfile_provenance(row: dict, cwd: Path) -> Path | None:
         guess = cwd / rr / rd / ld / "out.pdbqt"
         if guess.is_file():
             return guess
+
     return None
 
 def find_docked_pose_simple(cwd: Path, receptor: str, ligand_field: str) -> Path | None:
@@ -221,6 +240,7 @@ def find_docked_pose_simple(cwd: Path, receptor: str, ligand_field: str) -> Path
         sp = str(p).lower()
         if any(lv in sp for lv in lig_vars):
             return p
+
     return None
 
 def resolve_outfile_unified(row: dict, cwd: Path, style: str) -> Path | None:
@@ -235,7 +255,7 @@ def resolve_outfile_unified(row: dict, cwd: Path, style: str) -> Path | None:
 # -------------------- reference SDF/MOL2 lookup --------------------
 
 def infer_bucket_from_row(row: dict) -> str | None:
-    for key in ("ResultsRoot","LigandDir","OutFile"):
+    for key in ("ResultsRoot", "LigandDir", "OutFile"):
         s = (row.get(key) or "")
         m = BUCKET_PAT.search(s)
         if m:
@@ -269,6 +289,7 @@ def get_mol_from_sdf_dir(sdf_dir: Path, base_id: str):
                     return m, sdf
             except Exception:
                 pass
+
     return None, None
 
 def get_ref_from_simple_folder(ligands_root: Path, base_id_or_lig_field: str):
@@ -281,13 +302,16 @@ def get_ref_from_simple_folder(ligands_root: Path, base_id_or_lig_field: str):
                 break
         if cand:
             break
+
     if not cand:
         return None, None
+
     if cand.suffix.lower() == ".sdf":
         sup = Chem.SDMolSupplier(str(cand), sanitize=False)
         ref = next((m for m in sup if m is not None), None)
     else:
         ref = Chem.MolFromMol2File(str(cand), sanitize=False)
+
     return ref, cand
 
 # -------------------- chemistry: PDBQT -> coords, rigid MCS fit --------------------
@@ -310,36 +334,34 @@ def _noH_with_map(m: Chem.Mol):
 def rigid_fit_by_mcs(coords_full: Chem.Mol, ref_full: Chem.Mol) -> Chem.Mol | None:
     """
     Rigidly align the ENTIRE reference (ref_full) onto the docked coordinates (coords_full)
-    using a heavy-atom MCS atom map. This avoids per-atom coordinate overwrites and
-    prevents 'flying atoms'.
+    using a heavy-atom MCS atom map.
     """
     if coords_full.GetNumConformers() == 0 or ref_full.GetNumConformers() == 0:
         print("⚠️ Missing conformers; cannot align.")
         return None
 
-    # Work on heavy atoms for matching; keep maps to full indices
     coords_noH, coords_map = _noH_with_map(coords_full)
-    ref_noH,   ref_map     = _noH_with_map(ref_full)
+    ref_noH, ref_map = _noH_with_map(ref_full)
 
     mcs = rdFMCS.FindMCS([ref_noH, coords_noH])
     if mcs.canceled or not mcs.smartsString:
         print("⚠️ MCS alignment canceled/failed")
         return None
+
     patt = Chem.MolFromSmarts(mcs.smartsString)
-    ref_match    = list(ref_noH.GetSubstructMatch(patt))
+    ref_match = list(ref_noH.GetSubstructMatch(patt))
     coords_match = list(coords_noH.GetSubstructMatch(patt))
+
     if len(ref_match) != len(coords_match) or len(ref_match) == 0:
         print("⚠️ MCS mismatch in atom counts")
         return None
 
-    # Build atomMap in FULL indices (pairs of (refIdx, coordsIdx))
     atomMap = []
     for i_ref_noH, i_coords_noH in zip(ref_match, coords_match):
-        ref_idx_full    = ref_map[i_ref_noH]
+        ref_idx_full = ref_map[i_ref_noH]
         coords_idx_full = coords_map[i_coords_noH]
         atomMap.append((ref_idx_full, coords_idx_full))
 
-    # Make a copy; AlignMol moves the probe (first arg) to match the reference (second arg)
     ref_aln = Chem.Mol(ref_full)
     try:
         rdMolAlign.AlignMol(ref_aln, coords_full, atomMap=atomMap)
@@ -347,7 +369,6 @@ def rigid_fit_by_mcs(coords_full: Chem.Mol, ref_full: Chem.Mol) -> Chem.Mol | No
         print(f"⚠️ AlignMol failed: {e}")
         return None
 
-    # (Optional) remove hydrogens to match your SDF style
     ref_aln = Chem.RemoveHs(Chem.Mol(ref_aln), sanitize=False)
     try:
         Chem.SanitizeMol(
@@ -363,9 +384,10 @@ def rigid_fit_by_mcs(coords_full: Chem.Mol, ref_full: Chem.Mol) -> Chem.Mol | No
 
 # -------------------- filesystem helpers --------------------
 
-def find_receptor_file(receptors_root: Path, rec_name: str) -> Path | None:
-    stems = {rec_name, rec_name.replace(".pdbqt","").replace(".converted","")}
+def find_receptor_file_in_root(receptors_root: Path, rec_name: str) -> Path | None:
+    stems = {rec_name, rec_name.replace(".pdbqt", "").replace(".converted", "")}
     exts  = [".pdb", ".pdbqt", ".mol2", ".converted.pdbqt", ""]
+
     for root, _, files in os.walk(receptors_root):
         for f in files:
             p = Path(root) / f
@@ -373,6 +395,13 @@ def find_receptor_file(receptors_root: Path, rec_name: str) -> Path | None:
             if s in stems or p.name.startswith(rec_name):
                 if p.suffix in exts or any(str(p).endswith(ext) for ext in exts):
                     return p
+    return None
+
+def find_receptor_file(receptor_roots: list[Path], rec_name: str) -> Path | None:
+    for root in receptor_roots:
+        hit = find_receptor_file_in_root(root, rec_name)
+        if hit is not None:
+            return hit
     return None
 
 def strip_conect_lines(pdb_path: Path):
@@ -398,7 +427,7 @@ def main():
     cmd.set('pdb_conect_nodup', 1)
 
     # 1) Select CSV
-    csv_files = [f for f in os.listdir(cwd) if f.endswith(".csv")]
+    csv_files = sorted([f for f in os.listdir(cwd) if f.endswith(".csv")])
     if not csv_files:
         raise SystemExit("❌ No CSV files found in current directory.")
     csv_file = list_and_select("Available CSV files:", csv_files)
@@ -414,22 +443,31 @@ def main():
         raise SystemExit("❌ Invalid choice.")
 
     # 3) N
-    top_n = int(input("🔝 How many top entries? (e.g., 5): "))
+    top_n = int(input("🔝 How many top entries? (e.g., 5): ").strip())
 
-    # 4) Pick Receptors folder
-    rec_dirs = [d for d in os.listdir(cwd) if os.path.isdir(d) and "Receptor" in d]
+    # 4) Pick ONE OR MORE receptor folders
+    rec_dirs = sorted([d for d in os.listdir(cwd) if os.path.isdir(d) and "Receptor" in d])
     if not rec_dirs:
         raise SystemExit("❌ No 'Receptor*' folder found in current dir.")
-    receptors_root = cwd / list_and_select("Receptor folders:", rec_dirs)
+
+    selected_rec_dirs = list_and_select_multiple(
+        "Receptor folders (choose one or more):",
+        rec_dirs
+    )
+    receptor_roots = [cwd / d for d in selected_rec_dirs]
+
+    print("\n✅ Selected receptor folders:")
+    for rr in receptor_roots:
+        print(f"   - {rr}")
 
     # 5) Load + group rows & detect style
     top_poses, style = load_csv_grouped(csv_path, top_n, mode=mode)
     print(f"🔎 Detected CSV style: {style}")
 
-   # 6) If simple style, ask for Ligands folder once (reference SDF/MOL2 by base name)
+    # 6) If simple style, ask for Ligands folder once
     ligands_root = None
     if style == "simple":
-        lig_dirs = [d for d in os.listdir(cwd) if os.path.isdir(d) and "Ligand" in d]
+        lig_dirs = sorted([d for d in os.listdir(cwd) if os.path.isdir(d) and "Ligand" in d])
         if not lig_dirs:
             print("ℹ️ Simple mode: no 'Ligand*' folder found; will proceed without ref SDF (coords only).")
         else:
@@ -439,7 +477,7 @@ def main():
     print("\n🔬 Building PyMOL session...")
     cmd.reinitialize()
     try:
-        cmd.feedback("disable", "all", "warnings")  # quiet name-cleanup spam
+        cmd.feedback("disable", "all", "warnings")
     except Exception:
         pass
 
@@ -447,15 +485,13 @@ def main():
     audit_rows = []
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    loaded_objects = set()
-
     for receptor, rows in top_poses.items():
         rec_name = receptor.replace(".pdbqt", "").replace(".converted", "")
         rec_obj  = sanitize_pymol_name(rec_name)
 
-        rec_file = find_receptor_file(receptors_root, rec_name)
+        rec_file = find_receptor_file(receptor_roots, rec_name)
         if rec_file is None:
-            print(f"❌ Receptor file not found for {rec_name}. Skipping receptor.")
+            print(f"❌ Receptor file not found for {rec_name} in selected receptor folders. Skipping receptor.")
             continue
 
         try:
@@ -464,7 +500,6 @@ def main():
             print(f"⚠️ Failed to load receptor {rec_file}: {e}")
             continue
 
-        # regroup by base ligand to build 1 object per base with multiple states
         by_base = defaultdict(list)
         for row in rows:
             base = row["BaseLigand"]
@@ -476,8 +511,8 @@ def main():
             state_index = 0
 
             for row in base_rows:
-                ligand_field = row["Ligand"]             # with __pose##
-                pose_num     = (row.get("Pose") or "").strip() or extract_pose_num(ligand_field) or ""
+                ligand_field = row["Ligand"]
+                pose_num = (row.get("Pose") or "").strip() or extract_pose_num(ligand_field) or ""
 
                 dock_path = resolve_outfile_unified(row, cwd, style)
                 if not dock_path or not dock_path.exists():
@@ -489,6 +524,7 @@ def main():
                 except subprocess.CalledProcessError:
                     print(f"⚠️ obabel failed on {dock_path}")
                     continue
+
                 if coords is None:
                     print(f"⚠️ Failed to parse coords from {dock_path}")
                     continue
@@ -501,21 +537,24 @@ def main():
                         sdf_root = None
                         for d in cwd.iterdir():
                             if d.is_dir() and d.name.startswith(f"Ligands_{bucket}") and "_PDBQT" not in d.name:
-                                sdf_root = d; break
+                                sdf_root = d
+                                break
                         if not sdf_root:
                             for rootd, dirs, _ in os.walk(cwd):
                                 for name in dirs:
                                     if name.startswith(f"Ligands_{bucket}") and "_PDBQT" not in name:
-                                        sdf_root = Path(rootd)/name; break
-                                if sdf_root: break
+                                        sdf_root = Path(rootd) / name
+                                        break
+                                if sdf_root:
+                                    break
                         if sdf_root:
                             ref, ref_src = get_mol_from_sdf_dir(sdf_root, base_ligand or ligand_field)
                 else:
                     if ligands_root:
                         ref, ref_src = get_ref_from_simple_folder(ligands_root, base_ligand or ligand_field)
 
-                # Build rigidly fitted molecule (or coords-only) and append as a NEW STATE
                 state_index += 1
+
                 if ref is None:
                     tmp_coords = Path("/tmp") / f"{base_tag}_coords_only_state{state_index}.mol"
                     Chem.MolToMolFile(coords, str(tmp_coords))
@@ -524,7 +563,6 @@ def main():
                     ref_orig = Chem.Mol(ref)
                     fitted = rigid_fit_by_mcs(coords, Chem.Mol(ref))
                     if fitted is None:
-                        # fallback: coords-only to avoid “flying atoms”
                         tmp_coords = Path("/tmp") / f"{base_tag}_coords_only_state{state_index}.mol"
                         Chem.MolToMolFile(coords, str(tmp_coords))
                         cmd.load(str(tmp_coords), base_tag, state=state_index, discrete=0)
@@ -534,23 +572,27 @@ def main():
                             fp.write(Chem.MolToMolBlock(fitted, kekulize=False))
                         cmd.load(str(tmp_path), base_tag, state=state_index, discrete=0)
 
-                        # export SDFs for reference and this fitted state
                         ref_sdf  = out_dir_sdf / f"{base_ligand}.sdf"
                         dock_sdf = out_dir_sdf / f"{base_ligand}_docked_state{state_index}.sdf"
                         try:
-                            w = SDWriter(str(ref_sdf));  w.SetKekulize(False);  w.write(ref_orig);  w.close()
+                            w = SDWriter(str(ref_sdf))
+                            w.SetKekulize(False)
+                            w.write(ref_orig)
+                            w.close()
                         except Exception as e:
                             print(f"⚠️ Failed to write reference SDF {ref_sdf}: {e}")
                         try:
-                            w = SDWriter(str(dock_sdf)); w.SetKekulize(False); w.write(fitted); w.close()
+                            w = SDWriter(str(dock_sdf))
+                            w.SetKekulize(False)
+                            w.write(fitted)
+                            w.close()
                         except Exception as e:
                             print(f"⚠️ Failed to write docked SDF {dock_sdf}: {e}")
 
-                # Export complex PDB (receptor + current state)
-                # per-receptor running rank (Top01, Top02, … across loaded states)
                 per_receptor_rank[rec_obj] += 1
                 rank = per_receptor_rank[rec_obj]
                 rank2 = f"{rank:02d}"
+
                 pdb_path   = out_dir_pdb   / f"{rec_name}_Top{rank2}_{lig_tag}_state{state_index}.pdb"
                 pdbqt_name = out_dir_pdbqt / f"{rec_name}_Top{rank2}_{lig_tag}_state{state_index}.pdbqt"
 
@@ -561,20 +603,17 @@ def main():
                 except Exception as e:
                     print(f"⚠️ Failed to save PDB {pdb_path}: {e}")
 
-                # copy raw docked out.pdbqt with a unique name
                 try:
                     shutil.copy2(dock_path, pdbqt_name)
                 except Exception as e:
                     print(f"⚠️ Failed to copy PDBQT to {pdbqt_name}: {e}")
 
-                # Group once objects exist; ignore error if already grouped
                 try:
                     cmd.group(rec_obj, base_tag)
                     cmd.group(f"{rec_obj}/{lig_tag}", base_tag)
                 except Exception:
                     pass
 
-                # Audit
                 audit_rows.append({
                     "timestamp": ts,
                     "csv_style": style,
@@ -585,13 +624,13 @@ def main():
                     "csv_pose": pose_num,
                     "dock_pdbqt": str(dock_path),
                     "ref_source": str(ref_src) if ref_src else "",
+                    "receptor_file": str(rec_file),
                     "saved_complex_pdb": str(pdb_path),
                     "saved_dock_pdbqt": str(pdbqt_name),
                     "session_object": base_tag,
                     "state_index": state_index,
                 })
 
-    # Save session + audit
     ts2 = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     session_name = out_dir_pdb / f"Top{top_n}_{'per_ligand' if mode=='per_ligand' else 'per_receptor'}_Docking_Results_{ts2}.pse"
     cmd.save(str(session_name))
@@ -613,6 +652,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
