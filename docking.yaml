@@ -1,0 +1,39 @@
+name: docking
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Core language and Python tools
+  - python=3.9
+  - pip
+
+  # Molecular modeling / structural biology binaries
+  - openbabel=3.1.1
+  - pymol-open-source=3.1.0
+  - pyqt=5.15.11
+
+  # AutoDock Vina CLI binary
+  # If this causes solver issues on a specific machine, create the env first,
+  # then install it manually with:
+  #   conda install -c conda-forge vina
+  - vina
+
+  # Scientific Python stack
+  - numpy
+  - pandas
+  - matplotlib
+  - rdkit
+
+  # Flask web stack via pip
+  - pip:
+    - flask==3.0.3
+    - flask-login==0.6.3
+    - flask-wtf==1.2.1
+    - wtforms==3.1.2
+    - flask-sqlalchemy==3.1.1
+    - sqlalchemy==2.0.32
+    - email-validator==2.1.1
+    - requests==2.32.3
+    - gunicorn==23.0.0

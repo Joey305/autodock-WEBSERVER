@@ -15,11 +15,14 @@
   <a href="https://github.com/Joey305/autodock-WEBSERVER">
     <img src="https://img.shields.io/badge/View%20Repository-GitHub-black?style=for-the-badge&logo=github" alt="View GitHub repository">
   </a>
+  <a href="#environment-setup">
+    <img src="https://img.shields.io/badge/Install-Conda%20Environment-yellow?style=for-the-badge&logo=anaconda" alt="Install conda environment">
+  </a>
   <a href="#headless-api-tutorial">
     <img src="https://img.shields.io/badge/API%20Tutorial-curl%20Workflow-blue?style=for-the-badge&logo=gnubash" alt="API tutorial">
   </a>
   <a href="#real-example-walkthrough">
-    <img src="https://img.shields.io/badge/Run%20Example-DR7%20Ligand-orange?style=for-the-badge&logo=python" alt="Run DR7 example">
+    <img src="https://img.shields.io/badge/Run%20Example-DR7%20Ligand-orange?style=for-the-badge&logo=readthedocs" alt="Run DR7 example">
   </a>
 </p>
 
@@ -56,6 +59,7 @@ Create workspace
 → Upload ligand
 → Build package
 → Download ZIP
+→ Run package locally or on compute
 ```
 
 ---
@@ -68,6 +72,7 @@ Docking workflows often fail for practical reasons before docking even begins:
 * docking centers are not mapped to the correct receptor
 * PDBQT conversion fails silently
 * ligand libraries are uploaded in mixed formats
+* AutoDock Vina is not available in the execution environment
 * HPC or local execution folders are assembled by hand
 * output ZIPs are difficult to reproduce later
 
@@ -88,7 +93,8 @@ AutoDock-Vina PrepServer makes these preparation stages explicit. Each step has 
 * Optional LSF-oriented package generation for scheduler-based environments
 * Downloadable ZIP artifacts
 * JSON status endpoints for workflow automation
-* Clear error responses for missing receptors, incomplete centers, missing ligands, or conversion failures
+* Clear error responses for missing receptors, incomplete centers, missing ligands, missing Open Babel, or conversion failures
+* Documented Vina CLI installation path for running downloaded packages
 
 ---
 
@@ -112,31 +118,37 @@ AutoDock-Vina PrepServer is part of a growing structure-guided molecular design 
   <a href="#quick-start-web-interface">
     <img src="https://img.shields.io/badge/Quick%20Start-Web%20Interface-success?style=for-the-badge&logo=googlechrome" alt="Web interface quick start">
   </a>
+  <a href="#environment-setup">
+    <img src="https://img.shields.io/badge/Install-docking.yaml-yellow?style=for-the-badge&logo=anaconda" alt="Install environment">
+  </a>
+  <a href="#manual-vina-binary-install">
+    <img src="https://img.shields.io/badge/Vina-Manual%20Binary%20Install-purple?style=for-the-badge&logo=github" alt="Manual Vina binary install">
+  </a>
   <a href="#headless-api-tutorial">
     <img src="https://img.shields.io/badge/Tutorial-Headless%20API-blue?style=for-the-badge&logo=gnubash" alt="Headless API tutorial">
   </a>
   <a href="#real-example-walkthrough">
     <img src="https://img.shields.io/badge/Example-DR7%20SDF-orange?style=for-the-badge&logo=readthedocs" alt="DR7 example">
   </a>
-  <a href="#deployment-notes">
-    <img src="https://img.shields.io/badge/Deploy-Heroku%20%2B%20Open%20Babel-purple?style=for-the-badge&logo=heroku" alt="Deployment notes">
-  </a>
-  <a href="#troubleshooting">
-    <img src="https://img.shields.io/badge/Troubleshooting-Common%20Errors-red?style=for-the-badge" alt="Troubleshooting">
-  </a>
 </p>
 
 * [Quick Start: Web Interface](#quick-start-web-interface)
+* [Repository Structure](#repository-structure)
+* [Environment Setup](#environment-setup)
+* [Manual Vina Binary Install](#manual-vina-binary-install)
+* [Running Locally](#running-locally)
 * [Headless API Tutorial](#headless-api-tutorial)
 * [Real Example Walkthrough](#real-example-walkthrough)
+* [What is inside the downloaded ZIP?](#what-is-inside-the-downloaded-zip)
 * [Endpoint Reference](#endpoint-reference)
 * [Accepted Input Types](#accepted-input-types)
 * [Generated Package Modes](#generated-package-modes)
-* [Local Development](#local-development)
 * [Deployment Notes](#deployment-notes)
 * [Heroku + Open Babel Notes](#heroku--open-babel-notes)
+* [Testing and Validation](#testing-and-validation)
 * [Troubleshooting](#troubleshooting)
 * [Security and Data Notes](#security-and-data-notes)
+* [Citation and Acknowledgements](#citation-and-acknowledgements)
 * [Contact](#contact)
 
 ---
@@ -150,10 +162,12 @@ AutoDock-Vina PrepServer is part of a growing structure-guided molecular design 
 ├── center_resolver.py             # Docking center resolution helpers
 ├── runner_templates.py            # Portable runner script templates
 ├── lsf_templates.py               # LSF package-generation templates
-├── requirements.txt               # Python dependencies
+├── ligand_manifest.py             # Ligand provenance and upload metadata helpers
+├── requirements.txt               # Python dependencies for pip-style installs
+├── docking.yaml                   # Recommended conda environment
 ├── Aptfile                        # Optional Heroku apt packages, including Open Babel
 ├── templates/                     # Flask HTML templates
-├── static/                        # CSS, images, favicon assets
+├── static/                        # CSS, JS, images, favicon assets
 ├── tests/                         # Regression tests
 ├── Example/
 │   └── Ligand_SDF/
@@ -163,6 +177,7 @@ AutoDock-Vina PrepServer is part of a growing structure-guided molecular design 
 ├── 2a_PDB2PDBQTbatch.py           # Receptor preparation utility
 ├── 3_Complete_batch_docking.py    # AutoDock Vina batch runner
 ├── 4_ParseScores.py               # Vina score parsing
+├── 4B_LSFbatch.py                 # LSF-oriented batch helper
 ├── 4C_ConcatenateScores.py        # Score collation
 ├── 5C_BuildPymolSesh.py           # PyMOL/session export helper
 ├── 6_MDpymacs.py                  # Additional downstream analysis helper
@@ -171,6 +186,8 @@ AutoDock-Vina PrepServer is part of a growing structure-guided molecular design 
 ```
 
 ---
+
+<a id="quick-start-web-interface"></a>
 
 ## Quick Start: Web Interface
 
@@ -192,6 +209,303 @@ Typical browser workflow:
 8. Run the downloaded docking package locally or on your target compute environment.
 
 The browser interface is recommended for first-time users because each workflow stage is visible.
+
+---
+
+<a id="environment-setup"></a>
+
+## Environment Setup
+
+This repository includes a conda environment file:
+
+```text
+docking.yaml
+```
+
+Create the environment:
+
+```bash
+conda env create -f docking.yaml
+conda activate docking
+```
+
+Verify the main Python stack:
+
+```bash
+python --version
+python -c "import flask, pandas, numpy, matplotlib; print('Core Python imports OK')"
+python -c "from rdkit import Chem; print('RDKit OK')"
+```
+
+Verify Open Babel:
+
+```bash
+which obabel
+obabel -V
+```
+
+Verify Vina:
+
+```bash
+which vina
+vina --version
+```
+
+If `vina --version` works, the environment is ready to run downloaded docking packages.
+
+If Vina does not install cleanly through conda, use the manual binary install below.
+
+---
+
+## Recommended `docking.yaml`
+
+The repository environment can be created from this file:
+
+```yaml
+name: docking
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Core language and Python tools
+  - python=3.9
+  - pip
+
+  # Molecular modeling / structural biology binaries
+  - openbabel=3.1.1
+  - pymol-open-source=3.1.0
+  - pyqt=5.15.11
+
+  # AutoDock Vina CLI binary
+  # If this causes solver issues on a specific machine, create the env first,
+  # then install or replace Vina manually using the binary install section below.
+  - vina
+
+  # Scientific Python stack
+  - numpy
+  - pandas
+  - matplotlib
+  - rdkit
+
+  # Flask web stack via pip
+  - pip:
+    - flask==3.0.3
+    - flask-login==0.6.3
+    - flask-wtf==1.2.1
+    - wtforms==3.1.2
+    - flask-sqlalchemy==3.1.1
+    - sqlalchemy==2.0.32
+    - email-validator==2.1.1
+    - requests==2.32.3
+    - gunicorn==23.0.0
+```
+
+### Why Vina has a separate fallback
+
+The PrepServer web app prepares and packages docking jobs. The downloaded package expects an AutoDock Vina executable when the user runs docking locally or on a compute server.
+
+In other words:
+
+```text
+PrepServer builds the docking package.
+Vina runs the docking job after the package is downloaded.
+```
+
+On some machines, Vina may install cleanly from conda. On others, especially when solving older scientific environments or mixed architecture systems, it may be easier to download the official precompiled Vina executable and place it directly into the active conda environment.
+
+---
+
+<a id="manual-vina-binary-install"></a>
+
+## Manual Vina Binary Install
+
+Use this section if:
+
+* `conda env create -f docking.yaml` fails because of `vina`
+* `conda install -c conda-forge vina` fails
+* `vina --version` does not work after environment creation
+* a downloaded docking package fails with `vina: command not found`
+
+The goal is to place the Vina executable directly into:
+
+```text
+$CONDA_PREFIX/bin/vina
+```
+
+That makes `vina` available whenever the `docking` environment is active.
+
+### Step 1 — Activate the environment
+
+```bash
+conda activate docking
+echo "$CONDA_PREFIX"
+```
+
+### Step 2 — Install the binary for your platform
+
+#### macOS Apple Silicon / M1 / M2 / M3 / M4
+
+```bash
+conda activate docking
+
+curl -L -o "$CONDA_PREFIX/bin/vina" \
+  "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_mac_aarch64"
+
+chmod +x "$CONDA_PREFIX/bin/vina"
+
+which vina
+vina --version
+```
+
+#### macOS Intel
+
+```bash
+conda activate docking
+
+curl -L -o "$CONDA_PREFIX/bin/vina" \
+  "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_mac_x86_64"
+
+chmod +x "$CONDA_PREFIX/bin/vina"
+
+which vina
+vina --version
+```
+
+#### Linux x86_64
+
+```bash
+conda activate docking
+
+curl -L -o "$CONDA_PREFIX/bin/vina" \
+  "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64"
+
+chmod +x "$CONDA_PREFIX/bin/vina"
+
+which vina
+vina --version
+```
+
+Expected result:
+
+```text
+AutoDock Vina v1.2.7
+```
+
+### If the conda-installed `vina` exists but is broken
+
+You can replace it:
+
+```bash
+conda activate docking
+
+rm -f "$CONDA_PREFIX/bin/vina"
+
+curl -L -o "$CONDA_PREFIX/bin/vina" \
+  "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_mac_aarch64"
+
+chmod +x "$CONDA_PREFIX/bin/vina"
+
+which vina
+vina --version
+```
+
+Use the matching download URL for your platform.
+
+### Optional: install Vina through conda first
+
+This may work on many systems:
+
+```bash
+conda activate docking
+conda install -c conda-forge vina
+
+which vina
+vina --version
+```
+
+If that fails, use the manual binary install above.
+
+---
+
+<a id="running-locally"></a>
+
+## Running Locally
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/Joey305/autodock-WEBSERVER.git
+cd autodock-WEBSERVER
+```
+
+### 2. Create the conda environment
+
+```bash
+conda env create -f docking.yaml
+conda activate docking
+```
+
+### 3. Verify required executables
+
+```bash
+which python
+python --version
+
+which obabel
+obabel -V
+
+which vina
+vina --version
+```
+
+If `vina` is missing, follow [Manual Vina Binary Install](#manual-vina-binary-install).
+
+### 4. Start the development server
+
+```bash
+python app.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:5050
+```
+
+Alternative Flask CLI:
+
+```bash
+flask --app app:create_app run --debug --port 5050
+```
+
+---
+
+## Environment Variables
+
+| Variable               | Purpose                                                       |
+| ---------------------- | ------------------------------------------------------------- |
+| `PORTAL_SECRET`        | Flask secret key                                              |
+| `PORTAL_DB`            | SQLAlchemy database URI                                       |
+| `PORTAL_TMP`           | Workspace root; defaults to `/tmp/autodock_prep`              |
+| `PORTAL_MAX_RECEPTORS` | Maximum receptors allowed in one workspace                    |
+| `PORTAL_ENV_LINE`      | Optional environment line inserted into generated LSF scripts |
+| `PORTAL_PUBLIC_EMAIL`  | Placeholder identity for public mode                          |
+| `PUBLIC_MODE`          | Enables public mode when true                                 |
+| `ENABLE_AUTH`          | Enables login/auth behavior when true                         |
+| `ENABLE_LSF_PACKAGE`   | Allows LSF package generation                                 |
+| `DEFAULT_PACKAGE_MODE` | Default package mode: `portable` or `lsf`                     |
+| `BABEL_LIBDIR`         | Open Babel plugin directory, important for some deployments   |
+
+Example local environment:
+
+```bash
+export PORTAL_SECRET="change-me"
+export PUBLIC_MODE=true
+export ENABLE_AUTH=false
+export PORTAL_TMP="/tmp/autodock_prep"
+```
 
 ---
 
@@ -619,7 +933,7 @@ Example/Ligand_SDF/DR7.sdf
 
 The walkthrough below uses the same staged API flow, but points to the repository example ligand.
 
-### Run the example from the repository root
+### Option A — Run from the repository root
 
 ```bash
 BASE="https://autodockvina.com"
@@ -631,7 +945,25 @@ echo "Using LIGAND=$LIGAND"
 ls -lh "$LIGAND"
 ```
 
-Create the workspace:
+### Option B — Download the ligand directly from GitHub
+
+Use this if you are not inside the repository:
+
+```bash
+mkdir -p PrepServer_DR7_API_Demo
+cd PrepServer_DR7_API_Demo
+
+curl -L -o DR7.sdf \
+  https://raw.githubusercontent.com/Joey305/autodock-WEBSERVER/main/Example/Ligand_SDF/DR7.sdf
+
+BASE="https://autodockvina.com"
+JOB="dr7-example-$(date +%s)"
+LIGAND="DR7.sdf"
+
+ls -lh "$LIGAND"
+```
+
+### Create the workspace
 
 ```bash
 curl -sS -X POST "$BASE/api/v1/workspaces" \
@@ -640,7 +972,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces" \
 echo ""
 ```
 
-Fetch receptor `3EKY`, chain `A`:
+### Fetch receptor `3EKY`, chain `A`
 
 ```bash
 curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" \
@@ -649,7 +981,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" \
 echo ""
 ```
 
-Save an example XYZ docking box:
+### Save an example XYZ docking box
 
 ```bash
 curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" \
@@ -663,7 +995,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" \
 echo ""
 ```
 
-Prepare receptor:
+### Prepare receptor
 
 ```bash
 curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" \
@@ -676,7 +1008,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" \
 echo ""
 ```
 
-Confirm receptor preparation:
+### Confirm receptor preparation
 
 ```bash
 curl -sS "$BASE/api/v1/workspaces/$JOB/summary"
@@ -693,7 +1025,7 @@ Success should include:
 }
 ```
 
-Upload `DR7.sdf`:
+### Upload `DR7.sdf`
 
 ```bash
 curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
@@ -709,7 +1041,7 @@ curl -sS "$BASE/api/v1/workspaces/$JOB/ligands"
 echo ""
 ```
 
-Build a portable package:
+### Build a portable package
 
 ```bash
 curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
@@ -722,7 +1054,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
 echo ""
 ```
 
-Download the generated package:
+### Download the generated package
 
 ```bash
 curl -L -o "${JOB}_docking_package.zip" \
@@ -749,7 +1081,8 @@ set -e
 
 BASE="https://autodockvina.com"
 JOB="dr7-example-$(date +%s)"
-LIGAND="Example/Ligand_SDF/DR7.sdf"
+LIGAND="${1:-Example/Ligand_SDF/DR7.sdf}"
+DR7_URL="https://raw.githubusercontent.com/Joey305/autodock-WEBSERVER/main/Example/Ligand_SDF/DR7.sdf"
 
 echo "======================================"
 echo " AutoDock-Vina PrepServer DR7 Example"
@@ -759,6 +1092,12 @@ echo "BASE:   $BASE"
 echo "JOB:    $JOB"
 echo "LIGAND: $LIGAND"
 echo ""
+
+if [ ! -f "$LIGAND" ]; then
+  echo "Ligand not found locally. Downloading DR7.sdf..."
+  LIGAND="DR7.sdf"
+  curl -L -o "$LIGAND" "$DR7_URL"
+fi
 
 echo "0) Confirm local example ligand"
 ls -lh "$LIGAND"
@@ -852,6 +1191,26 @@ chmod +x run_dr7_example.sh
 
 ---
 
+## Optional SMILES / SMI Ligand Example
+
+If you do not have an SDF file, you can create a simple `.smi` ligand file and upload it through the same ligand endpoint.
+
+```bash
+cat > example_ligand.smi <<'EOF'
+CC(=O)Oc1ccccc1C(=O)O aspirin_example
+EOF
+
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@example_ligand.smi"
+echo ""
+
+curl -sS "$BASE/api/v1/workspaces/$JOB/ligands"
+echo ""
+```
+
+---
+
 ## What is inside the downloaded ZIP?
 
 A generated portable package typically contains:
@@ -882,6 +1241,29 @@ Read the package-specific instructions:
 ```bash
 find . -name "README_RUN_LOCAL.md" -print
 ```
+
+---
+
+## Running a Downloaded Package
+
+After downloading and unzipping a package from AutoDock-Vina PrepServer:
+
+```bash
+unzip my_docking_package.zip -d my_docking_package
+cd my_docking_package
+
+conda activate docking
+bash run_all_local.sh
+```
+
+If ligand preparation is already complete and you only want to run docking:
+
+```bash
+conda activate docking
+bash run_vina_local.sh
+```
+
+If this fails with `vina: command not found`, return to [Manual Vina Binary Install](#manual-vina-binary-install).
 
 ---
 
@@ -998,81 +1380,6 @@ Only use LSF mode in environments where the scheduler assumptions match your com
 
 ---
 
-## Local Development
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/Joey305/autodock-WEBSERVER.git
-cd autodock-WEBSERVER
-```
-
-### 2. Create a Python environment
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3. Install Python dependencies
-
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 4. Install external tools
-
-The full receptor-preparation workflow requires Open Babel:
-
-```bash
-obabel -V
-```
-
-Generated docking packages require AutoDock Vina when the package is executed:
-
-```bash
-vina --version
-```
-
-### 5. Run the app locally
-
-```bash
-python3 app.py
-```
-
-Then open:
-
-```text
-http://127.0.0.1:5050
-```
-
-Alternative Flask CLI:
-
-```bash
-flask --app app:create_app run --debug --port 5050
-```
-
----
-
-## Environment Variables
-
-| Variable               | Purpose                                                       |
-| ---------------------- | ------------------------------------------------------------- |
-| `PORTAL_SECRET`        | Flask secret key                                              |
-| `PORTAL_DB`            | SQLAlchemy database URI                                       |
-| `PORTAL_TMP`           | Workspace root; defaults to `/tmp/autodock_prep`              |
-| `PORTAL_MAX_RECEPTORS` | Maximum receptors allowed in one workspace                    |
-| `PORTAL_ENV_LINE`      | Optional environment line inserted into generated LSF scripts |
-| `PORTAL_PUBLIC_EMAIL`  | Placeholder identity for public mode                          |
-| `PUBLIC_MODE`          | Enables public mode when true                                 |
-| `ENABLE_AUTH`          | Enables login/auth behavior when true                         |
-| `ENABLE_LSF_PACKAGE`   | Allows LSF package generation                                 |
-| `DEFAULT_PACKAGE_MODE` | Default package mode: `portable` or `lsf`                     |
-| `BABEL_LIBDIR`         | Open Babel plugin directory, important for some deployments   |
-
----
-
 <a id="deployment-notes"></a>
 
 ## Deployment Notes
@@ -1182,6 +1489,7 @@ Manual success checklist:
 * ligand upload shows `accepted_count: 1`
 * build returns a `job.zip`
 * download creates a local ZIP file
+* `conda activate docking && vina --version` works before running the downloaded package
 
 ---
 
@@ -1280,6 +1588,14 @@ On Heroku:
 heroku run --no-tty "which obabel && obabel -V" --app autodockvina
 ```
 
+For local conda installs:
+
+```bash
+conda activate docking
+conda install -c conda-forge openbabel
+obabel -V
+```
+
 ---
 
 ### Open Babel plugin error
@@ -1290,7 +1606,7 @@ Example log:
 Unable to find OpenBabel plugins. Try setting the BABEL_LIBDIR environment variable.
 ```
 
-Fix:
+Fix on Heroku:
 
 ```bash
 heroku run --no-tty "find /app/.apt -type f \( -name 'pdbformat.so' -o -name 'pdbqtformat.so' -o -name 'plugindefines.txt' \) -print" --app autodockvina
@@ -1323,6 +1639,54 @@ Look at the returned `log` text. Common causes include:
 * malformed receptor input
 * unsupported conversion behavior
 * invalid or empty cleaned receptor file
+
+---
+
+### `vina: command not found`
+
+If a generated docking package fails with:
+
+```text
+vina: command not found
+```
+
+activate the environment:
+
+```bash
+conda activate docking
+```
+
+Then check:
+
+```bash
+which vina
+vina --version
+```
+
+If `which vina` returns nothing, install Vina manually:
+
+```bash
+curl -L -o "$CONDA_PREFIX/bin/vina" \
+  "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_mac_aarch64"
+
+chmod +x "$CONDA_PREFIX/bin/vina"
+
+which vina
+vina --version
+```
+
+Use the matching binary URL for your operating system.
+
+---
+
+### `Permission denied` when running Vina
+
+If Vina exists but will not execute:
+
+```bash
+chmod +x "$CONDA_PREFIX/bin/vina"
+vina --version
+```
 
 ---
 
