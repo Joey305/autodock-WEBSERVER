@@ -813,28 +813,46 @@ def create_app() -> Flask:
         ws = _ws(jobname)
         if not ws.exists():
             return ("workspace missing", 400)
-        rec_dir = ensure_subdir(ws, "Receptors")
 
+        rec_dir = ensure_subdir(ws, "Receptors")
         st = _load_state(ws)
         recs = st.get("receptors", [])
+
         if not recs:
             return ("Add receptors first.", 400)
 
         csv_map = _read_centers(ws, st)
         expected = [Path(r["rel"]).name for r in recs]
-        expected = [n.replace(".pdb", ".pdbqt").replace(".cif", ".pdbqt")
-                    .replace(".mmcif", ".pdbqt").replace(".ent", ".pdbqt") for n in expected]
+        expected = [
+            n.replace(".pdb", ".pdbqt")
+             .replace(".cif", ".pdbqt")
+             .replace(".mmcif", ".pdbqt")
+             .replace(".ent", ".pdbqt")
+            for n in expected
+        ]
+
         if not all(n in csv_map for n in expected):
             return ("Centers CSV missing one or more receptors. Save a center for each receptor first.", 400)
 
         remove_hets = []
         remove_all_hets = False
+
         if f.get("remove_het_csv"):
             if f.get("remove_het_csv").lower() == "all":
                 remove_all_hets = True
             else:
-                remove_hets = [x.strip().upper() for x in f.get("remove_het_csv").split(",") if x.strip()]
-        remove_chains = [x.strip().upper() for x in f.get("remove_chains_csv","").split(",") if x.strip()]
+                remove_hets = [
+                    x.strip().upper()
+                    for x in f.get("remove_het_csv").split(",")
+                    if x.strip()
+                ]
+
+        remove_chains = [
+            x.strip().upper()
+            for x in f.get("remove_chains_csv", "").split(",")
+            if x.strip()
+        ]
+
         altloc_mode = f.get("altloc", "collapse")
 
         out_dir = (rec_dir.parent / "Receptors_PDBQT").resolve()
@@ -847,18 +865,115 @@ def create_app() -> Flask:
                 cleaned_path = ws / f"{Path(r['rel']).stem}_clean.pdb"
                 out_path = out_dir / Path(r["rel"]).with_suffix(".pdbqt").name
 
-                _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
+                try:
+                    _clean_pdb(
+                        in_path,
+                        cleaned_path,
+                        remove_hets,
+                        remove_chains,
+                        remove_all_hets,
+                        altloc_mode,
+                    )
+                except Exception as exc:
+                    logf.write(f"[ERROR] Failed to clean {in_path}: {exc}\n")
+                    st["prep_job"] = {
+                        "pid": None,
+                        "log": str(log_path),
+                        "out_dir": str(out_dir),
+                    }
+                    _save_state(ws, st)
+                    return jsonify({
+                        "ok": False,
+                        "error": "receptor_cleaning_failed",
+                        "message": f"Failed to clean receptor {Path(r['rel']).name}.",
+                        "details": {
+                            "receptor": r.get("rel"),
+                            "input": str(in_path),
+                            "log": str(log_path),
+                            "exception": str(exc),
+                        },
+                    }), 500
 
                 cmd = ["obabel", str(cleaned_path), "-O", str(out_path), "-xr"]
                 logf.write(f"Running: {' '.join(cmd)}\n")
-                result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
+
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        stdout=logf,
+                        stderr=subprocess.STDOUT,
+                    )
+                except FileNotFoundError:
+                    logf.write("[ERROR] obabel executable was not found on PATH.\n")
+                    st["prep_job"] = {
+                        "pid": None,
+                        "log": str(log_path),
+                        "out_dir": str(out_dir),
+                    }
+                    _save_state(ws, st)
+                    return jsonify({
+                        "ok": False,
+                        "error": "obabel_missing",
+                        "message": "Open Babel CLI executable `obabel` is not installed or not available on PATH.",
+                        "details": {
+                            "cmd": cmd,
+                            "log": str(log_path),
+                            "hint": "Install Open Babel on Heroku using an Aptfile or another buildpack/system dependency method.",
+                        },
+                    }), 500
+                except Exception as exc:
+                    logf.write(f"[ERROR] Failed to run obabel: {exc}\n")
+                    st["prep_job"] = {
+                        "pid": None,
+                        "log": str(log_path),
+                        "out_dir": str(out_dir),
+                    }
+                    _save_state(ws, st)
+                    return jsonify({
+                        "ok": False,
+                        "error": "obabel_execution_failed",
+                        "message": "Open Babel execution failed unexpectedly.",
+                        "details": {
+                            "cmd": cmd,
+                            "log": str(log_path),
+                            "exception": str(exc),
+                        },
+                    }), 500
+
                 if result.returncode != 0 or not out_path.exists():
                     logf.write(f"[ERROR] Failed to convert {in_path}\n")
+                    st["prep_job"] = {
+                        "pid": None,
+                        "log": str(log_path),
+                        "out_dir": str(out_dir),
+                    }
+                    _save_state(ws, st)
+                    return jsonify({
+                        "ok": False,
+                        "error": "receptor_conversion_failed",
+                        "message": f"Failed to convert receptor {Path(r['rel']).name} to PDBQT.",
+                        "details": {
+                            "cmd": cmd,
+                            "returncode": result.returncode,
+                            "input": str(in_path),
+                            "cleaned": str(cleaned_path),
+                            "output": str(out_path),
+                            "log": str(log_path),
+                        },
+                    }), 500
 
-        st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
+        st["prep_job"] = {
+            "pid": None,
+            "log": str(log_path),
+            "out_dir": str(out_dir),
+        }
         _save_state(ws, st)
-        return jsonify({"done": True, "out_dir": str(out_dir)})
 
+        return jsonify({
+            "done": True,
+            "out_dir": str(out_dir),
+            "log": str(log_path),
+        })
 
     
     # ---------- 3a CONVERSION (single) ----------
@@ -869,26 +984,44 @@ def create_app() -> Flask:
         jobname = f.get("jobname", "")
         rel = f.get("rel", "")
         ws = _ws(jobname)
+
         if not ws.exists() or not rel:
             return ("workspace or rel missing", 400)
-        rec_dir = ensure_subdir(ws, "Receptors")
 
+        rec_dir = ensure_subdir(ws, "Receptors")
         st = _load_state(ws)
+
         csv_map = _read_centers(ws, st)
         name = Path(rel).name
-        expected = name.replace(".pdb",".pdbqt").replace(".cif",".pdbqt") \
-                    .replace(".mmcif",".pdbqt").replace(".ent",".pdbqt")
+        expected = (
+            name.replace(".pdb", ".pdbqt")
+                .replace(".cif", ".pdbqt")
+                .replace(".mmcif", ".pdbqt")
+                .replace(".ent", ".pdbqt")
+        )
+
         if expected not in csv_map:
             return ("Save a center for this receptor first.", 400)
 
         remove_hets = []
         remove_all_hets = False
+
         if f.get("remove_het_csv"):
             if f.get("remove_het_csv").lower() == "all":
                 remove_all_hets = True
             else:
-                remove_hets = [x.strip().upper() for x in f.get("remove_het_csv").split(",") if x.strip()]
-        remove_chains = [x.strip().upper() for x in f.get("remove_chains_csv","").split(",") if x.strip()]
+                remove_hets = [
+                    x.strip().upper()
+                    for x in f.get("remove_het_csv").split(",")
+                    if x.strip()
+                ]
+
+        remove_chains = [
+            x.strip().upper()
+            for x in f.get("remove_chains_csv", "").split(",")
+            if x.strip()
+        ]
+
         altloc_mode = f.get("altloc", "collapse")
 
         out_dir = (rec_dir.parent / "Receptors_PDBQT").resolve()
@@ -899,20 +1032,122 @@ def create_app() -> Flask:
         cleaned_path = ws / f"{Path(name).stem}_clean.pdb"
         out_path = out_dir / Path(name).with_suffix(".pdbqt").name
 
-        _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
+        try:
+            _clean_pdb(
+                in_path,
+                cleaned_path,
+                remove_hets,
+                remove_chains,
+                remove_all_hets,
+                altloc_mode,
+            )
+        except Exception as exc:
+            with open(log_path, "a") as logf:
+                logf.write(f"[ERROR] Failed to clean {in_path}: {exc}\n")
+
+            st["prep_job"] = {
+                "pid": None,
+                "log": str(log_path),
+                "out_dir": str(out_dir),
+            }
+            _save_state(ws, st)
+
+            return jsonify({
+                "ok": False,
+                "error": "receptor_cleaning_failed",
+                "message": f"Failed to clean receptor {name}.",
+                "details": {
+                    "receptor": rel,
+                    "input": str(in_path),
+                    "log": str(log_path),
+                    "exception": str(exc),
+                },
+            }), 500
 
         with open(log_path, "a") as logf:
             cmd = ["obabel", str(cleaned_path), "-O", str(out_path), "-xr"]
             logf.write(f"Running: {' '.join(cmd)}\n")
-            result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    stdout=logf,
+                    stderr=subprocess.STDOUT,
+                )
+            except FileNotFoundError:
+                logf.write("[ERROR] obabel executable was not found on PATH.\n")
+                st["prep_job"] = {
+                    "pid": None,
+                    "log": str(log_path),
+                    "out_dir": str(out_dir),
+                }
+                _save_state(ws, st)
+
+                return jsonify({
+                    "ok": False,
+                    "error": "obabel_missing",
+                    "message": "Open Babel CLI executable `obabel` is not installed or not available on PATH.",
+                    "details": {
+                        "cmd": cmd,
+                        "log": str(log_path),
+                        "hint": "Install Open Babel on Heroku using an Aptfile or another buildpack/system dependency method.",
+                    },
+                }), 500
+            except Exception as exc:
+                logf.write(f"[ERROR] Failed to run obabel: {exc}\n")
+                st["prep_job"] = {
+                    "pid": None,
+                    "log": str(log_path),
+                    "out_dir": str(out_dir),
+                }
+                _save_state(ws, st)
+
+                return jsonify({
+                    "ok": False,
+                    "error": "obabel_execution_failed",
+                    "message": "Open Babel execution failed unexpectedly.",
+                    "details": {
+                        "cmd": cmd,
+                        "log": str(log_path),
+                        "exception": str(exc),
+                    },
+                }), 500
+
             if result.returncode != 0 or not out_path.exists():
                 logf.write(f"[ERROR] Failed to convert {in_path}\n")
+                st["prep_job"] = {
+                    "pid": None,
+                    "log": str(log_path),
+                    "out_dir": str(out_dir),
+                }
+                _save_state(ws, st)
 
-        st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
+                return jsonify({
+                    "ok": False,
+                    "error": "receptor_conversion_failed",
+                    "message": f"Failed to convert receptor {name} to PDBQT.",
+                    "details": {
+                        "cmd": cmd,
+                        "returncode": result.returncode,
+                        "input": str(in_path),
+                        "cleaned": str(cleaned_path),
+                        "output": str(out_path),
+                        "log": str(log_path),
+                    },
+                }), 500
+
+        st["prep_job"] = {
+            "pid": None,
+            "log": str(log_path),
+            "out_dir": str(out_dir),
+        }
         _save_state(ws, st)
-        return jsonify({"done": True, "out": str(out_path)})
 
-
+        return jsonify({
+            "done": True,
+            "out": str(out_path),
+            "log": str(log_path),
+        })
 
 
 
@@ -1442,9 +1677,38 @@ def create_app() -> Flask:
                 _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
                 cmd = ["obabel", str(cleaned_path), "-O", str(out_path), "-xr"]
                 logf.write(f"Running: {' '.join(cmd)}\n")
-                result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
+
+                try:
+                    result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
+                except FileNotFoundError:
+                    logf.write("[ERROR] obabel executable was not found on PATH.\n")
+                    st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
+                    _save_state(ws, st)
+                    return _v1_error(
+                        "obabel_missing",
+                        "Open Babel CLI executable `obabel` is not installed or not available on PATH.",
+                        500,
+                        {
+                            "cmd": cmd,
+                            "log": str(log_path),
+                            "hint": "Install Open Babel on Heroku using an Aptfile or another buildpack/system dependency method."
+                        }
+                    )
+
                 if result.returncode != 0 or not out_path.exists():
                     logf.write(f"[ERROR] Failed to convert {in_path}\n")
+                    st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
+                    _save_state(ws, st)
+                    return _v1_error(
+                        "receptor_conversion_failed",
+                        f"Failed to convert receptor {Path(r['rel']).name} to PDBQT.",
+                        500,
+                        {
+                            "cmd": cmd,
+                            "returncode": result.returncode,
+                            "log": str(log_path)
+                        }
+                    )
         st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
         _save_state(ws, st)
         return _v1_ok({"jobname": jobname, "done": True, "out_dir": str(out_dir), "log": str(log_path)})
