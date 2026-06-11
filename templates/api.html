@@ -1,15 +1,16 @@
 {% extends 'base.html' %}
 {% block title %}Headless API Documentation | AutoDock-Vina PrepServer{% endblock %}
-{% block meta_description %}Headless API documentation for AutoDock-Vina PrepServer, including workspace creation, receptor upload, docking center resolution, protein preparation, ligand upload, package generation, artifact listing, and ZIP download endpoints.{% endblock %}
+{% block meta_description %}Complete headless API documentation for AutoDock-Vina PrepServer, including workspace creation, receptor fetch/upload, docking center definition, receptor preparation, ligand upload, package generation, artifact listing, ZIP download, and a full DR7 example workflow.{% endblock %}
 
 {% block content %}
+
 <section class="page-hero compact">
   <span class="eyebrow">Headless API documentation</span>
-  <h1>Script reproducible AutoDock Vina package preparation.</h1>
+  <h1>Script complete AutoDock Vina package preparation.</h1>
   <p>
-    AutoDock-Vina PrepServer exposes a staged JSON/form API for creating docking workspaces,
-    uploading receptors, saving docking centers, preparing receptor files, uploading ligands,
-    building downloadable packages, and retrieving artifacts.
+    AutoDock-Vina PrepServer exposes a staged API for creating docking workspaces,
+    preparing receptor PDBQT files, uploading ligands, building reproducible docking packages,
+    and downloading ready-to-run ZIP archives.
   </p>
 
   <div class="hero-actions">
@@ -17,22 +18,34 @@
       <i class="bi bi-box-seam me-2"></i>Use browser workflow
     </a>
 
-    {% if repository_url is defined %}
-      <a class="btn btn-app-ghost btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
-        <i class="bi bi-github me-2"></i>View GitHub repository
-      </a>
-    {% endif %}
+```
+<a class="btn btn-app-ghost btn-lg" href="https://autodockvina.com" target="_blank" rel="noopener noreferrer">
+  <i class="bi bi-globe2 me-2"></i>Open autodockvina.com
+</a>
+
+{% if repository_url is defined %}
+  <a class="btn btn-app-ghost btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
+    <i class="bi bi-github me-2"></i>View GitHub repository
+  </a>
+{% endif %}
+```
+
   </div>
 </section>
 
 <section class="notice-card">
   <i class="bi bi-info-circle"></i>
   <div>
-    <h2>API design</h2>
+    <h2>What this API does</h2>
     <p>
-      The API is intentionally staged instead of being a single black-box endpoint. Each step produces a visible state:
-      workspace creation, receptor intake, center definition, protein preparation, ligand upload, package build, and artifact download.
-      This makes docking-preparation failures easier to diagnose.
+      The API walks through the same staged workflow as the browser interface:
+      create a workspace, add a receptor, save a docking box, prepare receptor PDBQT files,
+      upload ligands, build a package, and download the final ZIP.
+    </p>
+    <p>
+      It is intentionally not a single black-box endpoint. Each step returns stateful JSON,
+      making failed receptor conversion, missing centers, ligand upload issues, and package-building
+      problems easier to diagnose.
     </p>
   </div>
 </section>
@@ -40,25 +53,21 @@
 <section class="content-grid two-col">
   <article class="info-card">
     <h2><i class="bi bi-link-45deg"></i> Base URL</h2>
-    <p>
-      Use the deployment domain as the base URL. For the public site, examples use:
-    </p>
+    <p>For the public deployment, use:</p>
     <pre><code>https://autodockvina.com</code></pre>
   </article>
 
   <article class="info-card">
-    <h2><i class="bi bi-shield-lock"></i> Authentication note</h2>
-    <p>
-      Public deployments may run in public-access mode. Private deployments can enable authentication through server configuration.
-      API behavior may depend on how the instance is deployed.
-    </p>
+    <h2><i class="bi bi-terminal"></i> Requirements</h2>
+    <p>For the examples below, you only need a terminal with:</p>
+    <pre><code>curl
+bash
+unzip</code></pre>
   </article>
 
   <article class="info-card">
     <h2><i class="bi bi-filetype-json"></i> Response format</h2>
-    <p>
-      Versioned API endpoints generally return JSON with this structure:
-    </p>
+    <p>Versioned endpoints return JSON in this general form:</p>
     <pre><code>{
   "ok": true,
   "data": {},
@@ -67,19 +76,20 @@
   </article>
 
   <article class="info-card">
-    <h2><i class="bi bi-exclamation-triangle"></i> Data caution</h2>
+    <h2><i class="bi bi-shield-lock"></i> Data caution</h2>
     <p>
-      Do not upload confidential receptor structures, proprietary ligand libraries, or sensitive project data to a public deployment
-      unless the instance is explicitly configured for that purpose.
+      Do not upload confidential receptor structures, proprietary ligand libraries,
+      or sensitive project data to a public deployment unless the instance is explicitly
+      configured for that purpose.
     </p>
   </article>
 </section>
 
-<section class="page-hero compact">
-  <span class="eyebrow">Quick API flow</span>
-  <h1>Typical scripted docking-preparation sequence.</h1>
+<section class="page-hero compact" id="workflow-overview">
+  <span class="eyebrow">Workflow overview</span>
+  <h1>The complete API flow.</h1>
   <p>
-    A complete scripted workflow usually follows this order:
+    A full docking-preparation workflow follows these stages.
   </p>
 </section>
 
@@ -88,7 +98,7 @@
     <span class="timeline-number">1</span>
     <div>
       <h2>Create a workspace</h2>
-      <p>Create an isolated job workspace that stores receptors, centers, ligands, logs, and package artifacts.</p>
+      <p>Create an isolated server-side workspace for this docking job.</p>
       <pre><code>POST /api/v1/workspaces</code></pre>
     </div>
   </article>
@@ -96,28 +106,27 @@
   <article class="timeline-item">
     <span class="timeline-number">2</span>
     <div>
-      <h2>Add receptors</h2>
-      <p>Upload receptor files or fetch a receptor by PDB ID.</p>
-      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/receptors/upload
-POST /api/v1/workspaces/&lt;jobname&gt;/receptors/fetch</code></pre>
+      <h2>Add a receptor</h2>
+      <p>Fetch a receptor from the PDB or upload your own receptor file.</p>
+      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/receptors/fetch
+POST /api/v1/workspaces/&lt;jobname&gt;/receptors/upload</code></pre>
     </div>
   </article>
 
   <article class="timeline-item">
     <span class="timeline-number">3</span>
     <div>
-      <h2>Resolve and save docking centers</h2>
-      <p>Resolve a center from XYZ coordinates, ligand/residue selection, or supported receptor-based methods, then save it.</p>
-      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/centers/resolve
-POST /api/v1/workspaces/&lt;jobname&gt;/centers/save</code></pre>
+      <h2>Save a docking center</h2>
+      <p>Save an XYZ docking box center and box size for the receptor.</p>
+      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/centers/save</code></pre>
     </div>
   </article>
 
   <article class="timeline-item">
     <span class="timeline-number">4</span>
     <div>
-      <h2>Prepare receptors</h2>
-      <p>Generate receptor preparation outputs and logs for downstream package assembly.</p>
+      <h2>Prepare receptor PDBQT</h2>
+      <p>Clean the receptor and convert it to a docking-ready PDBQT file.</p>
       <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/prep/start
 GET  /api/v1/workspaces/&lt;jobname&gt;/prep/status</code></pre>
     </div>
@@ -126,8 +135,8 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/prep/status</code></pre>
   <article class="timeline-item">
     <span class="timeline-number">5</span>
     <div>
-      <h2>Upload ligands</h2>
-      <p>Upload SDF, SMILES, SMI, CSV, ZIP, or folder-based ligand inputs where enabled.</p>
+      <h2>Upload ligand input</h2>
+      <p>Upload an SDF, SMI, SMILES, CSV, ZIP, or folder-style ligand input.</p>
       <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/ligands/upload
 GET  /api/v1/workspaces/&lt;jobname&gt;/ligands</code></pre>
     </div>
@@ -137,7 +146,7 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/ligands</code></pre>
     <span class="timeline-number">6</span>
     <div>
       <h2>Build and download package</h2>
-      <p>Build the ZIP package, list available artifacts, and download the generated package.</p>
+      <p>Build the docking package, list artifacts, and download the final ZIP.</p>
       <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/build
 GET  /api/v1/workspaces/&lt;jobname&gt;/artifacts
 GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
@@ -145,7 +154,396 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
   </article>
 </section>
 
-<section class="page-hero compact">
+<section class="page-hero compact" id="real-example">
+  <span class="eyebrow">Complete walkthrough</span>
+  <h1>Run a real example with receptor 3EKY and ligand DR7.</h1>
+  <p>
+    This example downloads the repository ligand file <code>Example/Ligand_SDF/DR7.sdf</code>,
+    fetches receptor <code>3EKY</code> chain <code>A</code>, prepares the receptor,
+    uploads the ligand, builds a portable docking package, and downloads the final ZIP.
+  </p>
+
+  <div class="hero-actions">
+    <a class="btn btn-app-primary" href="https://github.com/Joey305/autodock-WEBSERVER/blob/main/Example/Ligand_SDF/DR7.sdf" target="_blank" rel="noopener noreferrer">
+      <i class="bi bi-github me-2"></i>View DR7.sdf on GitHub
+    </a>
+    <a class="btn btn-app-ghost" href="https://raw.githubusercontent.com/Joey305/autodock-WEBSERVER/main/Example/Ligand_SDF/DR7.sdf" target="_blank" rel="noopener noreferrer">
+      <i class="bi bi-download me-2"></i>Download raw DR7.sdf
+    </a>
+  </div>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-lightbulb"></i>
+  <div>
+    <h2>What this example demonstrates</h2>
+    <p>
+      The example uses a real ligand file from the repository and a receptor fetched directly
+      from the PDB. The final artifact is a downloadable ZIP containing the prepared receptor,
+      ligand input, centers CSV, runner scripts, and package-specific instructions.
+    </p>
+  </div>
+</section>
+
+<section class="doc-grid">
+  <article class="doc-card">
+    <h2><i class="bi bi-1-circle"></i> Create an example folder</h2>
+    <p>Start in a clean folder so the downloaded ZIP is easy to find.</p>
+    <pre><code>mkdir -p PrepServer_DR7_API_Demo
+cd PrepServer_DR7_API_Demo</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-2-circle"></i> Download DR7 ligand</h2>
+    <p>Download the example ligand from the repository raw file URL.</p>
+    <pre><code>curl -L -o DR7.sdf \
+  https://raw.githubusercontent.com/Joey305/autodock-WEBSERVER/main/Example/Ligand_SDF/DR7.sdf
+
+ls -lh DR7.sdf</code></pre>
+
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-3-circle"></i> Set variables</h2>
+    <p>Use a timestamped workspace name to avoid collisions.</p>
+    <pre><code>BASE="https://autodockvina.com"
+JOB="dr7-example-$(date +%s)"
+LIGAND="DR7.sdf"
+
+echo "Using JOB=$JOB"
+echo "Using LIGAND=$LIGAND"</code></pre>
+
+  </article>
+</section>
+
+<section class="page-hero compact" id="copy-paste-dr7-script">
+  <span class="eyebrow">One-shot DR7 script</span>
+  <h1>Copy, paste, and run the full workflow.</h1>
+  <p>
+    This script performs the complete staged API workflow from ligand download to ZIP download.
+  </p>
+</section>
+
+<section class="info-card">
+  <h2><i class="bi bi-terminal"></i> Full DR7 API example</h2>
+  <pre><code>cat &gt; run_dr7_prepserver_api_demo.sh &lt;&lt;'EOF'
+#!/usr/bin/env bash
+set -e
+
+BASE="https://autodockvina.com"
+JOB="dr7-example-$(date +%s)"
+LIGAND="DR7.sdf"
+DR7_URL="https://raw.githubusercontent.com/Joey305/autodock-WEBSERVER/main/Example/Ligand_SDF/DR7.sdf"
+
+echo "=========================================="
+echo " AutoDock-Vina PrepServer DR7 API Example"
+echo "=========================================="
+echo ""
+echo "BASE:   $BASE"
+echo "JOB:    $JOB"
+echo "LIGAND: $LIGAND"
+echo ""
+
+echo "0) Download example ligand"
+curl -L -o "$LIGAND" "$DR7_URL"
+ls -lh "$LIGAND"
+echo ""
+
+echo "1) Health check"
+curl -sS "$BASE/api/v1/health"
+echo ""
+echo ""
+
+echo "2) Create workspace"
+curl -sS -X POST "$BASE/api/v1/workspaces" 
+-H "Content-Type: application/json" 
+-d "{"workspace_name":"$JOB"}"
+echo ""
+echo ""
+
+echo "3) Fetch receptor 3EKY chain A"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" 
+-H "Content-Type: application/json" 
+-d '{"pdb_id":"3EKY","chains":"A"}'
+echo ""
+echo ""
+
+echo "4) Save example docking center"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" 
+-H "Content-Type: application/json" 
+-d '{
+"method":"xyz",
+"receptor":"Receptors/3eky.pdb",
+"center":[10.5, 22.1, -3.4],
+"size":20
+}'
+echo ""
+echo ""
+
+echo "5) Confirm saved centers"
+curl -sS "$BASE/api/v1/workspaces/$JOB/centers"
+echo ""
+echo ""
+
+echo "6) Prepare receptor"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" 
+-H "Content-Type: application/json" 
+-d '{
+"remove_hets":"all",
+"remove_chains":"",
+"altloc":"collapse"
+}'
+echo ""
+echo ""
+
+echo "7) Check receptor-preparation status"
+curl -sS "$BASE/api/v1/workspaces/$JOB/prep/status"
+echo ""
+echo ""
+
+echo "8) Check summary before ligand upload"
+curl -sS "$BASE/api/v1/workspaces/$JOB/summary"
+echo ""
+echo ""
+
+echo "9) Upload DR7 ligand"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" 
+-F "mode=single" 
+-F "file=@$LIGAND"
+echo ""
+echo ""
+
+echo "10) Confirm ligand upload"
+curl -sS "$BASE/api/v1/workspaces/$JOB/ligands"
+echo ""
+echo ""
+
+echo "11) Build portable docking package"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" 
+-H "Content-Type: application/json" 
+-d '{
+"package_mode":"portable",
+"vina_poses":20,
+"confgen_poses":64
+}'
+echo ""
+echo ""
+
+echo "12) List generated artifacts"
+curl -sS "$BASE/api/v1/workspaces/$JOB/artifacts"
+echo ""
+echo ""
+
+echo "13) Download final ZIP"
+curl -L -o "${JOB}_docking_package.zip" 
+"$BASE/api/v1/workspaces/$JOB/download"
+echo ""
+echo ""
+
+echo "14) Confirm local ZIP"
+ls -lh "${JOB}_docking_package.zip"
+echo ""
+
+echo "Done."
+echo "Downloaded package: ${JOB}_docking_package.zip"
+EOF
+
+chmod +x run_dr7_prepserver_api_demo.sh
+./run_dr7_prepserver_api_demo.sh</code></pre>
+
+</section>
+
+<section class="page-hero compact" id="manual-walkthrough">
+  <span class="eyebrow">Manual staged walkthrough</span>
+  <h1>Run the same example one step at a time.</h1>
+  <p>
+    Use this section when you want to inspect each API response manually.
+  </p>
+</section>
+
+<section class="doc-grid">
+  <article class="doc-card">
+    <h2><i class="bi bi-heart-pulse"></i> 1. Health check</h2>
+    <pre><code>BASE="https://autodockvina.com"
+curl -sS "$BASE/api/v1/health"
+echo ""</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-folder-plus"></i> 2. Create workspace</h2>
+    <pre><code>JOB="dr7-example-$(date +%s)"
+
+curl -sS -X POST "$BASE/api/v1/workspaces" 
+-H "Content-Type: application/json" 
+-d "{"workspace_name":"$JOB"}"
+echo ""</code></pre>
+
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-cloud-download"></i> 3. Fetch receptor</h2>
+    <pre><code>curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" \
+  -H "Content-Type: application/json" \
+  -d '{"pdb_id":"3EKY","chains":"A"}'
+echo ""</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-bullseye"></i> 4. Save docking center</h2>
+    <pre><code>curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method":"xyz",
+    "receptor":"Receptors/3eky.pdb",
+    "center":[10.5, 22.1, -3.4],
+    "size":20
+  }'
+echo ""</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-list-check"></i> 5. Check centers</h2>
+    <pre><code>curl -sS "$BASE/api/v1/workspaces/$JOB/centers"
+echo ""</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-gear"></i> 6. Prepare receptor</h2>
+    <pre><code>curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "remove_hets":"all",
+    "remove_chains":"",
+    "altloc":"collapse"
+  }'
+echo ""</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-card-text"></i> 7. Check prep status</h2>
+    <pre><code>curl -sS "$BASE/api/v1/workspaces/$JOB/prep/status"
+echo ""</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-capsule"></i> 8. Download and upload DR7</h2>
+    <pre><code>curl -L -o DR7.sdf \
+  https://raw.githubusercontent.com/Joey305/autodock-WEBSERVER/main/Example/Ligand_SDF/DR7.sdf
+
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" 
+-F "mode=single" 
+-F "file=@DR7.sdf"
+echo ""</code></pre>
+
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-box-seam"></i> 9. Build package</h2>
+    <pre><code>curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"portable",
+    "vina_poses":20,
+    "confgen_poses":64
+  }'
+echo ""</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-download"></i> 10. Download ZIP</h2>
+    <pre><code>curl -L -o "${JOB}_docking_package.zip" \
+  "$BASE/api/v1/workspaces/$JOB/download"
+
+ls -lh "${JOB}_docking_package.zip"</code></pre>
+
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-check-circle"></i>
+  <div>
+    <h2>How to recognize success</h2>
+    <p>After receptor preparation, the summary should include:</p>
+    <pre><code>{
+  "converted_count": 1,
+  "converted_list": ["3eky.pdbqt"],
+  "prep_done": true,
+  "receptors_prepped": 1
+}</code></pre>
+    <p>After package build, the artifact list should include <code>job.zip</code>.</p>
+  </div>
+</section>
+
+<section class="page-hero compact" id="smiles-example">
+  <span class="eyebrow">Optional SMILES workflow</span>
+  <h1>Use a SMILES/SMI ligand file instead of SDF.</h1>
+  <p>
+    If you do not have an SDF file, you can create a simple <code>.smi</code> file locally
+    and upload it through the same ligand endpoint.
+  </p>
+</section>
+
+<section class="info-card">
+  <h2><i class="bi bi-code-slash"></i> Create and upload a simple SMI file</h2>
+  <p>
+    The first column is the SMILES string. The optional second column is a ligand ID.
+    Replace the example SMILES with your molecule of interest.
+  </p>
+  <pre><code>cat &gt; example_ligand.smi &lt;&lt;'EOF'
+CC(=O)Oc1ccccc1C(=O)O aspirin_example
+EOF
+
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" 
+-F "mode=single" 
+-F "file=@example_ligand.smi"
+echo ""
+
+curl -sS "$BASE/api/v1/workspaces/$JOB/ligands"
+echo ""</code></pre>
+
+</section>
+
+<section class="page-hero compact" id="package-contents">
+  <span class="eyebrow">Downloaded package</span>
+  <h1>What is inside the generated ZIP?</h1>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-archive"></i> Portable package layout</h2>
+    <pre><code>job/
+├── Receptors/
+├── Receptors_PDBQT/
+├── Ligands/
+├── vina_centers.csv
+├── run_confgen_local.sh
+├── run_vina_local.sh
+├── run_all_local.sh
+├── README_RUN_LOCAL.md
+└── bundled Python helper scripts</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-search"></i> Inspect the ZIP locally</h2>
+    <pre><code>unzip "${JOB}_docking_package.zip" -d "${JOB}_package"
+cd "${JOB}_package"
+find . -maxdepth 3 -type f | sort | head -80</code></pre>
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-info-circle"></i>
+  <div>
+    <h2>Why local <code>ls</code> does not show server files</h2>
+    <p>
+      Workspace files are created on the server under a path like
+      <code>/tmp/autodock_prep/&lt;jobname&gt;</code>. Your local folder only receives files
+      after you download the generated ZIP artifact.
+    </p>
+  </div>
+</section>
+
+<section class="page-hero compact" id="endpoint-reference">
   <span class="eyebrow">Endpoint reference</span>
   <h1>Available API endpoints.</h1>
 </section>
@@ -178,7 +576,7 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
       <tr>
         <td><code>GET</code></td>
         <td><code>/api/v1/workspaces/&lt;jobname&gt;/summary</code></td>
-        <td>Read workflow summary, receptor status, center rows, ligand state, and artifacts.</td>
+        <td>Read receptor status, center rows, ligand state, generated artifacts, and package readiness.</td>
       </tr>
       <tr>
         <td><code>POST</code></td>
@@ -188,7 +586,7 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
       <tr>
         <td><code>POST</code></td>
         <td><code>/api/v1/workspaces/&lt;jobname&gt;/receptors/fetch</code></td>
-        <td>Fetch a receptor by PDB ID where supported.</td>
+        <td>Fetch a receptor by PDB ID and optional chain selection.</td>
       </tr>
       <tr>
         <td><code>GET</code></td>
@@ -198,7 +596,7 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
       <tr>
         <td><code>POST</code></td>
         <td><code>/api/v1/workspaces/&lt;jobname&gt;/centers/resolve</code></td>
-        <td>Resolve a docking center from JSON payload input.</td>
+        <td>Resolve a docking center from JSON payload input without necessarily saving it.</td>
       </tr>
       <tr>
         <td><code>POST</code></td>
@@ -213,7 +611,7 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
       <tr>
         <td><code>POST</code></td>
         <td><code>/api/v1/workspaces/&lt;jobname&gt;/prep/start</code></td>
-        <td>Start receptor preparation/conversion for the workspace.</td>
+        <td>Prepare receptors and convert them into PDBQT outputs.</td>
       </tr>
       <tr>
         <td><code>GET</code></td>
@@ -233,7 +631,7 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
       <tr>
         <td><code>POST</code></td>
         <td><code>/api/v1/workspaces/&lt;jobname&gt;/build</code></td>
-        <td>Build a portable or deployment-configured docking package.</td>
+        <td>Build a portable or LSF-style docking package.</td>
       </tr>
       <tr>
         <td><code>GET</code></td>
@@ -243,106 +641,20 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
       <tr>
         <td><code>GET</code></td>
         <td><code>/api/v1/workspaces/&lt;jobname&gt;/download</code></td>
-        <td>Download the latest or requested artifact from a workspace.</td>
+        <td>Download the latest or requested ZIP artifact.</td>
       </tr>
     </tbody>
   </table>
 </section>
 
-<section class="page-hero compact">
-  <span class="eyebrow">Copy-paste examples</span>
-  <h1>Example requests with curl.</h1>
-</section>
-
-<section class="doc-grid">
-  <article class="doc-card">
-    <h2><i class="bi bi-heart-pulse"></i> Health check</h2>
-    <pre><code>curl https://autodockvina.com/api/v1/health</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-folder-plus"></i> Create workspace</h2>
-    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces \
-  -H "Content-Type: application/json" \
-  -d '{"workspace_name":"demo-docking-job"}'</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-cloud-download"></i> Fetch receptor by PDB ID</h2>
-    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/receptors/fetch \
-  -H "Content-Type: application/json" \
-  -d '{"pdb_id":"3EKY","chains":"A"}'</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-upload"></i> Upload receptor file</h2>
-    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/receptors/upload \
-  -F "mode=single" \
-  -F "file=@receptor.pdb"</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-bullseye"></i> Save XYZ docking center</h2>
-    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/centers/save \
-  -H "Content-Type: application/json" \
-  -d '{
-    "method":"xyz",
-    "receptor":"receptor.pdb",
-    "center":[10.5, 22.1, -3.4],
-    "size":20
-  }'</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-gear"></i> Start receptor preparation</h2>
-    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/prep/start \
-  -H "Content-Type: application/json" \
-  -d '{
-    "remove_hets":"all",
-    "remove_chains":"",
-    "altloc":"collapse"
-  }'</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-card-list"></i> Check preparation status</h2>
-    <pre><code>curl https://autodockvina.com/api/v1/workspaces/demo-docking-job/prep/status</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-capsule"></i> Upload ligand file</h2>
-    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/ligands/upload \
-  -F "mode=single" \
-  -F "file=@ligands.sdf"</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-archive"></i> Build package</h2>
-    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/build \
-  -H "Content-Type: application/json" \
-  -d '{
-    "package_mode":"portable",
-    "vina_poses":20,
-    "confgen_poses":64
-  }'</code></pre>
-  </article>
-
-  <article class="doc-card">
-    <h2><i class="bi bi-download"></i> Download artifact</h2>
-    <pre><code>curl -L -o docking_package.zip \
-  https://autodockvina.com/api/v1/workspaces/demo-docking-job/download</code></pre>
-  </article>
-</section>
-
-<section class="page-hero compact">
-  <span class="eyebrow">Payload notes</span>
-  <h1>Common request fields.</h1>
+<section class="page-hero compact" id="payload-reference">
+  <span class="eyebrow">Payload reference</span>
+  <h1>Common request bodies.</h1>
 </section>
 
 <section class="content-grid two-col">
   <article class="info-card">
     <h2>Workspace creation</h2>
-    <p>Useful fields:</p>
     <pre><code>{
   "workspace_name": "demo-docking-job",
   "reuse": false
@@ -350,8 +662,7 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
   </article>
 
   <article class="info-card">
-    <h2>Receptor fetch</h2>
-    <p>Useful fields:</p>
+    <h2>Fetch receptor</h2>
     <pre><code>{
   "pdb_id": "3EKY",
   "chains": "A"
@@ -359,19 +670,17 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
   </article>
 
   <article class="info-card">
-    <h2>XYZ center save</h2>
-    <p>Useful fields:</p>
+    <h2>Save XYZ docking center</h2>
     <pre><code>{
   "method": "xyz",
-  "receptor": "receptor.pdb",
+  "receptor": "Receptors/3eky.pdb",
   "center": [10.5, 22.1, -3.4],
   "size": 20
 }</code></pre>
   </article>
 
   <article class="info-card">
-    <h2>Preparation options</h2>
-    <p>Useful fields:</p>
+    <h2>Prepare receptor</h2>
     <pre><code>{
   "remove_hets": "all",
   "remove_chains": "",
@@ -380,49 +689,246 @@ GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
   </article>
 
   <article class="info-card">
-    <h2>Package build</h2>
-    <p>Useful fields:</p>
+    <h2>Build portable package</h2>
     <pre><code>{
   "package_mode": "portable",
   "vina_poses": 20,
-  "confgen_poses": 64,
-  "csv_smiles_col": "SMILES",
-  "csv_id_col": "ID"
+  "confgen_poses": 64
 }</code></pre>
   </article>
 
   <article class="info-card">
-    <h2>LSF package mode</h2>
-    <p>Useful fields when scheduler-oriented packaging is enabled:</p>
+    <h2>Build LSF package</h2>
     <pre><code>{
   "package_mode": "lsf",
   "workers": 16,
   "queue": "hihg",
   "project": "brd",
   "mem_per_core": 2000,
-  "vina_path": ""
+  "vina_poses": 20,
+  "confgen_poses": 64
 }</code></pre>
   </article>
 </section>
 
+<section class="page-hero compact" id="input-types">
+  <span class="eyebrow">Supported inputs</span>
+  <h1>Accepted receptor and ligand file types.</h1>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-diagram-3"></i> Receptors</h2>
+    <ul>
+      <li><code>.pdb</code></li>
+      <li><code>.pdbqt</code></li>
+      <li><code>.cif</code></li>
+      <li><code>.mmcif</code></li>
+      <li><code>.ent</code></li>
+      <li>ZIP archives containing receptor files</li>
+      <li>Folder-style browser uploads</li>
+      <li>PDB fetch by RCSB PDB ID</li>
+    </ul>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-capsule"></i> Ligands</h2>
+    <ul>
+      <li><code>.sdf</code></li>
+      <li><code>.smi</code></li>
+      <li><code>.smiles</code></li>
+      <li><code>.csv</code></li>
+      <li>ZIP archives containing supported ligand files</li>
+      <li>Folder-style browser uploads</li>
+    </ul>
+  </article>
+</section>
+
 <section class="notice-card">
-  <i class="bi bi-exclamation-circle"></i>
+  <i class="bi bi-apple"></i>
   <div>
-    <h2>Important workflow constraints</h2>
+    <h2>macOS metadata files</h2>
     <p>
-      Package generation requires receptors, saved docking centers, prepared receptor outputs, and uploaded ligands.
-      CSV ligand workflows require a SMILES column before building. Public deployments may restrict package modes or external executables.
+      Ligand and receptor upload workflows are designed to ignore common macOS metadata files,
+      including <code>.DS_Store</code>, <code>._*</code>, and <code>__MACOSX/</code>.
     </p>
   </div>
 </section>
 
+<section class="page-hero compact" id="package-modes">
+  <span class="eyebrow">Package modes</span>
+  <h1>Portable and LSF-style output packages.</h1>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-laptop"></i> Portable mode</h2>
+    <p>
+      Portable mode is recommended for most users. It builds a ZIP package containing normalized
+      receptor, ligand, center, and helper-script files for downstream local or server-side execution.
+    </p>
+    <pre><code>{
+  "package_mode": "portable"
+}</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-hdd-network"></i> LSF mode</h2>
+    <p>
+      LSF mode is intended for lab or HPC environments that use an LSF scheduler.
+      Use it only when your target environment matches the generated scheduler assumptions.
+    </p>
+    <pre><code>{
+  "package_mode": "lsf"
+}</code></pre>
+  </article>
+</section>
+
+<section class="page-hero compact" id="troubleshooting">
+  <span class="eyebrow">Troubleshooting</span>
+  <h1>Common API errors and how to fix them.</h1>
+</section>
+
+<section class="doc-grid">
+  <article class="doc-card">
+    <h2><i class="bi bi-folder-x"></i> workspace_missing</h2>
+    <p>The requested workspace does not exist. This can happen after a server restart because temporary workspaces may be ephemeral.</p>
+    <pre><code>{
+  "ok": false,
+  "error": "workspace_missing"
+}</code></pre>
+    <p>Fix: create a new workspace and rerun the staged workflow.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-bullseye"></i> centers_incomplete</h2>
+    <p>The receptor exists, but no docking center was saved for its expected PDBQT filename.</p>
+    <pre><code>{
+  "ok": false,
+  "error": "centers_incomplete"
+}</code></pre>
+    <p>
+      If the receptor is <code>Receptors/3eky.pdb</code>, the saved center should map to
+      <code>3eky.pdbqt</code>.
+    </p>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-tools"></i> obabel_missing</h2>
+    <p>Open Babel is not installed or not available on the server path.</p>
+    <pre><code>{
+  "ok": false,
+  "error": "obabel_missing"
+}</code></pre>
+    <p>Server administrators should verify <code>which obabel</code> and <code>obabel -V</code>.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-plug"></i> Open Babel plugin error</h2>
+    <p>Open Babel is installed but cannot find its plugin directory.</p>
+    <pre><code>Unable to find OpenBabel plugins.
+Try setting the BABEL_LIBDIR environment variable.</code></pre>
+    <p>
+      On Heroku, set <code>BABEL_LIBDIR</code> to the Open Babel plugin folder, then restart the app.
+    </p>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-exclamation-triangle"></i> receptor_conversion_failed</h2>
+    <p>Receptor preparation ran, but conversion to PDBQT failed.</p>
+    <pre><code>{
+  "ok": false,
+  "error": "receptor_conversion_failed"
+}</code></pre>
+    <p>Check the preparation log through the prep status endpoint.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-capsule"></i> ligands_missing</h2>
+    <p>The package build step was requested before ligand upload.</p>
+    <pre><code>{
+  "ok": false,
+  "error": "ligands_missing"
+}</code></pre>
+    <p>Upload an SDF, SMI, SMILES, CSV, ZIP, or folder input before building.</p>
+  </article>
+</section>
+
+<section class="page-hero compact" id="deployment-notes">
+  <span class="eyebrow">Deployment notes</span>
+  <h1>Open Babel configuration for deployed instances.</h1>
+</section>
+
+<section class="info-card">
+  <h2><i class="bi bi-heroku"></i> Heroku Open Babel checklist</h2>
+  <pre><code># Aptfile
+openbabel
+
+# Buildpacks
+
+heroku buildpacks:add --index 1 heroku-community/apt --app autodockvina
+heroku buildpacks:add --index 2 heroku/python --app autodockvina
+
+# Verify obabel
+
+heroku run --no-tty "which obabel && obabel -V" --app autodockvina
+
+# Find plugins if needed
+
+heroku run --no-tty "find /app/.apt -type f ( -name 'pdbformat.so' -o -name 'pdbqtformat.so' -o -name 'plugindefines.txt' ) -print" --app autodockvina
+
+# Example plugin path
+
+heroku config:set BABEL_LIBDIR=/app/.apt/usr/lib/x86_64-linux-gnu/openbabel/3.1.1 --app autodockvina
+heroku restart --app autodockvina
+
+# Confirm PDB and PDBQT formats
+
+heroku run --no-tty 'echo BABEL_LIBDIR=$BABEL_LIBDIR && which obabel && obabel -V && obabel -L formats | grep -E "pdb|pdbqt"' --app autodockvina</code></pre>
+
+</section>
+
+<section class="page-hero compact" id="related-tools">
+  <span class="eyebrow">Related tools</span>
+  <h1>Continue structure-guided molecular design.</h1>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-crosshair"></i> Warhead Hunter</h2>
+    <p>Solvent-exposed ligand atom and warhead/linker follow-up.</p>
+    <a href="https://warheadhunter.com" target="_blank" rel="noopener noreferrer">warheadhunter.com</a>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-diagram-3"></i> PROTAC Builder</h2>
+    <p>Degrader design continuation and linker-recruiter-warhead assembly.</p>
+    <a href="https://protacbuilder.com" target="_blank" rel="noopener noreferrer">protacbuilder.com</a>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-bounding-box-circles"></i> E3 Ligandalyzer</h2>
+    <p>E3 recruiter and ligase-context exploration.</p>
+    <a href="https://e3ligandalyzer.com" target="_blank" rel="noopener noreferrer">e3ligandalyzer.com</a>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-grid"></i> V-LiSEMOD</h2>
+    <p>Viral ligand solvent-exposed moiety and PROTACability-style triage.</p>
+    <a href="https://vlisemod.com" target="_blank" rel="noopener noreferrer">vlisemod.com</a>
+  </article>
+</section>
+
 <section class="cta-band">
   <div>
-    <h2>Need the visual workflow instead?</h2>
+    <h2>Prefer the visual workflow?</h2>
     <p>
-      The browser interface uses the same staged preparation model and is easier for first-time users.
+      Use the browser interface to create the same type of docking package without writing API calls.
     </p>
   </div>
-  <a class="btn btn-app-primary" href="{{ url_for('build') }}">Open build workflow</a>
+  <a class="btn btn-app-primary" href="{{ url_for('build') }}">
+    <i class="bi bi-box-seam me-2"></i>Open build workflow
+  </a>
 </section>
+
 {% endblock %}
