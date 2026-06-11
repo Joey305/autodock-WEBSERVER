@@ -1,108 +1,1013 @@
 # AutoDock-Vina PrepServer
 
-AutoDock-Vina PrepServer is a Flask-based web application for assembling molecular docking job packages. It provides a browser workflow for collecting receptor structures, defining docking boxes, preparing receptors, uploading ligand inputs, and exporting ready-to-run AutoDock Vina package archives for local execution or LSF-style cluster workflows.
+<p align="center">
+  <strong>AutoDock-Vina PrepServer: A browser and API-driven workspace builder for reproducible AutoDock Vina docking packages</strong>
+</p>
 
-The repository also includes the Python scripts bundled into generated packages for ligand conformer generation, batch docking, score parsing, result aggregation, plotting, and PyMOL-oriented export.
+<p align="center">
+  <em>Create receptor workspaces, define docking boxes, prepare PDBQT receptors, upload ligand libraries, and export ready-to-run AutoDock Vina job archives.</em>
+</p>
+
+<p align="center">
+  <a href="https://autodockvina.com">
+    <img src="https://img.shields.io/badge/Open%20Web%20Server-autodockvina.com-success?style=for-the-badge&logo=googlechrome" alt="Open AutoDock-Vina PrepServer">
+  </a>
+  <a href="https://github.com/Joey305/autodock-WEBSERVER">
+    <img src="https://img.shields.io/badge/View%20Repository-GitHub-black?style=for-the-badge&logo=github" alt="View GitHub repository">
+  </a>
+  <a href="#headless-api-tutorial">
+    <img src="https://img.shields.io/badge/API%20Tutorial-curl%20Workflow-blue?style=for-the-badge&logo=gnubash" alt="API tutorial">
+  </a>
+  <a href="#real-example-walkthrough">
+    <img src="https://img.shields.io/badge/Run%20Example-DR7%20Ligand-orange?style=for-the-badge&logo=python" alt="Run DR7 example">
+  </a>
+</p>
+
+<p align="center">
+  <a href="mailto:jmschulz@med.miami.edu?subject=AutoDock-Vina%20PrepServer%20Question">
+    <img src="https://img.shields.io/badge/Contact-Joseph%20M.%20Schulz-blue?style=for-the-badge&logo=gmail" alt="Contact Joseph M. Schulz">
+  </a>
+  <a href="https://schurerlab.org">
+    <img src="https://img.shields.io/badge/Sch%C3%BCrer%20Lab-Molecular%20Design-lightgrey?style=for-the-badge" alt="Schürer Lab">
+  </a>
+</p>
+
+---
 
 ## Overview
 
-This project is intended for teams that want a reproducible, browser-driven entry point for AutoDock Vina job preparation without hand-building directory trees for every run. It is especially useful when researchers, students, or shared lab users need a lightweight portal for packaging docking studies while still retaining access to the underlying runtime scripts.
+**AutoDock-Vina PrepServer** is a Flask-based web server and headless API for assembling reproducible molecular docking packages.
 
-## Who This Is For
+The server helps users move from raw receptor and ligand inputs to a structured, downloadable AutoDock Vina job archive. It is designed for researchers, students, and computational chemistry workflows where the preparation steps should be visible, reproducible, and easier to debug than a single black-box endpoint.
 
-- Researchers preparing AutoDock Vina screening jobs
-- Lab members who want a guided browser workflow for receptor and ligand intake
-- Users generating portable ZIP packages for downstream docking execution
-- HPC-oriented groups packaging jobs for LSF-based environments
-- Developers extending the Flask app or the packaged docking utilities
-- Contributors evaluating the project structure and validation workflow
+The public deployment is available at:
 
-## Features
+```text
+https://autodockvina.com
+```
 
-- Public, browser-based workflow by default
-- Receptor intake from single-file uploads, ZIP uploads, folder uploads, or RCSB PDB fetches
-- Interactive docking-center selection in the browser
-- Versioned headless API for scripted workspace creation, coordinate-based box generation, receptor preparation, ligand upload, and package generation
-- Receptor preparation into docking-ready outputs
-- Ligand intake from `.sdf`, `.smiles`, `.smi`, `.csv`, ZIP archives, or folder uploads
-- Ligand upload normalization that ignores common macOS metadata files and flattens nested ligand paths
-- Package generation in two modes:
-  - `portable` for generic local execution
-  - `lsf` for environments that use LSF scheduler workflows
-- Bundled post-processing scripts for score parsing, aggregation, plotting, and PyMOL-oriented export
+The web interface and API follow the same staged workflow:
 
-## Tech Stack
+```text
+Create workspace
+→ Add receptor
+→ Save docking center
+→ Prepare receptor PDBQT
+→ Upload ligand
+→ Build package
+→ Download ZIP
+```
 
-- Backend: [Flask](https://flask.palletsprojects.com/), Flask-Login, Flask-WTF, Flask-SQLAlchemy
-- Database: SQLite by default
-- Language: Python 3
-- Scientific Python libraries used in this repository: RDKit, pandas, NumPy, matplotlib
-- External scientific executables used by the workflow:
-  - Open Babel (`obabel`) for receptor and ligand conversion steps
-  - AutoDock Vina (`vina`) for docking runs in generated packages
-- Bundled tool source: `AutoDockTools_py3/`
-- Frontend: server-rendered HTML templates with static CSS/JS assets
-- Scheduler support: LSF helper script generation
+---
+
+## Why this exists
+
+Docking workflows often fail for practical reasons before docking even begins:
+
+* receptor files are inconsistently named
+* docking centers are not mapped to the correct receptor
+* PDBQT conversion fails silently
+* ligand libraries are uploaded in mixed formats
+* HPC or local execution folders are assembled by hand
+* output ZIPs are difficult to reproduce later
+
+AutoDock-Vina PrepServer makes these preparation stages explicit. Each step has a visible state and a scriptable API endpoint so failures can be diagnosed before running docking.
+
+---
+
+## Key Features
+
+* Browser-based docking package preparation
+* Versioned headless API under `/api/v1`
+* Workspace-based file organization
+* Receptor upload or RCSB PDB fetch
+* Docking box center saving by XYZ coordinates or resolver-supported methods
+* Open Babel-based receptor PDBQT preparation
+* Ligand upload from `.sdf`, `.smi`, `.smiles`, `.csv`, ZIP, or folder-style inputs
+* Portable package generation for local/non-HPC workflows
+* Optional LSF-oriented package generation for scheduler-based environments
+* Downloadable ZIP artifacts
+* JSON status endpoints for workflow automation
+* Clear error responses for missing receptors, incomplete centers, missing ligands, or conversion failures
+
+---
+
+## Companion Molecular Design Tools
+
+AutoDock-Vina PrepServer is part of a growing structure-guided molecular design and analysis ecosystem.
+
+| Tool                     | Website                    | Focus                                                              |
+| ------------------------ | -------------------------- | ------------------------------------------------------------------ |
+| AutoDock-Vina PrepServer | https://autodockvina.com   | Receptor/ligand intake and docking package preparation             |
+| Warhead Hunter           | https://warheadhunter.com  | Solvent-exposed ligand atom and warhead/linker follow-up           |
+| PROTAC Builder           | https://protacbuilder.com  | Degrader design continuation and linker/recruiter/warhead assembly |
+| E3 Ligandalyzer          | https://e3ligandalyzer.com | E3 recruiter and ligase-context exploration                        |
+| V-LiSEMOD                | https://vlisemod.com       | Viral ligand solvent-exposed moiety and PROTACability-style triage |
+
+---
+
+## Repository Navigation
+
+<p align="center">
+  <a href="#quick-start-web-interface">
+    <img src="https://img.shields.io/badge/Quick%20Start-Web%20Interface-success?style=for-the-badge&logo=googlechrome" alt="Web interface quick start">
+  </a>
+  <a href="#headless-api-tutorial">
+    <img src="https://img.shields.io/badge/Tutorial-Headless%20API-blue?style=for-the-badge&logo=gnubash" alt="Headless API tutorial">
+  </a>
+  <a href="#real-example-walkthrough">
+    <img src="https://img.shields.io/badge/Example-DR7%20SDF-orange?style=for-the-badge&logo=readthedocs" alt="DR7 example">
+  </a>
+  <a href="#deployment-notes">
+    <img src="https://img.shields.io/badge/Deploy-Heroku%20%2B%20Open%20Babel-purple?style=for-the-badge&logo=heroku" alt="Deployment notes">
+  </a>
+  <a href="#troubleshooting">
+    <img src="https://img.shields.io/badge/Troubleshooting-Common%20Errors-red?style=for-the-badge" alt="Troubleshooting">
+  </a>
+</p>
+
+* [Quick Start: Web Interface](#quick-start-web-interface)
+* [Headless API Tutorial](#headless-api-tutorial)
+* [Real Example Walkthrough](#real-example-walkthrough)
+* [Endpoint Reference](#endpoint-reference)
+* [Accepted Input Types](#accepted-input-types)
+* [Generated Package Modes](#generated-package-modes)
+* [Local Development](#local-development)
+* [Deployment Notes](#deployment-notes)
+* [Heroku + Open Babel Notes](#heroku--open-babel-notes)
+* [Troubleshooting](#troubleshooting)
+* [Security and Data Notes](#security-and-data-notes)
+* [Contact](#contact)
+
+---
 
 ## Repository Structure
 
 ```text
 .
-├── app.py                         # Flask app entrypoint
-├── manage.py                      # User-management CLI for auth-enabled deployments
-├── packager.py                    # Workspace assembly and ZIP packaging
+├── app.py                         # Flask application and API routes
+├── packager.py                    # Workspace assembly and ZIP packaging helpers
+├── center_resolver.py             # Docking center resolution helpers
 ├── runner_templates.py            # Portable runner script templates
-├── requirements.txt               # Python dependencies used by the app and tests
+├── lsf_templates.py               # LSF package-generation templates
+├── requirements.txt               # Python dependencies
+├── Aptfile                        # Optional Heroku apt packages, including Open Babel
 ├── templates/                     # Flask HTML templates
-├── static/                        # CSS and images
-├── tests/                         # unittest-based regression tests
+├── static/                        # CSS, images, favicon assets
+├── tests/                         # Regression tests
+├── Example/
+│   └── Ligand_SDF/
+│       └── DR7.sdf                # Example ligand used in the walkthrough below
 ├── AutoDockTools_py3/             # Bundled AutoDockTools source tree
 ├── 1_ConformerGeneration.py       # Ligand conformer/PDBQT generation
 ├── 2a_PDB2PDBQTbatch.py           # Receptor preparation utility
 ├── 3_Complete_batch_docking.py    # AutoDock Vina batch runner
 ├── 4_ParseScores.py               # Vina score parsing
-├── 4C_ConcatenateScores.py        # Combined score collation
-├── 5C_BuildPymolSesh.py           # PyMOL/session export workflow
+├── 4C_ConcatenateScores.py        # Score collation
+├── 5C_BuildPymolSesh.py           # PyMOL/session export helper
 ├── 6_MDpymacs.py                  # Additional downstream analysis helper
-└── 7_Graphs.py                    # Plotting and ranking summaries
+├── 7_Graphs.py                    # Plotting/ranking summaries
+└── README.md
 ```
 
-## Prerequisites
+---
 
-### Required to run the web app
+## Quick Start: Web Interface
 
-- Python 3.9 or newer is recommended
-- `pip`
+Open:
 
-### Required for the full docking workflow
+```text
+https://autodockvina.com
+```
 
-- Open Babel available as `obabel`
-- AutoDock Vina available as `vina` if generated packages will be executed
+Typical browser workflow:
 
-### Optional or environment-specific
+1. Create a workspace.
+2. Upload a receptor or fetch one by PDB ID.
+3. Define a docking center.
+4. Prepare the receptor.
+5. Upload ligand input.
+6. Build a package.
+7. Download the generated ZIP.
+8. Run the downloaded docking package locally or on your target compute environment.
 
-- RDKit for ligand conformer generation and downstream utilities
-- `gemmi` and optionally `meeko` for the standalone receptor preparation script `2a_PDB2PDBQTbatch.py`
-- An LSF environment if `lsf` package generation will be used in practice
+The browser interface is recommended for first-time users because each workflow stage is visible.
 
-Check local versions with:
+---
+
+<a id="headless-api-tutorial"></a>
+
+## Headless API Tutorial
+
+This tutorial shows the full API workflow using:
+
+* receptor: PDB `3EKY`, chain `A`
+* ligand: a user-provided SDF file
+* package mode: `portable`
+* output: downloadable ZIP package
+
+### Before starting
+
+You need:
 
 ```bash
-python3 --version
-obabel -V
-vina --version
+curl
 ```
 
-## Installation
+and a ligand file in your current directory, for example:
+
+```text
+my_ligand.sdf
+```
+
+Set variables:
+
+```bash
+BASE="https://autodockvina.com"
+JOB="demo-docking-$(date +%s)"
+LIGAND="my_ligand.sdf"
+```
+
+Confirm your ligand exists locally:
+
+```bash
+ls -lh "$LIGAND"
+```
+
+---
+
+### Step 1 — Health check
+
+```bash
+curl -sS "$BASE/api/v1/health"
+echo ""
+```
+
+Expected response includes:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "service": "autodock-vina-prepserver",
+    "api_version": "v1"
+  }
+}
+```
+
+---
+
+### Step 2 — Create a workspace
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces" \
+  -H "Content-Type: application/json" \
+  -d "{\"workspace_name\":\"$JOB\"}"
+echo ""
+```
+
+Expected response includes:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "jobname": "demo-docking-...",
+    "workspace": "/tmp/autodock_prep/demo-docking-..."
+  }
+}
+```
+
+---
+
+### Step 3 — Fetch a receptor by PDB ID
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" \
+  -H "Content-Type: application/json" \
+  -d '{"pdb_id":"3EKY","chains":"A"}'
+echo ""
+```
+
+Expected response includes:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "rel": "Receptors/3eky.pdb",
+    "receptors": [
+      {
+        "display": "3eky.pdb",
+        "rel": "Receptors/3eky.pdb",
+        "status": "new"
+      }
+    ]
+  }
+}
+```
+
+Important: if the receptor was fetched as `Receptors/3eky.pdb`, use that same receptor path when saving the center.
+
+---
+
+### Step 4 — Save a docking center
+
+This tutorial uses explicit XYZ coordinates.
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method":"xyz",
+    "receptor":"Receptors/3eky.pdb",
+    "center":[10.5, 22.1, -3.4],
+    "size":20
+  }'
+echo ""
+```
+
+Check saved centers:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/centers"
+echo ""
+```
+
+Expected response includes:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "centers": [
+      {
+        "receptor_pdbqt": "3eky.pdbqt",
+        "center": [10.5, 22.1, -3.4],
+        "size": 20.0
+      }
+    ]
+  }
+}
+```
+
+The docking center must be saved for the receptor PDBQT name expected by the preparation step.
+
+---
+
+### Step 5 — Prepare the receptor
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "remove_hets":"all",
+    "remove_chains":"",
+    "altloc":"collapse"
+  }'
+echo ""
+```
+
+Check preparation status:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/prep/status"
+echo ""
+```
+
+Check workspace summary:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/summary"
+echo ""
+```
+
+Success indicators:
+
+```json
+{
+  "converted_count": 1,
+  "converted_list": ["3eky.pdbqt"],
+  "prep_done": true,
+  "receptors_prepped": 1
+}
+```
+
+---
+
+### Step 6 — Upload a ligand
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@$LIGAND"
+echo ""
+```
+
+Check ligand state:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/ligands"
+echo ""
+```
+
+Expected response includes:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "ligands": [
+      "my_ligand.sdf"
+    ],
+    "ligand_info": {
+      "accepted_count": 1,
+      "filetypes": [".sdf"],
+      "upload_mode": "single"
+    }
+  }
+}
+```
+
+---
+
+### Step 7 — Build the package
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"portable",
+    "vina_poses":20,
+    "confgen_poses":64
+  }'
+echo ""
+```
+
+Expected response includes:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "package_mode": "portable",
+    "zip": "/tmp/autodock_prep/.../job.zip",
+    "download_url": "/download?path=/tmp/autodock_prep/.../job.zip"
+  }
+}
+```
+
+---
+
+### Step 8 — List and download artifacts
+
+List generated artifacts:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/artifacts"
+echo ""
+```
+
+Download the latest ZIP into your current local directory:
+
+```bash
+curl -L -o "${JOB}_docking_package.zip" \
+  "$BASE/api/v1/workspaces/$JOB/download"
+
+ls -lh "${JOB}_docking_package.zip"
+```
+
+After this step, the ZIP should appear locally.
+
+Important: workspace files are created on the server under `/tmp/autodock_prep/...`. They will not appear in your local folder until you download the ZIP.
+
+---
+
+## Full API Tutorial Script
+
+Save the following as `run_autodock_api_tutorial.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -e
+
+BASE="https://autodockvina.com"
+JOB="demo-docking-$(date +%s)"
+LIGAND="${1:-my_ligand.sdf}"
+
+echo "Using BASE=$BASE"
+echo "Using JOB=$JOB"
+echo "Using LIGAND=$LIGAND"
+echo ""
+
+echo "0) Confirm ligand exists locally"
+ls -lh "$LIGAND"
+echo ""
+
+echo "1) Health check"
+curl -sS "$BASE/api/v1/health"
+echo ""
+echo ""
+
+echo "2) Create workspace"
+curl -sS -X POST "$BASE/api/v1/workspaces" \
+  -H "Content-Type: application/json" \
+  -d "{\"workspace_name\":\"$JOB\"}"
+echo ""
+echo ""
+
+echo "3) Fetch receptor"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" \
+  -H "Content-Type: application/json" \
+  -d '{"pdb_id":"3EKY","chains":"A"}'
+echo ""
+echo ""
+
+echo "4) Save center"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method":"xyz",
+    "receptor":"Receptors/3eky.pdb",
+    "center":[10.5, 22.1, -3.4],
+    "size":20
+  }'
+echo ""
+echo ""
+
+echo "5) Check centers"
+curl -sS "$BASE/api/v1/workspaces/$JOB/centers"
+echo ""
+echo ""
+
+echo "6) Start receptor preparation"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "remove_hets":"all",
+    "remove_chains":"",
+    "altloc":"collapse"
+  }'
+echo ""
+echo ""
+
+echo "7) Check preparation status"
+curl -sS "$BASE/api/v1/workspaces/$JOB/prep/status"
+echo ""
+echo ""
+
+echo "8) Upload ligand"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@$LIGAND"
+echo ""
+echo ""
+
+echo "9) Check ligands"
+curl -sS "$BASE/api/v1/workspaces/$JOB/ligands"
+echo ""
+echo ""
+
+echo "10) Build package"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"portable",
+    "vina_poses":20,
+    "confgen_poses":64
+  }'
+echo ""
+echo ""
+
+echo "11) List artifacts"
+curl -sS "$BASE/api/v1/workspaces/$JOB/artifacts"
+echo ""
+echo ""
+
+echo "12) Download ZIP"
+curl -L -o "${JOB}_docking_package.zip" \
+  "$BASE/api/v1/workspaces/$JOB/download"
+echo ""
+echo ""
+
+echo "13) Confirm local ZIP"
+ls -lh "${JOB}_docking_package.zip"
+echo ""
+
+echo "Done."
+echo "Downloaded package: ${JOB}_docking_package.zip"
+```
+
+Run it:
+
+```bash
+chmod +x run_autodock_api_tutorial.sh
+./run_autodock_api_tutorial.sh my_ligand.sdf
+```
+
+---
+
+<a id="real-example-walkthrough"></a>
+
+## Real Example Walkthrough
+
+This repository includes an example ligand:
+
+```text
+Example/Ligand_SDF/DR7.sdf
+```
+
+The walkthrough below uses the same staged API flow, but points to the repository example ligand.
+
+### Run the example from the repository root
+
+```bash
+BASE="https://autodockvina.com"
+JOB="dr7-example-$(date +%s)"
+LIGAND="Example/Ligand_SDF/DR7.sdf"
+
+echo "Using JOB=$JOB"
+echo "Using LIGAND=$LIGAND"
+ls -lh "$LIGAND"
+```
+
+Create the workspace:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces" \
+  -H "Content-Type: application/json" \
+  -d "{\"workspace_name\":\"$JOB\"}"
+echo ""
+```
+
+Fetch receptor `3EKY`, chain `A`:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" \
+  -H "Content-Type: application/json" \
+  -d '{"pdb_id":"3EKY","chains":"A"}'
+echo ""
+```
+
+Save an example XYZ docking box:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method":"xyz",
+    "receptor":"Receptors/3eky.pdb",
+    "center":[10.5, 22.1, -3.4],
+    "size":20
+  }'
+echo ""
+```
+
+Prepare receptor:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "remove_hets":"all",
+    "remove_chains":"",
+    "altloc":"collapse"
+  }'
+echo ""
+```
+
+Confirm receptor preparation:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/summary"
+echo ""
+```
+
+Success should include:
+
+```json
+{
+  "prep_done": true,
+  "converted_count": 1,
+  "converted_list": ["3eky.pdbqt"]
+}
+```
+
+Upload `DR7.sdf`:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@$LIGAND"
+echo ""
+```
+
+Confirm ligand upload:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/ligands"
+echo ""
+```
+
+Build a portable package:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"portable",
+    "vina_poses":20,
+    "confgen_poses":64
+  }'
+echo ""
+```
+
+Download the generated package:
+
+```bash
+curl -L -o "${JOB}_docking_package.zip" \
+  "$BASE/api/v1/workspaces/$JOB/download"
+
+ls -lh "${JOB}_docking_package.zip"
+```
+
+You should now have a local file similar to:
+
+```text
+dr7-example-1781216080_docking_package.zip
+```
+
+---
+
+## One-Shot DR7 Example Script
+
+Save this as `run_dr7_example.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -e
+
+BASE="https://autodockvina.com"
+JOB="dr7-example-$(date +%s)"
+LIGAND="Example/Ligand_SDF/DR7.sdf"
+
+echo "======================================"
+echo " AutoDock-Vina PrepServer DR7 Example"
+echo "======================================"
+echo ""
+echo "BASE:   $BASE"
+echo "JOB:    $JOB"
+echo "LIGAND: $LIGAND"
+echo ""
+
+echo "0) Confirm local example ligand"
+ls -lh "$LIGAND"
+echo ""
+
+echo "1) Create workspace"
+curl -sS -X POST "$BASE/api/v1/workspaces" \
+  -H "Content-Type: application/json" \
+  -d "{\"workspace_name\":\"$JOB\"}"
+echo ""
+echo ""
+
+echo "2) Fetch receptor 3EKY chain A"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" \
+  -H "Content-Type: application/json" \
+  -d '{"pdb_id":"3EKY","chains":"A"}'
+echo ""
+echo ""
+
+echo "3) Save example docking center"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method":"xyz",
+    "receptor":"Receptors/3eky.pdb",
+    "center":[10.5, 22.1, -3.4],
+    "size":20
+  }'
+echo ""
+echo ""
+
+echo "4) Prepare receptor"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "remove_hets":"all",
+    "remove_chains":"",
+    "altloc":"collapse"
+  }'
+echo ""
+echo ""
+
+echo "5) Check receptor preparation"
+curl -sS "$BASE/api/v1/workspaces/$JOB/prep/status"
+echo ""
+echo ""
+
+echo "6) Upload DR7 ligand"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@$LIGAND"
+echo ""
+echo ""
+
+echo "7) Build portable docking package"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"portable",
+    "vina_poses":20,
+    "confgen_poses":64
+  }'
+echo ""
+echo ""
+
+echo "8) List artifacts"
+curl -sS "$BASE/api/v1/workspaces/$JOB/artifacts"
+echo ""
+echo ""
+
+echo "9) Download package"
+curl -L -o "${JOB}_docking_package.zip" \
+  "$BASE/api/v1/workspaces/$JOB/download"
+echo ""
+echo ""
+
+echo "10) Confirm local ZIP"
+ls -lh "${JOB}_docking_package.zip"
+echo ""
+
+echo "Done."
+echo "Downloaded package: ${JOB}_docking_package.zip"
+```
+
+Run it:
+
+```bash
+chmod +x run_dr7_example.sh
+./run_dr7_example.sh
+```
+
+---
+
+## What is inside the downloaded ZIP?
+
+A generated portable package typically contains:
+
+```text
+job/
+├── Receptors/
+├── Receptors_PDBQT/
+├── Ligands/
+├── vina_centers.csv
+├── run_confgen_local.sh
+├── run_vina_local.sh
+├── run_all_local.sh
+├── README_RUN_LOCAL.md
+└── bundled Python helper scripts
+```
+
+After download:
+
+```bash
+unzip dr7-example-*_docking_package.zip -d DR7_Docking_Package
+cd DR7_Docking_Package
+find . -maxdepth 2 -type f | sort | head -50
+```
+
+Read the package-specific instructions:
+
+```bash
+find . -name "README_RUN_LOCAL.md" -print
+```
+
+---
+
+## Endpoint Reference
+
+| Method | Endpoint                                        | Purpose                               |
+| ------ | ----------------------------------------------- | ------------------------------------- |
+| `GET`  | `/api/v1/health`                                | Check service health and API version  |
+| `POST` | `/api/v1/workspaces`                            | Create a new workspace                |
+| `GET`  | `/api/v1/workspaces/<jobname>`                  | Read workspace state                  |
+| `GET`  | `/api/v1/workspaces/<jobname>/summary`          | Read workflow summary                 |
+| `POST` | `/api/v1/workspaces/<jobname>/receptors/upload` | Upload receptor files                 |
+| `POST` | `/api/v1/workspaces/<jobname>/receptors/fetch`  | Fetch receptor by PDB ID              |
+| `GET`  | `/api/v1/workspaces/<jobname>/receptors`        | List workspace receptors              |
+| `POST` | `/api/v1/workspaces/<jobname>/centers/resolve`  | Resolve a docking center              |
+| `POST` | `/api/v1/workspaces/<jobname>/centers/save`     | Save receptor docking center          |
+| `GET`  | `/api/v1/workspaces/<jobname>/centers`          | List saved centers                    |
+| `POST` | `/api/v1/workspaces/<jobname>/prep/start`       | Prepare receptor PDBQT files          |
+| `GET`  | `/api/v1/workspaces/<jobname>/prep/status`      | Read receptor preparation status      |
+| `POST` | `/api/v1/workspaces/<jobname>/ligands/upload`   | Upload ligand files                   |
+| `GET`  | `/api/v1/workspaces/<jobname>/ligands`          | List uploaded ligands                 |
+| `POST` | `/api/v1/workspaces/<jobname>/build`            | Build downloadable package            |
+| `GET`  | `/api/v1/workspaces/<jobname>/artifacts`        | List generated ZIP artifacts          |
+| `GET`  | `/api/v1/workspaces/<jobname>/download`         | Download latest or requested artifact |
+
+---
+
+## Accepted Input Types
+
+### Receptors
+
+Supported receptor inputs include:
+
+* `.pdb`
+* `.pdbqt`
+* `.cif`
+* `.mmcif`
+* `.ent`
+* ZIP archives containing receptor files
+* folder-style browser uploads
+* PDB fetch by RCSB PDB ID
+
+### Ligands
+
+Supported ligand inputs include:
+
+* `.sdf`
+* `.smi`
+* `.smiles`
+* `.csv`
+* ZIP archives containing supported ligand files
+* folder-style browser uploads
+
+The upload workflow ignores unsupported files and common macOS metadata such as:
+
+```text
+.DS_Store
+._*
+__MACOSX/
+```
+
+---
+
+## Generated Package Modes
+
+### Portable mode
+
+Portable mode is the default choice for most users.
+
+It generates a downloadable job archive with local runner helpers such as:
+
+```text
+run_confgen_local.sh
+run_vina_local.sh
+run_all_local.sh
+README_RUN_LOCAL.md
+```
+
+Use this mode when the downloaded package will be run on a local workstation, server, or non-LSF environment.
+
+Example build request:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"portable",
+    "vina_poses":20,
+    "confgen_poses":64
+  }'
+```
+
+### LSF mode
+
+LSF mode is intended for lab environments that use an LSF scheduler.
+
+Example build request:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"lsf",
+    "workers":16,
+    "queue":"hihg",
+    "project":"brd",
+    "mem_per_core":2000,
+    "vina_poses":20,
+    "confgen_poses":64
+  }'
+```
+
+Only use LSF mode in environments where the scheduler assumptions match your compute system.
+
+---
+
+## Local Development
 
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/Joey305/autodock-WEBSERVER.git
 cd autodock-WEBSERVER
 ```
 
-### 2. Create a virtual environment
+### 2. Create a Python environment
 
 ```bash
 python3 -m venv .venv
@@ -116,301 +1021,399 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-`requirements.txt` covers the Flask application and currently tracked test dependencies. External executables such as `obabel` and `vina` are installed separately.
+### 4. Install external tools
 
-## Environment Configuration
-
-The repository includes a sample environment file at `.env.example`.
-
-### 1. Copy the template
-
-```bash
-cp .env.example .env
-```
-
-### 2. Edit the values
-
-Use deployment-appropriate values and keep `.env` out of version control.
-
-### 3. Load the variables into your shell
-
-The app does not auto-load `.env`, so load it before starting the server:
-
-```bash
-set -a
-source .env
-set +a
-```
-
-### Environment variable reference
-
-- `PORTAL_SECRET`
-  Required. Flask secret key for session signing.
-- `PORTAL_DB`
-  Optional. SQLAlchemy database URL. Defaults to SQLite if not set.
-- `PORTAL_TMP`
-  Optional. Workspace root for uploaded files and generated job packages.
-- `PORTAL_MAX_RECEPTORS`
-  Optional. UI limit for receptor count.
-- `PORTAL_ENV_LINE`
-  Optional. Shell activation line inserted into generated LSF scripts.
-- `PORTAL_PUBLIC_EMAIL`
-  Optional. Placeholder identity used in public mode.
-- `PUBLIC_MODE`
-  Optional. Defaults to `true`. Keeps the portal open without login.
-- `ENABLE_AUTH`
-  Optional. Defaults to `false`. Enables auth-dependent behavior when set to `true`.
-- `ENABLE_LSF_PACKAGE`
-  Optional. Enables `lsf` package generation in the UI.
-- `DEFAULT_PACKAGE_MODE`
-  Optional. Default package mode for builds. Supported values are `portable` and `lsf`.
-
-## Running Locally
-
-After installing dependencies and loading environment variables, start the Flask app with one of the following commands.
-
-### Option 1: Run the module directly
-
-```bash
-python3 app.py
-```
-
-This starts the development server on `http://127.0.0.1:5050`.
-
-### Option 2: Use Flask CLI
-
-```bash
-flask --app app:create_app run --debug --port 5050
-```
-
-### What to expect
-
-- The homepage is public by default.
-- Creating a workspace launches the upload and packaging workflow in the browser.
-- Uploaded workspace data is stored under `PORTAL_TMP`.
-- The local SQLite database is created wherever `PORTAL_DB` points.
-
-## Typical Usage Workflow
-
-1. Open the app in a browser.
-2. Create a new workspace.
-3. Add receptor structures by uploading files, uploading a ZIP or folder, or fetching an RCSB PDB entry.
-4. Open each receptor in the viewer and save a docking center.
-5. Prepare receptors so docking-ready files are generated.
-6. Upload ligand input as a single file, ZIP archive, or folder.
-7. If the ligand input is a CSV, map the SMILES column and optional ligand ID column.
-8. Choose a package mode:
-   - `portable` for local or generic environments
-   - `lsf` for scheduler-oriented lab packaging
-9. Build and download the generated ZIP archive.
-10. Move the ZIP to the target execution environment and run the packaged scripts there.
-
-## Headless API
-
-PrepServer includes a versioned headless API under `/api/v1` for scripted workspace creation, receptor upload or fetch, residue/HETATM/XYZ docking-box generation, receptor preparation, ligand upload, and package generation.
-
-Start with:
-
-- `docs/HEADLESS_API.md` for the route table and workflow notes
-- `docs/API_EXAMPLES.md` for curl and Python examples
-- `docs/AGENT_WORKFLOW.md` for staged command-line or future agent usage
-- `docs/examples/` for short `requests` scripts
-
-The API follows the app's current deployment behavior and does not add authentication, rate limiting, quotas, or a production queue system.
-
-## Accepted Input Types
-
-### Receptors
-
-- `.pdb`
-- `.cif`
-- `.mmcif`
-- `.ent`
-- `.pdbqt`
-- ZIP archives containing receptor files
-- Browser folder uploads containing receptor files
-
-### Ligands
-
-- `.sdf`
-- `.smiles`
-- `.smi`
-- `.csv`
-- ZIP archives containing supported ligand files
-- Browser folder uploads containing supported ligand files
-
-The ligand upload path intentionally ignores unsupported files and common macOS metadata such as `.DS_Store`, `._*`, and `__MACOSX/`.
-
-## Generated Package Modes
-
-### Portable mode
-
-Portable builds include normalized runtime files plus helper scripts such as:
-
-- `run_confgen_local.sh`
-- `run_vina_local.sh`
-- `run_all_local.sh`
-- `README_RUN_LOCAL.md`
-
-Use this mode for local execution or non-LSF environments.
-
-### LSF mode
-
-LSF builds include the portable content plus scheduler-oriented files such as:
-
-- `1B_confgen_batch.py`
-- `3B_ServerDocks.py`
-- `4B_LSFbatch.py`
-- `runDOCKING-tmux.sh`
-- generated `.lsf` submission scripts
-
-Use this mode only in environments that already provide the expected LSF scheduler workflow.
-
-## Scripts and Commands
-
-### App and support commands
-
-- `python3 app.py`
-  Starts the Flask development server on port `5050`.
-- `flask --app app:create_app run --debug --port 5050`
-  Starts the app via Flask CLI.
-- `python3 manage.py`
-  Opens the user-management CLI for auth-enabled deployments.
-
-### Workflow scripts included in this repository
-
-- `python3 1_ConformerGeneration.py --help`
-  Ligand conformer generation and PDBQT conversion.
-- `python3 2a_PDB2PDBQTbatch.py --help`
-  Receptor preparation and PDBQT conversion.
-- `python3 3_Complete_batch_docking.py --help`
-  Batch AutoDock Vina execution.
-- `python3 4_ParseScores.py --help`
-  Parse Vina outputs into CSV summaries.
-- `python3 5C_BuildPymolSesh.py --help`
-  Build corrected export artifacts and PyMOL-oriented outputs.
-- `python3 7_Graphs.py --help`
-  Create score summaries, rankings, plots, and reports.
-
-## Testing and Validation
-
-This repository uses `unittest`-style tests under `tests/`.
-
-Run the test suite with:
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-Run a basic syntax check with:
-
-```bash
-python3 -m py_compile app.py packager.py runner_templates.py manage.py
-```
-
-### Manual validation checklist
-
-If all scientific executables are not available locally, a lightweight browser workflow check is still useful:
-
-1. Start the app.
-2. Open `http://127.0.0.1:5050`.
-3. Create a workspace.
-4. Upload a small receptor file.
-5. Save a center.
-6. Upload a small ligand file.
-7. Build a `portable` package and confirm that a ZIP archive is produced.
-
-## Deployment Notes
-
-AutoDock-Vina PrepServer can be deployed as a standard Flask application in environments that provide Python, writable storage, and the scientific executables required by the workflows users will run.
-
-For production-style deployments:
-
-- configure a strong `PORTAL_SECRET`
-- set `PORTAL_TMP` to a writable non-repository path
-- use a writable database location
-- install `obabel` if receptor preparation will be available to users
-- install `vina` if generated packages will be executed in the deployment environment
-- disable or gate public access if open anonymous use is not intended
-
-This repository does not include a production deployment manifest, reverse-proxy configuration, or container image definition.
-
-## Docker
-
-This repository does not currently include Docker configuration. Use the local Python setup instructions above.
-
-## Troubleshooting
-
-### Environment variables appear unchanged after editing `.env`
-
-Confirm the file was loaded into the current shell:
-
-```bash
-set -a
-source .env
-set +a
-env | rg '^PORTAL_|^PUBLIC_MODE|^ENABLE_'
-```
-
-### `obabel` is missing
-
-Receptor preparation and several packaged workflow steps rely on Open Babel. Confirm availability with:
+The full receptor-preparation workflow requires Open Babel:
 
 ```bash
 obabel -V
 ```
 
-### `vina` is missing
-
-The generated docking scripts expect a working AutoDock Vina executable. Confirm availability with:
+Generated docking packages require AutoDock Vina when the package is executed:
 
 ```bash
 vina --version
 ```
 
-If needed:
+### 5. Run the app locally
 
 ```bash
-export VINA_EXE=/path/to/vina
+python3 app.py
 ```
 
-### RDKit installation is difficult on your machine
+Then open:
 
-RDKit can be easier to install through Conda-based scientific environments than through a plain system Python setup. If the target execution environment already provides RDKit, use that environment for workflow-script execution.
+```text
+http://127.0.0.1:5050
+```
 
-### Port `5050` is already in use
-
-Start the app on a different port:
+Alternative Flask CLI:
 
 ```bash
-flask --app app:create_app run --debug --port 5051
+flask --app app:create_app run --debug --port 5050
 ```
 
-### The build button fails for `lsf` mode
+---
 
-Check whether `ENABLE_LSF_PACKAGE=true` is set in the environment. The UI falls back to `portable` mode when LSF packaging is disabled.
+## Environment Variables
+
+| Variable               | Purpose                                                       |
+| ---------------------- | ------------------------------------------------------------- |
+| `PORTAL_SECRET`        | Flask secret key                                              |
+| `PORTAL_DB`            | SQLAlchemy database URI                                       |
+| `PORTAL_TMP`           | Workspace root; defaults to `/tmp/autodock_prep`              |
+| `PORTAL_MAX_RECEPTORS` | Maximum receptors allowed in one workspace                    |
+| `PORTAL_ENV_LINE`      | Optional environment line inserted into generated LSF scripts |
+| `PORTAL_PUBLIC_EMAIL`  | Placeholder identity for public mode                          |
+| `PUBLIC_MODE`          | Enables public mode when true                                 |
+| `ENABLE_AUTH`          | Enables login/auth behavior when true                         |
+| `ENABLE_LSF_PACKAGE`   | Allows LSF package generation                                 |
+| `DEFAULT_PACKAGE_MODE` | Default package mode: `portable` or `lsf`                     |
+| `BABEL_LIBDIR`         | Open Babel plugin directory, important for some deployments   |
+
+---
+
+<a id="deployment-notes"></a>
+
+## Deployment Notes
+
+AutoDock-Vina PrepServer can be deployed as a standard Flask application in environments that provide:
+
+* Python
+* writable temporary storage
+* Open Babel for receptor conversion
+* optional AutoDock Vina for local execution workflows
+* a web dyno/process runner such as Gunicorn
+
+Production-style deployments should:
+
+* configure a strong `PORTAL_SECRET`
+* set `PORTAL_TMP` to a writable path
+* avoid storing confidential data on public deployments
+* confirm `obabel` works before enabling receptor preparation
+* gate public access if anonymous uploads are not intended
+* clean old `/tmp` workspaces periodically if persistent storage is used
+
+---
+
+<a id="heroku--open-babel-notes"></a>
+
+## Heroku + Open Babel Notes
+
+For Heroku deployments, Open Babel is installed as a system package using an `Aptfile`.
+
+### Aptfile
+
+```text
+openbabel
+```
+
+### Buildpacks
+
+The apt buildpack should run before the Python buildpack:
+
+```bash
+heroku buildpacks:add --index 1 heroku-community/apt --app autodockvina
+heroku buildpacks:add --index 2 heroku/python --app autodockvina
+```
+
+### Verify Open Babel
+
+```bash
+heroku run --no-tty "which obabel && obabel -V" --app autodockvina
+```
+
+If Open Babel is installed but cannot find plugins, locate the plugin directory:
+
+```bash
+heroku run --no-tty "find /app/.apt -type f \( -name 'pdbformat.so' -o -name 'pdbqtformat.so' -o -name 'plugindefines.txt' \) -print" --app autodockvina
+```
+
+Then set `BABEL_LIBDIR`, for example:
+
+```bash
+heroku config:set BABEL_LIBDIR=/app/.apt/usr/lib/x86_64-linux-gnu/openbabel/3.1.1 --app autodockvina
+heroku restart --app autodockvina
+```
+
+Verify format loading:
+
+```bash
+heroku run --no-tty 'echo BABEL_LIBDIR=$BABEL_LIBDIR && which obabel && obabel -V && obabel -L formats | grep -E "pdb|pdbqt"' --app autodockvina
+```
+
+Expected output includes:
+
+```text
+pdb -- Protein Data Bank format
+pdbqt -- AutoDock PDBQT format
+```
+
+---
+
+## Testing and Validation
+
+Run Python syntax checks:
+
+```bash
+python3 -m py_compile app.py packager.py runner_templates.py manage.py
+```
+
+Run tests:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Run the API example:
+
+```bash
+chmod +x run_dr7_example.sh
+./run_dr7_example.sh
+```
+
+Manual success checklist:
+
+* `/api/v1/health` returns `"ok": true`
+* workspace creation returns a valid `jobname`
+* receptor fetch returns `Receptors/3eky.pdb`
+* centers list contains `3eky.pdbqt`
+* prep summary shows `prep_done: true`
+* ligand upload shows `accepted_count: 1`
+* build returns a `job.zip`
+* download creates a local ZIP file
+
+---
+
+<a id="troubleshooting"></a>
+
+## Troubleshooting
+
+### `workspace_missing`
+
+Example:
+
+```json
+{
+  "ok": false,
+  "error": "workspace_missing"
+}
+```
+
+Possible causes:
+
+* the workspace name is wrong
+* the server restarted and `/tmp` was cleared
+* the workspace was created on a different deployment or dyno state
+
+Fix:
+
+```bash
+JOB="demo-docking-$(date +%s)"
+```
+
+Create a fresh workspace and rerun the staged workflow.
+
+---
+
+### `centers_incomplete`
+
+Example:
+
+```json
+{
+  "ok": false,
+  "error": "centers_incomplete",
+  "message": "Save a center for each receptor first."
+}
+```
+
+Cause:
+
+The receptor exists, but no docking center was saved for its expected PDBQT name.
+
+If the receptor is:
+
+```text
+Receptors/3eky.pdb
+```
+
+then the center must map to:
+
+```text
+3eky.pdbqt
+```
+
+Check centers:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/centers"
+```
+
+---
+
+### `obabel_missing`
+
+Example:
+
+```json
+{
+  "ok": false,
+  "error": "obabel_missing"
+}
+```
+
+Cause:
+
+Open Babel is not installed or not on `PATH`.
+
+Check:
+
+```bash
+which obabel
+obabel -V
+```
+
+On Heroku:
+
+```bash
+heroku run --no-tty "which obabel && obabel -V" --app autodockvina
+```
+
+---
+
+### Open Babel plugin error
+
+Example log:
+
+```text
+Unable to find OpenBabel plugins. Try setting the BABEL_LIBDIR environment variable.
+```
+
+Fix:
+
+```bash
+heroku run --no-tty "find /app/.apt -type f \( -name 'pdbformat.so' -o -name 'pdbqtformat.so' -o -name 'plugindefines.txt' \) -print" --app autodockvina
+heroku config:set BABEL_LIBDIR=/app/.apt/usr/lib/x86_64-linux-gnu/openbabel/3.1.1 --app autodockvina
+heroku restart --app autodockvina
+```
+
+---
+
+### `receptor_conversion_failed`
+
+Example:
+
+```json
+{
+  "ok": false,
+  "error": "receptor_conversion_failed"
+}
+```
+
+Check prep status:
+
+```bash
+curl -sS "$BASE/api/v1/workspaces/$JOB/prep/status"
+```
+
+Look at the returned `log` text. Common causes include:
+
+* Open Babel plugin path not configured
+* malformed receptor input
+* unsupported conversion behavior
+* invalid or empty cleaned receptor file
+
+---
+
+### Local `ls` does not show server files
+
+This is expected.
+
+The workspace exists on the server, for example:
+
+```text
+/tmp/autodock_prep/demo-docking-...
+```
+
+Your local folder will only contain output after you download the generated ZIP:
+
+```bash
+curl -L -o "${JOB}_docking_package.zip" \
+  "$BASE/api/v1/workspaces/$JOB/download"
+```
+
+---
+
+### `ligands_missing`
+
+The package cannot be built until a ligand is uploaded.
+
+Upload a ligand:
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@my_ligand.sdf"
+```
+
+---
 
 ## Security and Data Notes
 
-- Do not commit `.env`, credentials, or cluster-specific secrets.
-- Use a strong `PORTAL_SECRET`, especially outside local development.
-- Uploaded inputs and generated workspaces are stored on disk under `PORTAL_TMP`.
-- Use a writable storage path outside source-controlled directories for `PORTAL_TMP` in shared or deployed environments.
-- Review generated docking packages before sharing them; they may contain project-specific inputs, intermediate files, or derived outputs.
-- Public mode should only be used in environments where open access is intended.
+Do not upload confidential receptor structures, proprietary ligand libraries, or sensitive project data to a public deployment unless the instance is explicitly configured for that purpose.
 
-## Contributing
+Public deployments are useful for demonstrations and educational workflows, but private or proprietary research should use a controlled deployment.
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, and pull request guidance.
+Recommended practices:
 
-## License
+* use private deployments for sensitive structures
+* clean old workspaces regularly
+* avoid committing generated ZIPs containing confidential molecules
+* review downloaded packages before sharing
+* use strong secrets and authentication for non-public instances
 
-This repository does not currently include a license file. Use, modification, and redistribution rights are therefore not granted unless provided separately by the maintainers.
+---
 
-## Acknowledgements
+## Citation and Acknowledgements
 
-- [Flask](https://flask.palletsprojects.com/) and related extensions used by the portal
-- [RDKit](https://www.rdkit.org/) for cheminformatics processing
-- [AutoDock Vina](https://vina.scripps.edu/) for docking workflows
-- Open Babel for chemical file conversion
-- The bundled `AutoDockTools_py3` source included in this repository
+AutoDock-Vina PrepServer builds on widely used open-source scientific software and molecular modeling tools.
+
+Acknowledgements:
+
+* Flask and related extensions for the web framework
+* Open Babel for chemical file conversion
+* AutoDock Vina for docking workflows
+* RDKit for cheminformatics utilities
+* AutoDockTools-derived utilities bundled in this repository
+* Schürer Lab molecular design workflows and tooling ecosystem
+
+If you use this tool in academic work, please cite the relevant upstream software packages used in your workflow, including AutoDock Vina and Open Babel.
+
+---
+
+## Contact
+
+For questions, deployment feedback, or collaboration:
+
+```text
+jmschulz@med.miami.edu
+```
+
+Website:
+
+```text
+https://autodockvina.com
+```
+
+Repository:
+
+```text
+https://github.com/Joey305/autodock-WEBSERVER
+```
+
+Schürer Lab:
+
+```text
+https://schurerlab.org
+```
