@@ -4,6 +4,169 @@
 
 {% block content %}
 
+<style>
+  .api-copy-wrap {
+    position: relative;
+    margin-top: 0.75rem;
+  }
+
+  .api-copy-wrap pre {
+    margin-bottom: 0;
+    padding-top: 3rem;
+    border-radius: 1rem;
+  }
+
+  .api-copy-btn {
+    position: absolute;
+    top: 0.65rem;
+    right: 0.65rem;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--app-brand) 45%, var(--app-border));
+    border-radius: 999px;
+    padding: 0.38rem 0.72rem;
+    color: var(--app-text);
+    background:
+      linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--app-surface) 88%, transparent),
+        color-mix(in srgb, var(--app-surface-2) 92%, transparent)
+      );
+    font-size: 0.78rem;
+    font-weight: 850;
+    line-height: 1;
+    box-shadow: 0 0 16px color-mix(in srgb, var(--app-brand) 18%, transparent);
+    cursor: pointer;
+    user-select: none;
+    transition:
+      transform 0.16s ease,
+      border-color 0.16s ease,
+      box-shadow 0.16s ease,
+      background 0.16s ease,
+      color 0.16s ease;
+  }
+
+  .api-copy-btn:hover,
+  .api-copy-btn:focus {
+    color: #02111d;
+    background: linear-gradient(135deg, var(--app-brand), var(--app-brand-2));
+    border-color: transparent;
+    box-shadow: 0 0 22px var(--app-glow);
+    transform: translateY(-1px);
+    outline: none;
+  }
+
+  .api-copy-btn.copied {
+    color: #02111d;
+    background: linear-gradient(135deg, var(--app-success), var(--app-brand-2));
+    border-color: transparent;
+  }
+
+  .api-copy-btn.failed {
+    color: #ffffff;
+    background: linear-gradient(135deg, var(--app-danger), #fb7185);
+    border-color: transparent;
+  }
+
+  .api-copy-btn i {
+    font-size: 0.92rem;
+  }
+
+  [data-theme="dark"] .api-copy-btn {
+    color: var(--app-code-text);
+    background:
+      linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--app-code-bg) 88%, transparent),
+        color-mix(in srgb, var(--app-surface-2) 86%, transparent)
+      );
+    border-color: color-mix(in srgb, var(--app-brand) 52%, var(--app-border));
+  }
+
+  [data-theme="dark"] .api-copy-btn:hover,
+  [data-theme="dark"] .api-copy-btn:focus,
+  [data-theme="dark"] .api-copy-btn.copied {
+    color: #02111d;
+  }
+
+  .api-mini-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin-top: 1.25rem;
+  }
+
+  .api-mini-nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    padding: 0.58rem 0.85rem;
+    color: var(--app-text);
+    background: color-mix(in srgb, var(--app-surface-2) 72%, transparent);
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  .api-mini-nav a:hover {
+    color: #02111d;
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--app-brand), var(--app-brand-2));
+  }
+
+  .api-status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.8rem;
+    margin-top: 1.25rem;
+  }
+
+  .api-status-pill {
+    border: 1px solid var(--app-border);
+    border-radius: 1rem;
+    padding: 0.85rem;
+    background: color-mix(in srgb, var(--app-surface-2) 78%, transparent);
+  }
+
+  .api-status-pill strong {
+    display: block;
+    color: var(--app-text);
+    font-size: 0.95rem;
+    font-weight: 900;
+  }
+
+  .api-status-pill span {
+    color: var(--app-muted);
+    font-size: 0.88rem;
+  }
+
+  @media (max-width: 991.98px) {
+    .api-status-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 575.98px) {
+    .api-copy-wrap pre {
+      padding-top: 3.25rem;
+    }
+
+    .api-copy-btn {
+      top: 0.55rem;
+      right: 0.55rem;
+      padding: 0.35rem 0.6rem;
+      font-size: 0.72rem;
+    }
+
+    .api-status-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
 <section class="page-hero compact">
   <span class="eyebrow">Headless API documentation</span>
   <h1>Script complete AutoDock Vina package preparation.</h1>
@@ -31,6 +194,15 @@
 ```
 
   </div>
+
+  <nav class="api-mini-nav" aria-label="API documentation shortcuts">
+    <a href="#workflow-overview"><i class="bi bi-list-ol"></i>Workflow</a>
+    <a href="#real-example"><i class="bi bi-lightning-charge"></i>DR7 example</a>
+    <a href="#copy-paste-dr7-script"><i class="bi bi-terminal"></i>One-shot script</a>
+    <a href="#manual-walkthrough"><i class="bi bi-signpost-split"></i>Manual steps</a>
+    <a href="#endpoint-reference"><i class="bi bi-table"></i>Endpoints</a>
+    <a href="#troubleshooting"><i class="bi bi-tools"></i>Troubleshooting</a>
+  </nav>
 </section>
 
 <section class="notice-card">
@@ -67,7 +239,7 @@ unzip</code></pre>
 
   <article class="info-card">
     <h2><i class="bi bi-filetype-json"></i> Response format</h2>
-    <p>Versioned endpoints return JSON in this general form:</p>
+    <p>Versioned endpoints generally return JSON in this form:</p>
     <pre><code>{
   "ok": true,
   "data": {},
@@ -88,9 +260,42 @@ unzip</code></pre>
 <section class="page-hero compact" id="workflow-overview">
   <span class="eyebrow">Workflow overview</span>
   <h1>The complete API flow.</h1>
-  <p>
-    A full docking-preparation workflow follows these stages.
-  </p>
+  <p>A full docking-preparation workflow follows these stages.</p>
+
+  <div class="api-status-grid">
+    <div class="api-status-pill">
+      <strong>1. Workspace</strong>
+      <span>Create isolated job folder</span>
+    </div>
+    <div class="api-status-pill">
+      <strong>2. Receptor</strong>
+      <span>Fetch or upload structure</span>
+    </div>
+    <div class="api-status-pill">
+      <strong>3. Center</strong>
+      <span>Save docking box</span>
+    </div>
+    <div class="api-status-pill">
+      <strong>4. Prep</strong>
+      <span>Convert receptor PDBQT</span>
+    </div>
+    <div class="api-status-pill">
+      <strong>5. Ligand</strong>
+      <span>Upload SDF/SMI/CSV/ZIP</span>
+    </div>
+    <div class="api-status-pill">
+      <strong>6. Build</strong>
+      <span>Create package archive</span>
+    </div>
+    <div class="api-status-pill">
+      <strong>7. Artifacts</strong>
+      <span>List downloadable files</span>
+    </div>
+    <div class="api-status-pill">
+      <strong>8. Download</strong>
+      <span>Save ZIP locally</span>
+    </div>
+  </div>
 </section>
 
 <section class="timeline">
@@ -365,8 +570,10 @@ chmod +x run_dr7_prepserver_api_demo.sh
   <article class="doc-card">
     <h2><i class="bi bi-heart-pulse"></i> 1. Health check</h2>
     <pre><code>BASE="https://autodockvina.com"
+
 curl -sS "$BASE/api/v1/health"
 echo ""</code></pre>
+
   </article>
 
   <article class="doc-card">
@@ -930,5 +1137,98 @@ heroku run --no-tty 'echo BABEL_LIBDIR=$BABEL_LIBDIR && which obabel && obabel -
     <i class="bi bi-box-seam me-2"></i>Open build workflow
   </a>
 </section>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const codeBlocks = document.querySelectorAll("pre > code");
+
+    codeBlocks.forEach(function (codeEl) {
+      const preEl = codeEl.parentElement;
+
+      if (!preEl || preEl.dataset.copyEnhanced === "true") {
+        return;
+      }
+
+      preEl.dataset.copyEnhanced = "true";
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "api-copy-wrap";
+
+      preEl.parentNode.insertBefore(wrapper, preEl);
+      wrapper.appendChild(preEl);
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "api-copy-btn";
+      button.setAttribute("aria-label", "Copy code block");
+      button.setAttribute("title", "Copy code");
+      button.innerHTML = '<i class="bi bi-clipboard"></i><span>Copy</span>';
+
+      wrapper.insertBefore(button, preEl);
+
+      const resetButton = function () {
+        button.classList.remove("copied", "failed");
+        button.innerHTML = '<i class="bi bi-clipboard"></i><span>Copy</span>';
+      };
+
+      const setButtonState = function (state, label, iconClass) {
+        button.classList.remove("copied", "failed");
+
+        if (state) {
+          button.classList.add(state);
+        }
+
+        button.innerHTML = '<i class="bi ' + iconClass + '"></i><span>' + label + '</span>';
+        window.setTimeout(resetButton, 1600);
+      };
+
+      const fallbackCopy = function (text) {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.top = "-9999px";
+        textarea.style.left = "-9999px";
+
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        try {
+          const successful = document.execCommand("copy");
+          document.body.removeChild(textarea);
+          return successful;
+        } catch (error) {
+          document.body.removeChild(textarea);
+          return false;
+        }
+      };
+
+      button.addEventListener("click", async function () {
+        const text = codeEl.innerText || codeEl.textContent || "";
+
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            setButtonState("copied", "Copied", "bi-check2");
+          } else {
+            const copied = fallbackCopy(text);
+            if (copied) {
+              setButtonState("copied", "Copied", "bi-check2");
+            } else {
+              setButtonState("failed", "Failed", "bi-x-lg");
+            }
+          }
+        } catch (error) {
+          const copied = fallbackCopy(text);
+          if (copied) {
+            setButtonState("copied", "Copied", "bi-check2");
+          } else {
+            setButtonState("failed", "Failed", "bi-x-lg");
+          }
+        }
+      });
+    });
+  });
+</script>
 
 {% endblock %}

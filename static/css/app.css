@@ -762,3 +762,117 @@ pre.log {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ==============================
+   Copy buttons for code blocks
+   Works in light and dark themes
+   ============================== */
+
+pre {
+  position: relative;
+  overflow: auto;
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.code-copy-wrap {
+  position: relative;
+}
+
+.code-copy-wrap pre {
+  margin-bottom: 0;
+  padding-top: 3rem;
+}
+
+.code-copy-btn {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--app-brand) 42%, var(--app-border));
+  border-radius: 999px;
+  padding: 0.38rem 0.7rem;
+  color: var(--app-text);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--app-surface) 86%, transparent),
+      color-mix(in srgb, var(--app-surface-2) 92%, transparent)
+    );
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--app-brand) 18%, transparent);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.code-copy-btn:hover,
+.code-copy-btn:focus {
+  color: #02111d;
+  background: linear-gradient(135deg, var(--app-brand), var(--app-brand-2));
+  border-color: transparent;
+  box-shadow: 0 0 22px var(--app-glow);
+  transform: translateY(-1px);
+}
+
+.code-copy-btn:focus {
+  outline: none;
+}
+
+.code-copy-btn.copied {
+  color: #02111d;
+  background: linear-gradient(135deg, var(--app-success), var(--app-brand-2));
+  border-color: transparent;
+}
+
+.code-copy-btn.failed {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--app-danger), #fb7185);
+  border-color: transparent;
+}
+
+.code-copy-btn i {
+  font-size: 0.92rem;
+}
+
+[data-theme="dark"] .code-copy-btn {
+  color: var(--app-code-text);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--app-code-bg) 88%, transparent),
+      color-mix(in srgb, var(--app-surface-2) 86%, transparent)
+    );
+  border-color: color-mix(in srgb, var(--app-brand) 48%, var(--app-border));
+}
+
+[data-theme="dark"] .code-copy-btn:hover,
+[data-theme="dark"] .code-copy-btn:focus,
+[data-theme="dark"] .code-copy-btn.copied {
+  color: #02111d;
+}
+
+@media (max-width: 575.98px) {
+  .code-copy-wrap pre {
+    padding-top: 3.25rem;
+  }
+
+  .code-copy-btn {
+    top: 0.55rem;
+    right: 0.55rem;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.72rem;
+  }
+}
+
