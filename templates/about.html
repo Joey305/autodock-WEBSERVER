@@ -1,47 +1,125 @@
 {% extends 'base.html' %}
-{% block title %}About | AutoDock-Vina PrepServer{% endblock %}
+{% block title %}About AutoDock-Vina PrepServer | Reproducible Docking Package Preparation{% endblock %}
+{% block meta_description %}AutoDock-Vina PrepServer helps scientists prepare reproducible molecular docking packages by guiding receptor intake, docking box definition, receptor cleanup, ligand upload, and AutoDock Vina job packaging.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
-  <span class="eyebrow">About the PrepServer</span>
-  <h1>Browser-guided docking package preparation for research teams.</h1>
+  <span class="eyebrow">Why we built AutoDock-Vina PrepServer</span>
+  <h1>Docking preparation should be reproducible, transparent, and easier to hand off.</h1>
   <p>
-    AutoDock-Vina PrepServer is a public-facing Flask application for assembling reproducible AutoDock Vina job packages
-    from receptor structures, docking-center definitions, and ligand inputs.
+    Molecular docking is powerful, but the preparation work around it is often repetitive: renaming receptor files,
+    tracking docking-box coordinates, cleaning structures, converting formats, organizing ligand libraries, and assembling
+    run folders over and over again. AutoDock-Vina PrepServer was built to make that setup clearer, faster, and easier to reproduce.
   </p>
+  <div class="hero-actions">
+    <a class="btn btn-app-primary btn-lg" href="{{ url_for('build') }}">
+      <i class="bi bi-box-seam me-2"></i>Start building a docking package
+    </a>
+    <a class="btn btn-app-ghost btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
+      <i class="bi bi-github me-2"></i>View source on GitHub
+    </a>
+  </div>
+</section>
+
+<section class="split-section">
+  <div>
+    <span class="eyebrow">The problem</span>
+    <h2>Docking workflows often fail before docking even starts.</h2>
+    <p>
+      Many docking projects depend on a fragile chain of small setup decisions: which receptor file was used, which
+      heteroatoms were removed, where the docking box was centered, which ligand file contained the final molecules,
+      and which folder actually holds the runnable inputs. These steps are not scientifically glamorous, but they decide
+      whether a docking run is repeatable.
+    </p>
+    <p>
+      For students, shared lab users, collaborators, and teams moving between local computers and HPC environments,
+      the same setup problems repeat: inconsistent file names, lost coordinates, incomplete receptor conversion, unclear
+      ligand mapping, and hand-built directories that are hard to audit later.
+    </p>
+  </div>
+  <div class="notice-card">
+    <i class="bi bi-exclamation-triangle"></i>
+    <div>
+      <h2>Common pain points</h2>
+      <p>
+        Manual docking preparation can create avoidable errors: copied coordinates, missing PDBQT files, inconsistent
+        ligand identifiers, unclear cleanup choices, and run folders that only one person knows how to reproduce.
+      </p>
+    </div>
+  </div>
 </section>
 
 <section class="content-grid two-col">
   <article class="info-card">
-    <h2>Overview</h2>
-    <p>The app provides a structured browser workflow for receptor intake, docking box selection, receptor preparation, ligand intake, and downloadable package generation.</p>
+    <h2><i class="bi bi-bullseye"></i> Guided docking-box setup</h2>
+    <p>
+      The app helps users define and save docking centers from a browser workflow instead of relying on loose notes,
+      screenshots, or manual coordinate copying.
+    </p>
   </article>
   <article class="info-card">
-    <h2>Why this tool exists</h2>
-    <p>Docking preparation often becomes a fragile mix of manual file naming, coordinate tracking, and ad hoc folder assembly. PrepServer makes that setup more repeatable.</p>
+    <h2><i class="bi bi-diagram-3"></i> Structured receptor preparation</h2>
+    <p>
+      Receptor intake, cleanup choices, and receptor conversion are organized into a staged workflow so users can see
+      what has been uploaded, centered, prepared, and packaged.
+    </p>
   </article>
   <article class="info-card">
-    <h2>Who it helps</h2>
-    <p>It is intended for researchers, students, and shared lab users who need a guided entry point for preparing docking jobs while preserving transparent downstream files.</p>
+    <h2><i class="bi bi-file-earmark-spreadsheet"></i> Ligand intake with column awareness</h2>
+    <p>
+      Ligand inputs can come from SDF, SMILES, SMI, CSV, ZIP, or folder uploads where enabled. CSV workflows preserve
+      an explicit SMILES-column selection before package generation.
+    </p>
   </article>
   <article class="info-card">
-    <h2>What it does</h2>
-    <p>PrepServer collects inputs, records docking centers, prepares receptor outputs, accepts common ligand formats, and builds portable or configured scheduler-oriented ZIP packages.</p>
+    <h2><i class="bi bi-archive"></i> Downloadable job packages</h2>
+    <p>
+      The result is a ZIP package intended to be moved into a downstream docking environment, reducing the need to
+      hand-build run directories from scratch.
+    </p>
   </article>
   <article class="info-card">
-    <h2>What it does not do</h2>
-    <p>It does not guarantee docking accuracy, replace scientific review, automate medicinal chemistry decisions, or claim a closed-loop AI discovery workflow.</p>
+    <h2><i class="bi bi-terminal"></i> Local and HPC-oriented use</h2>
+    <p>
+      The public mode focuses on portable packages. Deployments can also enable scheduler-oriented assets for teams
+      that use LSF/HPC-style docking workflows.
+    </p>
   </article>
   <article class="info-card">
-    <h2>Companion tools</h2>
-    <p>The site links to related tools for warhead review, degrader design continuation, E3 recruiter exploration, viral ligand triage, and molecular modeling support.</p>
+    <h2><i class="bi bi-unlock"></i> Open-source research infrastructure</h2>
+    <p>
+      The project is designed as transparent scientific tooling, not a black-box docking claim. The source code is
+      available at <a href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">{{ repository_url }}</a>.
+    </p>
+  </article>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2>Who this is for</h2>
+    <p>
+      AutoDock-Vina PrepServer is intended for researchers, students, educators, computational chemistry groups,
+      structural biology labs, and shared scientific teams that need a cleaner way to prepare docking inputs before
+      running AutoDock Vina or related downstream tools.
+    </p>
+  </article>
+  <article class="info-card">
+    <h2>What it is not</h2>
+    <p>
+      PrepServer does not guarantee docking accuracy, replace receptor curation, replace medicinal chemistry review,
+      or perform a closed-loop AI discovery process. It prepares transparent, inspectable files so scientists can run
+      and evaluate docking workflows more consistently.
+    </p>
   </article>
 </section>
 
 <section class="cta-band">
   <div>
-    <h2>Public contact</h2>
-    <p>Questions and collaboration inquiries can be sent to <a href="{{ contact_mailto }}">{{ contact_email }}</a>.</p>
+    <h2>Build a reproducible docking package.</h2>
+    <p>
+      Start with receptor files or a PDB ID, define docking centers, upload ligand inputs, and export a package for
+      downstream AutoDock Vina execution.
+    </p>
   </div>
-  <a class="btn btn-app-primary" href="{{ url_for('modules') }}">Explore modules</a>
+  <a class="btn btn-app-primary" href="{{ url_for('build') }}">Start workflow</a>
 </section>
 {% endblock %}

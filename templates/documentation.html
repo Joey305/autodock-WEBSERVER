@@ -1,12 +1,13 @@
 {% extends 'base.html' %}
 {% block title %}Documentation | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}Documentation for AutoDock-Vina PrepServer: docking workflow, accepted receptor and ligand inputs, package modes, headless API endpoints, GitHub repository, and troubleshooting guidance.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
   <span class="eyebrow">Documentation hub</span>
   <h1>Practical references for using and extending the PrepServer.</h1>
   <p>
     Use this page as a starting point for the public workflow, accepted input types, generated package modes,
-    setup expectations, and common troubleshooting paths.
+    setup expectations, API endpoints, GitHub repository, and common troubleshooting paths.
   </p>
 </section>
 
@@ -15,6 +16,11 @@
     <h2><i class="bi bi-lightning-charge"></i>Quick start</h2>
     <p>Create a workspace, add receptors, save docking centers, prepare proteins, upload ligands, choose package mode, then build the ZIP.</p>
     <a href="{{ url_for('build') }}">Start the build workflow</a>
+  </article>
+  <article class="doc-card">
+    <h2><i class="bi bi-exclamation-diamond"></i>Why docking prep fails</h2>
+    <p>Learn why repeated manual setup, file naming, coordinate tracking, and folder assembly can make docking workflows fragile.</p>
+    <a href="{{ url_for('docking_problems') }}">Read docking-prep problems</a>
   </article>
   <article class="doc-card">
     <h2><i class="bi bi-map"></i>Workflow guide</h2>
@@ -30,27 +36,19 @@
     <p>Portable mode creates generic local runner assets. LSF mode adds scheduler-oriented files when enabled by the deployment.</p>
   </article>
   <article class="doc-card">
-    <h2><i class="bi bi-terminal"></i>Local setup / README</h2>
-    <p>The repository README contains setup, environment variables, dependency notes, and validation commands for developers and deployers.</p>
-    <a href="README.md">README in repository</a>
-  </article>
-  <article class="doc-card">
     <h2><i class="bi bi-braces"></i>Headless API</h2>
-    <p>PrepServer includes a versioned headless API for scripted workspace creation, coordinate-based box generation, receptor preparation, ligand upload, and package generation.</p>
-    <a href="README.md">See README API links</a>
+    <p>PrepServer includes a versioned API for scripted workspace creation, coordinate-based box generation, receptor preparation, ligand upload, and package generation.</p>
+    <a href="{{ url_for('api_docs') }}">View API overview</a>
   </article>
   <article class="doc-card">
     <h2><i class="bi bi-tools"></i>Troubleshooting</h2>
     <p>Check workspace creation, external executables such as Open Babel, CSV column mapping, and package-mode settings before running long workflows.</p>
+    <a href="{{ url_for('troubleshooting') }}">Troubleshoot workflow issues</a>
   </article>
   <article class="doc-card">
-    <h2><i class="bi bi-box-arrow-up-right"></i>Scientific dependencies</h2>
-    <p>Generated packages and utilities may rely on AutoDock Vina, Open Babel, RDKit, pandas, NumPy, matplotlib, and related scientific tooling.</p>
-  </article>
-  <article class="doc-card">
-    <h2><i class="bi bi-github"></i>Repository issue tracker</h2>
-    <p>No public repository URL was verified in this repository during this pass. Use the contact page for code-specific questions until a tracker URL is added.</p>
-    <a href="{{ url_for('contact') }}">Contact maintainers</a>
+    <h2><i class="bi bi-github"></i>Open source / GitHub</h2>
+    <p>The project source code is available for inspection, issue reporting, extension, and deployment adaptation.</p>
+    <a href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">Open GitHub repository</a>
   </article>
 </section>
 {% endblock %}

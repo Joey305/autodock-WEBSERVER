@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Headless API | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}AutoDock-Vina PrepServer includes a versioned headless API for scripted docking workspace creation, receptor upload, center saving, ligand upload, preparation, and package generation.{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <span class="eyebrow">Headless API</span>
+  <h1>Script the same staged docking-preparation workflow used by the browser interface.</h1>
+  <p>
+    PrepServer includes versioned API endpoints for teams that want to automate workspace creation, receptor ingestion,
+    docking-center resolution, ligand upload, receptor preparation, and package generation.
+  </p>
+</section>
+
+<section class="doc-grid">
+  <article class="doc-card">
+    <h2><i class="bi bi-heart-pulse"></i> Health check</h2>
+    <p><code>GET /api/v1/health</code></p>
+  </article>
+  <article class="doc-card">
+    <h2><i class="bi bi-folder-plus"></i> Workspaces</h2>
+    <p><code>POST /api/v1/workspaces</code><br><code>GET /api/v1/workspaces/&lt;jobname&gt;</code></p>
+  </article>
+  <article class="doc-card">
+    <h2><i class="bi bi-file-earmark-arrow-up"></i> Receptors</h2>
+    <p><code>POST /api/v1/workspaces/&lt;jobname&gt;/receptors/upload</code><br><code>POST /api/v1/workspaces/&lt;jobname&gt;/receptors/fetch</code></p>
+  </article>
+  <article class="doc-card">
+    <h2><i class="bi bi-bullseye"></i> Centers</h2>
+    <p><code>POST /api/v1/workspaces/&lt;jobname&gt;/centers/resolve</code><br><code>POST /api/v1/workspaces/&lt;jobname&gt;/centers/save</code></p>
+  </article>
+  <article class="doc-card">
+    <h2><i class="bi bi-box"></i> Ligands</h2>
+    <p><code>POST /api/v1/workspaces/&lt;jobname&gt;/ligands/upload</code><br><code>GET /api/v1/workspaces/&lt;jobname&gt;/ligands</code></p>
+  </article>
+  <article class="doc-card">
+    <h2><i class="bi bi-archive"></i> Build artifacts</h2>
+    <p><code>POST /api/v1/workspaces/&lt;jobname&gt;/build</code><br><code>GET /api/v1/workspaces/&lt;jobname&gt;/artifacts</code></p>
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-info-circle"></i>
+  <div>
+    <h2>Staged workflow by design</h2>
+    <p>
+      The current API favors staged operations over a single opaque one-call workflow so setup failures remain visible and easier to debug.
+    </p>
+  </div>
+</section>
+{% endblock %}

@@ -1,39 +1,163 @@
+```html
 <nav class="navbar navbar-expand-lg app-navbar sticky-top" aria-label="Primary navigation">
   <div class="container">
     <a class="navbar-brand app-brand" href="{{ url_for('home') }}">
       <span class="brand-mark"><i class="bi bi-bounding-box-circles"></i></span>
       <span>AutoDock-Vina PrepServer</span>
     </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#primaryNav" aria-controls="primaryNav" aria-expanded="false" aria-label="Toggle navigation">
+
+    <button
+      class="navbar-toggler"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#primaryNav"
+      aria-controls="primaryNav"
+      aria-expanded="false"
+      aria-label="Toggle navigation"
+    >
       <span class="navbar-toggler-icon"></span>
     </button>
+
     <div class="collapse navbar-collapse" id="primaryNav">
       <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-1">
+
+        {# Main navigation links from app.py nav_links #}
         {% for link in nav_links %}
           <li class="nav-item">
-            <a class="nav-link {% if request.endpoint == link.endpoint %}active{% endif %}" href="{{ url_for(link.endpoint) }}">{{ link.name }}</a>
+            {% if link.external is defined and link.external %}
+              <a
+                class="nav-link"
+                href="{{ link.url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {{ link.name }}
+                <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+              </a>
+            {% else %}
+              <a
+                class="nav-link {% if request.endpoint == link.endpoint %}active{% endif %}"
+                href="{{ url_for(link.endpoint) }}"
+              >
+                {{ link.name }}
+              </a>
+            {% endif %}
           </li>
         {% endfor %}
+
+        {# SEO / documentation resource dropdown #}
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {% if request.endpoint == 'modules' %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Open companion modules menu">
+          <a
+            class="nav-link dropdown-toggle {% if request.endpoint in ['documentation', 'docking_problems', 'open_source', 'api_docs', 'troubleshooting'] %}active{% endif %}"
+            href="#"
+            role="button"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+            aria-label="Open documentation and resources menu"
+          >
+            Resources
+          </a>
+
+          <ul class="dropdown-menu dropdown-menu-end app-dropdown">
+            <li>
+              <a class="dropdown-item" href="{{ url_for('documentation') }}">
+                <i class="bi bi-journal-text me-2"></i>Documentation
+              </a>
+            </li>
+
+            <li>
+              <a class="dropdown-item" href="{{ url_for('workflow') }}">
+                <i class="bi bi-map me-2"></i>Workflow Guide
+              </a>
+            </li>
+
+            <li>
+              <a class="dropdown-item" href="{{ url_for('docking_problems') }}">
+                <i class="bi bi-exclamation-diamond me-2"></i>Docking Prep Problems
+              </a>
+            </li>
+
+            <li>
+              <a class="dropdown-item" href="{{ url_for('api_docs') }}">
+                <i class="bi bi-braces me-2"></i>Headless API
+              </a>
+            </li>
+
+            <li>
+              <a class="dropdown-item" href="{{ url_for('troubleshooting') }}">
+                <i class="bi bi-tools me-2"></i>Troubleshooting
+              </a>
+            </li>
+
+            <li>
+              <a class="dropdown-item" href="{{ url_for('open_source') }}">
+                <i class="bi bi-unlock me-2"></i>Open Source
+              </a>
+            </li>
+
+            {% if repository_url is defined %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <a
+                  class="dropdown-item"
+                  href="{{ repository_url }}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <i class="bi bi-github me-2"></i>GitHub Repository
+                  <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                </a>
+              </li>
+            {% endif %}
+          </ul>
+        </li>
+
+        {# Companion tools / ecosystem dropdown #}
+        <li class="nav-item dropdown">
+          <a
+            class="nav-link dropdown-toggle {% if request.endpoint == 'modules' %}active{% endif %}"
+            href="#"
+            role="button"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+            aria-label="Open companion modules menu"
+          >
             Modules
           </a>
+
           <ul class="dropdown-menu dropdown-menu-end app-dropdown">
             {% for tool in tool_links %}
               <li>
-                <a class="dropdown-item" href="{{ tool.url }}" target="_blank" rel="noopener noreferrer">
+                <a
+                  class="dropdown-item"
+                  href="{{ tool.url }}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <i class="bi {{ tool.icon }} me-2"></i>{{ tool.name }}
                   <i class="bi bi-box-arrow-up-right ms-1 small"></i>
                 </a>
               </li>
             {% endfor %}
+
             <li><hr class="dropdown-divider"></li>
+
             <li>
-              {# TODO: Replace "#" with the official Schürer Lab URL once verified in this repository. #}
-              <a class="dropdown-item" href="{{ lab_link.url }}" {% if lab_link.url != "#" %}target="_blank" rel="noopener noreferrer"{% endif %}>
+              <a
+                class="dropdown-item"
+                href="{{ lab_link.url }}"
+                {% if lab_link.url != "#" %}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                {% endif %}
+              >
                 <i class="bi {{ lab_link.icon }} me-2"></i>{{ lab_link.name }}
+                {% if lab_link.url != "#" %}
+                  <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                {% endif %}
               </a>
             </li>
+
             <li>
               <a class="dropdown-item" href="{{ url_for('modules') }}">
                 <i class="bi bi-grid-3x3-gap me-2"></i>View ecosystem page
@@ -42,11 +166,20 @@
           </ul>
         </li>
       </ul>
+
       <div class="nav-actions">
         {% if public_mode %}
-          <span class="badge public-badge"><i class="bi bi-unlock me-1"></i>Public Access</span>
+          <span class="badge public-badge">
+            <i class="bi bi-unlock me-1"></i>Public Access
+          </span>
         {% endif %}
-        <button class="theme-toggle" type="button" aria-label="Toggle theme" data-theme-toggle>
+
+        <button
+          class="theme-toggle"
+          type="button"
+          aria-label="Toggle theme"
+          data-theme-toggle
+        >
           <i class="bi bi-moon-stars" data-theme-icon></i>
           <span data-theme-label>Dark</span>
         </button>
@@ -54,3 +187,4 @@
     </div>
   </div>
 </nav>
+```

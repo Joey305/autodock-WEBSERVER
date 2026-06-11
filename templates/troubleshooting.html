@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}Troubleshooting Docking Prep | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}Troubleshoot AutoDock-Vina PrepServer workspace setup, receptor preparation, docking center selection, ligand CSV mapping, Open Babel conversion, and package generation issues.{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <span class="eyebrow">Troubleshooting</span>
+  <h1>Common setup checks before rebuilding a docking package.</h1>
+  <p>
+    Most docking-preparation errors come from missing inputs, incomplete centers, unsupported file formats, external conversion tools,
+    or package-mode settings. Use these checks before repeating a long workflow.
+  </p>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2>Workspace not created</h2>
+    <p>Start a new workspace before uploading receptors or ligands. The browser workflow creates a workspace automatically on page load.</p>
+  </article>
+  <article class="info-card">
+    <h2>Receptor is not centered</h2>
+    <p>Open the receptor in the viewer and save a center using ligand, residue, XYZ, or clicked-atom selection before running preparation.</p>
+  </article>
+  <article class="info-card">
+    <h2>PDBQT conversion failed</h2>
+    <p>Check whether the deployment has the required conversion executable available, such as Open Babel, and inspect the preparation log.</p>
+  </article>
+  <article class="info-card">
+    <h2>CSV ligand build fails</h2>
+    <p>CSV ligand uploads require a SMILES column selection before package generation. Confirm the selected column contains valid SMILES strings.</p>
+  </article>
+  <article class="info-card">
+    <h2>Build ZIP button disabled</h2>
+    <p>The package step stays disabled until receptors are centered/prepared and ligand inputs have been uploaded.</p>
+  </article>
+  <article class="info-card">
+    <h2>LSF mode is unavailable</h2>
+    <p>Scheduler-oriented package generation depends on deployment configuration. Public deployments may default to portable ZIP mode.</p>
+  </article>
+</section>
+
+<section class="cta-band">
+  <div>
+    <h2>Still stuck?</h2>
+    <p>Include the workflow step, input type, package mode, and concise error text when reporting an issue.</p>
+  </div>
+  <a class="btn btn-app-primary" href="{{ url_for('contact') }}">Contact</a>
+</section>
+{% endblock %}

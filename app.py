@@ -25,6 +25,7 @@ from center_resolver import CenterResolutionError, resolve_center_from_file, res
 
 SITE_CONTACT_EMAIL = "jmschulz@med.miami.edu"
 MAILTO_SUBJECT = "AutoDock-Vina PrepServer Question"
+REPOSITORY_URL = "https://github.com/Joey305/autodock-WEBSERVER"
 SCHURER_LAB_URL = "https://schurerlab.org"
 
 TOOL_LINKS = [
@@ -180,12 +181,14 @@ def create_app() -> Flask:
             {"name": "Build", "endpoint": "build"},
             {"name": "Workflow", "endpoint": "workflow"},
             {"name": "About", "endpoint": "about"},
-            {"name": "Documentation", "endpoint": "documentation"},
+            {"name": "Docs", "endpoint": "documentation"},
+            {"name": "GitHub", "url": REPOSITORY_URL, "external": True},
             {"name": "Contact", "endpoint": "contact"},
         ]
         return {
             "contact_email": SITE_CONTACT_EMAIL,
             "contact_mailto": mailto,
+            "repository_url": REPOSITORY_URL,
             "tool_links": TOOL_LINKS,
             "lab_link": LAB_LINK,
             "ecosystem_links": [*TOOL_LINKS, LAB_LINK],
@@ -281,8 +284,24 @@ def create_app() -> Flask:
     def contact():
         return render_template(
             "contact.html",
-            repository_url=None,
+            repository_url=REPOSITORY_URL
         )
+    
+    @app.get("/docking-preparation-problems")
+    def docking_problems():
+        return render_template("docking_problems.html")
+
+    @app.get("/open-source")
+    def open_source():
+        return render_template("open_source.html")
+
+    @app.get("/api")
+    def api_docs():
+        return render_template("api.html")
+
+    @app.get("/troubleshooting")
+    def troubleshooting():
+        return render_template("troubleshooting.html")
     
 
     # ---------- STATE HELPERS ----------

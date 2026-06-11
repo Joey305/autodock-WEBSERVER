@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}Open Source Docking Tool | AutoDock-Vina PrepServer GitHub{% endblock %}
+{% block meta_description %}AutoDock-Vina PrepServer is an open-source Flask web application for preparing reproducible AutoDock Vina docking job packages from receptor and ligand inputs.{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <span class="eyebrow">Open-source scientific tooling</span>
+  <h1>Transparent docking-preparation infrastructure for researchers and developers.</h1>
+  <p>
+    AutoDock-Vina PrepServer is developed as an open-source web application for preparing molecular docking packages.
+    The goal is to make docking setup easier to inspect, extend, and deploy across research environments.
+  </p>
+  <div class="hero-actions">
+    <a class="btn btn-app-primary btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
+      <i class="bi bi-github me-2"></i>Open GitHub repository
+    </a>
+    <a class="btn btn-app-ghost btn-lg" href="{{ url_for('documentation') }}">
+      <i class="bi bi-journal-text me-2"></i>Read documentation
+    </a>
+  </div>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2>Repository</h2>
+    <p><a href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">{{ repository_url }}</a></p>
+  </article>
+  <article class="info-card">
+    <h2>Built with Flask</h2>
+    <p>The application uses Flask routes, templates, API endpoints, and packaging helpers to convert browser workflow steps into downloadable docking packages.</p>
+  </article>
+  <article class="info-card">
+    <h2>For scientists</h2>
+    <p>Researchers can use the public web interface to prepare docking package inputs without manually assembling every folder, script, and coordinate file.</p>
+  </article>
+  <article class="info-card">
+    <h2>For developers</h2>
+    <p>Developers can inspect the source, adapt deployment settings, add routes, improve templates, or extend the headless API for scripted workflows.</p>
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-shield-check"></i>
+  <div>
+    <h2>Responsible use</h2>
+    <p>
+      Public deployments should be treated as public tools. Do not upload confidential receptor structures, proprietary ligand libraries,
+      or sensitive project data unless the instance is explicitly configured and governed for that use.
+    </p>
+  </div>
+</section>
+{% endblock %}

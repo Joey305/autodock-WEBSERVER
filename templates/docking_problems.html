@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block title %}Docking Preparation Problems | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}Learn why molecular docking preparation can become repetitive and error-prone, and how AutoDock-Vina PrepServer helps scientists organize receptor files, docking boxes, ligands, and packages.{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <span class="eyebrow">Docking preparation problems</span>
+  <h1>The hardest part of a docking screen is often the setup around the docking run.</h1>
+  <p>
+    AutoDock Vina workflows depend on careful preparation of receptor files, ligand inputs, docking boxes, and run folders.
+    Small setup mistakes can propagate into wasted compute time, confusing results, or docking packages that are difficult
+    to reproduce later.
+  </p>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2>Repetitive folder assembly</h2>
+    <p>Docking projects often require the same directory structure, scripts, receptor files, ligand folders, and result paths to be rebuilt for every new target or screen.</p>
+  </article>
+  <article class="info-card">
+    <h2>Coordinate tracking</h2>
+    <p>Docking centers are easy to lose when they live in notes, screenshots, or one-off command lines. PrepServer records centers in a structured CSV-based workflow.</p>
+  </article>
+  <article class="info-card">
+    <h2>File-format friction</h2>
+    <p>Receptors and ligands often move between PDB, CIF, PDBQT, SDF, SMILES, SMI, CSV, ZIP, and folder-based inputs. The app organizes these transitions into staged steps.</p>
+  </article>
+  <article class="info-card">
+    <h2>Hidden assumptions</h2>
+    <p>Manual cleanup choices such as heteroatom removal, chain selection, or ligand column mapping should be visible and repeatable, not buried in a local shell history.</p>
+  </article>
+</section>
+
+<section class="timeline">
+  <article class="timeline-item">
+    <span class="timeline-number">1</span>
+    <div>
+      <h2>Start with a workspace</h2>
+      <p>Each job begins with a workspace so receptors, centers, ligands, logs, and generated packages stay grouped together.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">2</span>
+    <div>
+      <h2>Make preparation visible</h2>
+      <p>The interface marks receptor status as new, centered, or prepared so users know what still needs attention before package generation.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">3</span>
+    <div>
+      <h2>Export instead of hand-assembling</h2>
+      <p>Once the required inputs are complete, PrepServer builds a downloadable ZIP package for downstream docking execution.</p>
+    </div>
+  </article>
+</section>
+
+<section class="cta-band">
+  <div>
+    <h2>Use the guided workflow instead of rebuilding every docking folder by hand.</h2>
+    <p>Prepare receptor, ligand, center, and package assets from one browser-guided flow.</p>
+  </div>
+  <a class="btn btn-app-primary" href="{{ url_for('build') }}">Build a package</a>
+</section>
+{% endblock %}

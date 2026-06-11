@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Contact | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}Contact the AutoDock-Vina PrepServer maintainer for docking workflow questions, bug reports, deployment feedback, open-source collaboration, and scientific software support.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
   <span class="eyebrow">Contact</span>
@@ -10,10 +11,10 @@
   </p>
   <div class="hero-actions">
     <a class="btn btn-app-primary btn-lg" href="{{ contact_mailto }}">
-      <i class="bi bi-envelope me-2"></i>Email {{ contact_email }}
+      <i class="bi bi-envelope me-2"></i>Email maintainer
     </a>
-    <a class="btn btn-app-ghost btn-lg" href="{{ url_for('documentation') }}">
-      <i class="bi bi-journal-text me-2"></i>Review documentation
+    <a class="btn btn-app-ghost btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
+      <i class="bi bi-github me-2"></i>GitHub repository
     </a>
   </div>
 </section>
@@ -25,7 +26,7 @@
   </article>
   <article class="info-card">
     <h2>Code-specific issues</h2>
-    <p>For code-specific issues, use the project repository issue tracker when available. No public tracker URL was verified in this repository during this pass.</p>
+    <p>For code-specific issues, include the relevant route, template, dependency, deployment environment, and link to the repository: <a href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">{{ repository_url }}</a>.</p>
   </article>
   <article class="info-card">
     <h2>Confidential data</h2>
@@ -35,11 +36,5 @@
     <h2>Companion tools</h2>
     <p>For ecosystem questions, mention whether your workflow touches docking preparation, warhead review, E3 recruiter exploration, PROTAC design, V-LiSEMOD, or Pymacs.</p>
   </article>
-</section>
-
-<section class="module-strip wide">
-  {% for tool in tool_links %}
-    <a href="{{ tool.url }}" target="_blank" rel="noopener noreferrer"><i class="bi {{ tool.icon }}"></i>{{ tool.name }}</a>
-  {% endfor %}
 </section>
 {% endblock %}
