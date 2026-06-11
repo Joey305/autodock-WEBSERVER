@@ -876,3 +876,535 @@ pre {
   }
 }
 
+
+
+/* ==============================
+   Animated workflow page
+   Light/dark compatible
+   ============================== */
+
+.workflow-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr);
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.workflow-hero-copy {
+  position: relative;
+  z-index: 2;
+}
+
+.workflow-visual {
+  position: relative;
+  min-height: 420px;
+  border: 1px solid var(--app-border);
+  border-radius: 2rem;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--app-brand) 26%, transparent), transparent 18rem),
+    radial-gradient(circle at 82% 72%, color-mix(in srgb, var(--app-success) 20%, transparent), transparent 18rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--app-surface-2) 78%, transparent), color-mix(in srgb, var(--app-surface) 50%, transparent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--app-shadow);
+}
+
+.workflow-visual::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(rgba(14, 165, 233, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14, 165, 233, 0.05) 1px, transparent 1px);
+  background-size: 34px 34px;
+  opacity: 0.65;
+  mask-image: radial-gradient(circle at 50% 50%, black, transparent 78%);
+}
+
+[data-theme="dark"] .workflow-visual::before {
+  background:
+    linear-gradient(rgba(34, 211, 238, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 255, 20, 0.06) 1px, transparent 1px);
+}
+
+.workflow-thread-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--app-brand);
+}
+
+.workflow-thread-base {
+  fill: none;
+  stroke: color-mix(in srgb, var(--app-muted) 28%, transparent);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-dasharray: 10 16;
+}
+
+.workflow-thread-active {
+  fill: none;
+  stroke: url(#workflowThreadGradient);
+  stroke-width: 6;
+  stroke-linecap: round;
+  filter: url(#workflowGlow);
+  stroke-dasharray: 120 900;
+  animation: workflowThreadFlow 6.5s ease-in-out infinite;
+}
+
+.workflow-pulse-dot {
+  fill: var(--app-brand-2);
+  filter: url(#workflowGlow);
+  opacity: 0.95;
+  animation: workflowPulseDot 2.8s ease-in-out infinite;
+}
+
+.workflow-pulse-dot.dot-b { animation-delay: 0.25s; }
+.workflow-pulse-dot.dot-c { animation-delay: 0.5s; }
+.workflow-pulse-dot.dot-d { animation-delay: 0.75s; }
+.workflow-pulse-dot.dot-e { animation-delay: 1s; }
+.workflow-pulse-dot.dot-f { animation-delay: 1.25s; }
+
+.workflow-node circle {
+  fill: color-mix(in srgb, var(--app-surface) 86%, transparent);
+  stroke: url(#workflowThreadGradient);
+  stroke-width: 3;
+  filter: url(#workflowGlow);
+}
+
+.workflow-node text {
+  fill: var(--app-text);
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  letter-spacing: 0.04em;
+}
+
+[data-theme="dark"] .workflow-node circle {
+  fill: color-mix(in srgb, var(--app-code-bg) 86%, transparent);
+}
+
+.workflow-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: workflowNodeFloat 4.5s ease-in-out infinite;
+}
+
+.node-center { animation-delay: 0.3s; }
+.node-prep { animation-delay: 0.6s; }
+.node-ligand { animation-delay: 0.9s; }
+.node-package { animation-delay: 1.2s; }
+.node-run { animation-delay: 1.5s; }
+
+.workflow-orbit-card {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  padding: 0.55rem 0.8rem;
+  color: var(--app-text);
+  background: color-mix(in srgb, var(--app-surface) 84%, transparent);
+  font-weight: 850;
+  box-shadow: var(--app-shadow);
+  backdrop-filter: blur(12px);
+  animation: workflowChipFloat 5s ease-in-out infinite;
+}
+
+.workflow-orbit-card i {
+  color: var(--app-brand);
+}
+
+.receptor-card {
+  top: 1.2rem;
+  left: 1.2rem;
+}
+
+.ligand-card {
+  top: 45%;
+  right: 1rem;
+  animation-delay: 0.7s;
+}
+
+.package-card {
+  bottom: 1.2rem;
+  left: 36%;
+  animation-delay: 1.4s;
+}
+
+.workflow-map-section {
+  margin-top: 1.25rem;
+}
+
+.workflow-map-heading {
+  max-width: 920px;
+}
+
+.workflow-map-heading h2,
+.workflow-thread-copy h2,
+.workflow-explainer-card h2 {
+  color: var(--app-text);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+}
+
+.workflow-map-heading p,
+.workflow-thread-copy p,
+.workflow-explainer-card p {
+  color: var(--app-muted);
+}
+
+.workflow-path-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.workflow-path-grid::before {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 50%;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--app-brand), var(--app-brand-2), var(--app-success));
+  box-shadow: 0 0 22px var(--app-glow);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.workflow-step-card {
+  position: relative;
+  z-index: 2;
+  border: 1px solid var(--app-border);
+  border-radius: 1.35rem;
+  padding: 1.25rem;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--app-surface) 94%, transparent), color-mix(in srgb, var(--app-surface-2) 86%, transparent));
+  box-shadow: var(--app-shadow);
+  overflow: hidden;
+}
+
+.workflow-step-card::after {
+  content: "";
+  position: absolute;
+  inset: auto -20% -44% 44%;
+  height: 9rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--app-brand) 22%, transparent), transparent 70%);
+  pointer-events: none;
+}
+
+.workflow-step-card:hover {
+  border-color: color-mix(in srgb, var(--app-brand) 60%, var(--app-border));
+  transform: translateY(-2px);
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.workflow-card-top {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+
+.workflow-card-top i {
+  width: 2.55rem;
+  height: 2.55rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 0.9rem;
+  color: #02111d;
+  background: linear-gradient(135deg, var(--app-brand), var(--app-brand-2));
+  box-shadow: 0 0 24px var(--app-glow);
+  font-size: 1.15rem;
+}
+
+.workflow-step-number {
+  color: var(--app-brand);
+  font-weight: 950;
+  letter-spacing: 0.1em;
+}
+
+.workflow-step-card h3 {
+  position: relative;
+  z-index: 1;
+  color: var(--app-text);
+  font-size: 1.08rem;
+  font-weight: 900;
+}
+
+.workflow-step-card p {
+  position: relative;
+  z-index: 1;
+  color: var(--app-muted);
+}
+
+.workflow-chip {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, var(--app-brand) 44%, var(--app-border));
+  border-radius: 999px;
+  padding: 0.35rem 0.6rem;
+  color: var(--app-text);
+  background: color-mix(in srgb, var(--app-surface-2) 76%, transparent);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.workflow-thread-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
+  gap: 1.25rem;
+  align-items: center;
+  margin-top: 1.25rem;
+  border: 1px solid var(--app-border);
+  border-radius: 2rem;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  background:
+    radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--app-brand) 18%, transparent), transparent 20rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--app-surface) 92%, transparent), color-mix(in srgb, var(--app-surface-2) 80%, transparent));
+  box-shadow: var(--app-shadow);
+}
+
+.workflow-signal-stack {
+  position: relative;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.workflow-signal-stack::before {
+  content: "";
+  position: absolute;
+  left: 1.05rem;
+  top: 1.2rem;
+  bottom: 1.2rem;
+  width: 2px;
+  background: linear-gradient(180deg, var(--app-brand), var(--app-brand-2), var(--app-success));
+  box-shadow: 0 0 18px var(--app-glow);
+}
+
+.workflow-signal-row {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 0.75rem;
+  align-items: center;
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  padding: 0.8rem;
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+}
+
+.signal-dot {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--app-success), var(--app-brand));
+  box-shadow: 0 0 22px var(--app-glow);
+  animation: workflowSignalPulse 2.4s ease-in-out infinite;
+}
+
+.workflow-signal-row:nth-child(2) .signal-dot { animation-delay: 0.25s; }
+.workflow-signal-row:nth-child(3) .signal-dot { animation-delay: 0.5s; }
+.workflow-signal-row:nth-child(4) .signal-dot { animation-delay: 0.75s; }
+.workflow-signal-row:nth-child(5) .signal-dot { animation-delay: 1s; }
+
+.workflow-signal-row strong {
+  color: var(--app-text);
+  font-weight: 900;
+}
+
+.workflow-signal-row code {
+  color: var(--app-code-text);
+  background: var(--app-code-bg);
+  border: 1px solid var(--app-border);
+  border-radius: 0.65rem;
+  padding: 0.42rem 0.55rem;
+  overflow-wrap: anywhere;
+}
+
+.workflow-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.workflow-explainer-card {
+  border: 1px solid var(--app-border);
+  border-radius: 1.5rem;
+  padding: 1.35rem;
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  box-shadow: var(--app-shadow);
+}
+
+.workflow-icon-bubble {
+  width: 3rem;
+  height: 3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 1rem;
+  color: #02111d;
+  background: linear-gradient(135deg, var(--app-brand), var(--app-brand-2));
+  box-shadow: 0 0 24px var(--app-glow);
+  margin-bottom: 1rem;
+  font-size: 1.35rem;
+}
+
+.workflow-detailed-timeline .timeline-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.workflow-detailed-timeline .timeline-item::after {
+  content: "";
+  position: absolute;
+  inset: auto -12% -80% 44%;
+  height: 8rem;
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--app-brand-2) 18%, transparent), transparent 70%);
+}
+
+.workflow-safety-note {
+  border-color: color-mix(in srgb, var(--app-warning) 42%, var(--app-border));
+}
+
+.workflow-cta {
+  margin-top: 1.25rem;
+}
+
+@keyframes workflowThreadFlow {
+  0% {
+    stroke-dashoffset: 980;
+    opacity: 0.45;
+  }
+
+  45% {
+    opacity: 1;
+  }
+
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.45;
+  }
+}
+
+@keyframes workflowPulseDot {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes workflowNodeFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes workflowChipFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes workflowSignalPulse {
+  0%, 100% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-thread-active,
+  .workflow-pulse-dot,
+  .workflow-node,
+  .workflow-orbit-card,
+  .signal-dot {
+    animation: none !important;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .workflow-hero,
+  .workflow-thread-panel,
+  .workflow-split,
+  .workflow-path-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-visual {
+    min-height: 340px;
+  }
+
+  .workflow-path-grid::before {
+    display: none;
+  }
+
+  .workflow-signal-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .workflow-signal-row code {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .workflow-visual {
+    min-height: 280px;
+    border-radius: 1.2rem;
+  }
+
+  .workflow-orbit-card {
+    font-size: 0.8rem;
+    padding: 0.42rem 0.6rem;
+  }
+
+  .workflow-thread-panel,
+  .workflow-explainer-card,
+  .workflow-step-card {
+    border-radius: 1.15rem;
+  }
+
+  .workflow-signal-row {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-signal-stack::before {
+    display: none;
+  }
+
+  .signal-dot {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}
