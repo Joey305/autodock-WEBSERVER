@@ -1,50 +1,428 @@
 {% extends 'base.html' %}
-{% block title %}Headless API | AutoDock-Vina PrepServer{% endblock %}
-{% block meta_description %}AutoDock-Vina PrepServer includes a versioned headless API for scripted docking workspace creation, receptor upload, center saving, ligand upload, preparation, and package generation.{% endblock %}
+{% block title %}Headless API Documentation | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}Headless API documentation for AutoDock-Vina PrepServer, including workspace creation, receptor upload, docking center resolution, protein preparation, ligand upload, package generation, artifact listing, and ZIP download endpoints.{% endblock %}
+
 {% block content %}
 <section class="page-hero compact">
-  <span class="eyebrow">Headless API</span>
-  <h1>Script the same staged docking-preparation workflow used by the browser interface.</h1>
+  <span class="eyebrow">Headless API documentation</span>
+  <h1>Script reproducible AutoDock Vina package preparation.</h1>
   <p>
-    PrepServer includes versioned API endpoints for teams that want to automate workspace creation, receptor ingestion,
-    docking-center resolution, ligand upload, receptor preparation, and package generation.
+    AutoDock-Vina PrepServer exposes a staged JSON/form API for creating docking workspaces,
+    uploading receptors, saving docking centers, preparing receptor files, uploading ligands,
+    building downloadable packages, and retrieving artifacts.
   </p>
-</section>
 
-<section class="doc-grid">
-  <article class="doc-card">
-    <h2><i class="bi bi-heart-pulse"></i> Health check</h2>
-    <p><code>GET /api/v1/health</code></p>
-  </article>
-  <article class="doc-card">
-    <h2><i class="bi bi-folder-plus"></i> Workspaces</h2>
-    <p><code>POST /api/v1/workspaces</code><br><code>GET /api/v1/workspaces/&lt;jobname&gt;</code></p>
-  </article>
-  <article class="doc-card">
-    <h2><i class="bi bi-file-earmark-arrow-up"></i> Receptors</h2>
-    <p><code>POST /api/v1/workspaces/&lt;jobname&gt;/receptors/upload</code><br><code>POST /api/v1/workspaces/&lt;jobname&gt;/receptors/fetch</code></p>
-  </article>
-  <article class="doc-card">
-    <h2><i class="bi bi-bullseye"></i> Centers</h2>
-    <p><code>POST /api/v1/workspaces/&lt;jobname&gt;/centers/resolve</code><br><code>POST /api/v1/workspaces/&lt;jobname&gt;/centers/save</code></p>
-  </article>
-  <article class="doc-card">
-    <h2><i class="bi bi-box"></i> Ligands</h2>
-    <p><code>POST /api/v1/workspaces/&lt;jobname&gt;/ligands/upload</code><br><code>GET /api/v1/workspaces/&lt;jobname&gt;/ligands</code></p>
-  </article>
-  <article class="doc-card">
-    <h2><i class="bi bi-archive"></i> Build artifacts</h2>
-    <p><code>POST /api/v1/workspaces/&lt;jobname&gt;/build</code><br><code>GET /api/v1/workspaces/&lt;jobname&gt;/artifacts</code></p>
-  </article>
+  <div class="hero-actions">
+    <a class="btn btn-app-primary btn-lg" href="{{ url_for('build') }}">
+      <i class="bi bi-box-seam me-2"></i>Use browser workflow
+    </a>
+
+    {% if repository_url is defined %}
+      <a class="btn btn-app-ghost btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
+        <i class="bi bi-github me-2"></i>View GitHub repository
+      </a>
+    {% endif %}
+  </div>
 </section>
 
 <section class="notice-card">
   <i class="bi bi-info-circle"></i>
   <div>
-    <h2>Staged workflow by design</h2>
+    <h2>API design</h2>
     <p>
-      The current API favors staged operations over a single opaque one-call workflow so setup failures remain visible and easier to debug.
+      The API is intentionally staged instead of being a single black-box endpoint. Each step produces a visible state:
+      workspace creation, receptor intake, center definition, protein preparation, ligand upload, package build, and artifact download.
+      This makes docking-preparation failures easier to diagnose.
     </p>
   </div>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-link-45deg"></i> Base URL</h2>
+    <p>
+      Use the deployment domain as the base URL. For the public site, examples use:
+    </p>
+    <pre><code>https://autodockvina.com</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-shield-lock"></i> Authentication note</h2>
+    <p>
+      Public deployments may run in public-access mode. Private deployments can enable authentication through server configuration.
+      API behavior may depend on how the instance is deployed.
+    </p>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-filetype-json"></i> Response format</h2>
+    <p>
+      Versioned API endpoints generally return JSON with this structure:
+    </p>
+    <pre><code>{
+  "ok": true,
+  "data": {},
+  "warnings": []
+}</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-exclamation-triangle"></i> Data caution</h2>
+    <p>
+      Do not upload confidential receptor structures, proprietary ligand libraries, or sensitive project data to a public deployment
+      unless the instance is explicitly configured for that purpose.
+    </p>
+  </article>
+</section>
+
+<section class="page-hero compact">
+  <span class="eyebrow">Quick API flow</span>
+  <h1>Typical scripted docking-preparation sequence.</h1>
+  <p>
+    A complete scripted workflow usually follows this order:
+  </p>
+</section>
+
+<section class="timeline">
+  <article class="timeline-item">
+    <span class="timeline-number">1</span>
+    <div>
+      <h2>Create a workspace</h2>
+      <p>Create an isolated job workspace that stores receptors, centers, ligands, logs, and package artifacts.</p>
+      <pre><code>POST /api/v1/workspaces</code></pre>
+    </div>
+  </article>
+
+  <article class="timeline-item">
+    <span class="timeline-number">2</span>
+    <div>
+      <h2>Add receptors</h2>
+      <p>Upload receptor files or fetch a receptor by PDB ID.</p>
+      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/receptors/upload
+POST /api/v1/workspaces/&lt;jobname&gt;/receptors/fetch</code></pre>
+    </div>
+  </article>
+
+  <article class="timeline-item">
+    <span class="timeline-number">3</span>
+    <div>
+      <h2>Resolve and save docking centers</h2>
+      <p>Resolve a center from XYZ coordinates, ligand/residue selection, or supported receptor-based methods, then save it.</p>
+      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/centers/resolve
+POST /api/v1/workspaces/&lt;jobname&gt;/centers/save</code></pre>
+    </div>
+  </article>
+
+  <article class="timeline-item">
+    <span class="timeline-number">4</span>
+    <div>
+      <h2>Prepare receptors</h2>
+      <p>Generate receptor preparation outputs and logs for downstream package assembly.</p>
+      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/prep/start
+GET  /api/v1/workspaces/&lt;jobname&gt;/prep/status</code></pre>
+    </div>
+  </article>
+
+  <article class="timeline-item">
+    <span class="timeline-number">5</span>
+    <div>
+      <h2>Upload ligands</h2>
+      <p>Upload SDF, SMILES, SMI, CSV, ZIP, or folder-based ligand inputs where enabled.</p>
+      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/ligands/upload
+GET  /api/v1/workspaces/&lt;jobname&gt;/ligands</code></pre>
+    </div>
+  </article>
+
+  <article class="timeline-item">
+    <span class="timeline-number">6</span>
+    <div>
+      <h2>Build and download package</h2>
+      <p>Build the ZIP package, list available artifacts, and download the generated package.</p>
+      <pre><code>POST /api/v1/workspaces/&lt;jobname&gt;/build
+GET  /api/v1/workspaces/&lt;jobname&gt;/artifacts
+GET  /api/v1/workspaces/&lt;jobname&gt;/download</code></pre>
+    </div>
+  </article>
+</section>
+
+<section class="page-hero compact">
+  <span class="eyebrow">Endpoint reference</span>
+  <h1>Available API endpoints.</h1>
+</section>
+
+<section class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead>
+      <tr>
+        <th>Method</th>
+        <th>Endpoint</th>
+        <th>Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/health</code></td>
+        <td>Check service health, API version, public mode, and temporary workspace root.</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/api/v1/workspaces</code></td>
+        <td>Create a new workspace or reuse a named workspace when supported.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;</code></td>
+        <td>Read workspace state.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/summary</code></td>
+        <td>Read workflow summary, receptor status, center rows, ligand state, and artifacts.</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/receptors/upload</code></td>
+        <td>Upload receptor files by single file, ZIP, or folder-style form upload.</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/receptors/fetch</code></td>
+        <td>Fetch a receptor by PDB ID where supported.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/receptors</code></td>
+        <td>List registered receptors in a workspace.</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/centers/resolve</code></td>
+        <td>Resolve a docking center from JSON payload input.</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/centers/save</code></td>
+        <td>Save a docking center and box size for a receptor.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/centers</code></td>
+        <td>List saved docking centers.</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/prep/start</code></td>
+        <td>Start receptor preparation/conversion for the workspace.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/prep/status</code></td>
+        <td>Read receptor-preparation status and logs.</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/ligands/upload</code></td>
+        <td>Upload ligand files, ZIPs, or folder-style ligand inputs.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/ligands</code></td>
+        <td>List uploaded ligand files and ligand metadata.</td>
+      </tr>
+      <tr>
+        <td><code>POST</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/build</code></td>
+        <td>Build a portable or deployment-configured docking package.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/artifacts</code></td>
+        <td>List generated ZIP artifacts.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/workspaces/&lt;jobname&gt;/download</code></td>
+        <td>Download the latest or requested artifact from a workspace.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="page-hero compact">
+  <span class="eyebrow">Copy-paste examples</span>
+  <h1>Example requests with curl.</h1>
+</section>
+
+<section class="doc-grid">
+  <article class="doc-card">
+    <h2><i class="bi bi-heart-pulse"></i> Health check</h2>
+    <pre><code>curl https://autodockvina.com/api/v1/health</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-folder-plus"></i> Create workspace</h2>
+    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces \
+  -H "Content-Type: application/json" \
+  -d '{"workspace_name":"demo-docking-job"}'</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-cloud-download"></i> Fetch receptor by PDB ID</h2>
+    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/receptors/fetch \
+  -H "Content-Type: application/json" \
+  -d '{"pdb_id":"3EKY","chains":"A"}'</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-upload"></i> Upload receptor file</h2>
+    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/receptors/upload \
+  -F "mode=single" \
+  -F "file=@receptor.pdb"</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-bullseye"></i> Save XYZ docking center</h2>
+    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/centers/save \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method":"xyz",
+    "receptor":"receptor.pdb",
+    "center":[10.5, 22.1, -3.4],
+    "size":20
+  }'</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-gear"></i> Start receptor preparation</h2>
+    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/prep/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "remove_hets":"all",
+    "remove_chains":"",
+    "altloc":"collapse"
+  }'</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-card-list"></i> Check preparation status</h2>
+    <pre><code>curl https://autodockvina.com/api/v1/workspaces/demo-docking-job/prep/status</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-capsule"></i> Upload ligand file</h2>
+    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/ligands/upload \
+  -F "mode=single" \
+  -F "file=@ligands.sdf"</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-archive"></i> Build package</h2>
+    <pre><code>curl -X POST https://autodockvina.com/api/v1/workspaces/demo-docking-job/build \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"portable",
+    "vina_poses":20,
+    "confgen_poses":64
+  }'</code></pre>
+  </article>
+
+  <article class="doc-card">
+    <h2><i class="bi bi-download"></i> Download artifact</h2>
+    <pre><code>curl -L -o docking_package.zip \
+  https://autodockvina.com/api/v1/workspaces/demo-docking-job/download</code></pre>
+  </article>
+</section>
+
+<section class="page-hero compact">
+  <span class="eyebrow">Payload notes</span>
+  <h1>Common request fields.</h1>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2>Workspace creation</h2>
+    <p>Useful fields:</p>
+    <pre><code>{
+  "workspace_name": "demo-docking-job",
+  "reuse": false
+}</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2>Receptor fetch</h2>
+    <p>Useful fields:</p>
+    <pre><code>{
+  "pdb_id": "3EKY",
+  "chains": "A"
+}</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2>XYZ center save</h2>
+    <p>Useful fields:</p>
+    <pre><code>{
+  "method": "xyz",
+  "receptor": "receptor.pdb",
+  "center": [10.5, 22.1, -3.4],
+  "size": 20
+}</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2>Preparation options</h2>
+    <p>Useful fields:</p>
+    <pre><code>{
+  "remove_hets": "all",
+  "remove_chains": "",
+  "altloc": "collapse"
+}</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2>Package build</h2>
+    <p>Useful fields:</p>
+    <pre><code>{
+  "package_mode": "portable",
+  "vina_poses": 20,
+  "confgen_poses": 64,
+  "csv_smiles_col": "SMILES",
+  "csv_id_col": "ID"
+}</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2>LSF package mode</h2>
+    <p>Useful fields when scheduler-oriented packaging is enabled:</p>
+    <pre><code>{
+  "package_mode": "lsf",
+  "workers": 16,
+  "queue": "hihg",
+  "project": "brd",
+  "mem_per_core": 2000,
+  "vina_path": ""
+}</code></pre>
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-exclamation-circle"></i>
+  <div>
+    <h2>Important workflow constraints</h2>
+    <p>
+      Package generation requires receptors, saved docking centers, prepared receptor outputs, and uploaded ligands.
+      CSV ligand workflows require a SMILES column before building. Public deployments may restrict package modes or external executables.
+    </p>
+  </div>
+</section>
+
+<section class="cta-band">
+  <div>
+    <h2>Need the visual workflow instead?</h2>
+    <p>
+      The browser interface uses the same staged preparation model and is easier for first-time users.
+    </p>
+  </div>
+  <a class="btn btn-app-primary" href="{{ url_for('build') }}">Open build workflow</a>
 </section>
 {% endblock %}
