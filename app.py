@@ -25,7 +25,7 @@ from center_resolver import CenterResolutionError, resolve_center_from_file, res
 
 SITE_CONTACT_EMAIL = "jmschulz@med.miami.edu"
 MAILTO_SUBJECT = "AutoDock-Vina PrepServer Question"
-SCHURER_LAB_URL = "schurerlab.org"
+SCHURER_LAB_URL = "https://schurerlab.org"
 
 TOOL_LINKS = [
     {
