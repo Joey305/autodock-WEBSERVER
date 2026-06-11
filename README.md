@@ -22,6 +22,7 @@ This project is intended for teams that want a reproducible, browser-driven entr
 - Public, browser-based workflow by default
 - Receptor intake from single-file uploads, ZIP uploads, folder uploads, or RCSB PDB fetches
 - Interactive docking-center selection in the browser
+- Versioned headless API for scripted workspace creation, coordinate-based box generation, receptor preparation, ligand upload, and package generation
 - Receptor preparation into docking-ready outputs
 - Ligand intake from `.sdf`, `.smiles`, `.smi`, `.csv`, ZIP archives, or folder uploads
 - Ligand upload normalization that ignores common macOS metadata files and flattens nested ligand paths
@@ -203,6 +204,19 @@ flask --app app:create_app run --debug --port 5050
    - `lsf` for scheduler-oriented lab packaging
 9. Build and download the generated ZIP archive.
 10. Move the ZIP to the target execution environment and run the packaged scripts there.
+
+## Headless API
+
+PrepServer includes a versioned headless API under `/api/v1` for scripted workspace creation, receptor upload or fetch, residue/HETATM/XYZ docking-box generation, receptor preparation, ligand upload, and package generation.
+
+Start with:
+
+- `docs/HEADLESS_API.md` for the route table and workflow notes
+- `docs/API_EXAMPLES.md` for curl and Python examples
+- `docs/AGENT_WORKFLOW.md` for staged command-line or future agent usage
+- `docs/examples/` for short `requests` scripts
+
+The API follows the app's current deployment behavior and does not add authentication, rate limiting, quotas, or a production queue system.
 
 ## Accepted Input Types
 

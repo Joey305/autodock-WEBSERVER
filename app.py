@@ -3,7 +3,7 @@
 # ==============================
 from __future__ import annotations
 
-import os, json, time, csv, subprocess
+import os, json, time, csv, subprocess, re
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -21,6 +21,51 @@ from packager import (
     save_uploaded_ligand_zip, save_uploaded_ligand_folder,
 )
 from runner_templates import build_portable_runners
+from center_resolver import CenterResolutionError, resolve_center_from_file, resolve_xyz
+
+SITE_CONTACT_EMAIL = "jmschulz@med.miami.edu"
+MAILTO_SUBJECT = "AutoDock-Vina PrepServer Question"
+SCHURER_LAB_URL = "#"
+
+TOOL_LINKS = [
+    {
+        "name": "Warhead Hunter",
+        "url": "https://warheadhunter.com",
+        "icon": "bi-crosshair",
+        "role": "Solvent-exposed ligand atom and warhead/linker follow-up",
+    },
+    {
+        "name": "PROTAC Builder",
+        "url": "https://protacbuilder.com",
+        "icon": "bi-diagram-3",
+        "role": "Degrader design continuation and linker-recruiter-warhead assembly",
+    },
+    {
+        "name": "E3 Ligandalyzer",
+        "url": "https://e3ligandalyzer.com",
+        "icon": "bi-bounding-box-circles",
+        "role": "E3 recruiter and ligase-context exploration",
+    },
+    {
+        "name": "V-LiSEMOD",
+        "url": "https://vlisemod.com",
+        "icon": "bi-grid",
+        "role": "Viral ligand solvent-exposed moiety and PROTACability-style triage",
+    },
+    {
+        "name": "Pymacs",
+        "url": "https://github.com/schurerlab/Pymacs",
+        "icon": "bi-github",
+        "role": "Schürer Lab GitHub tool for molecular modeling and MD-related workflows",
+    },
+]
+
+LAB_LINK = {
+    "name": "Schürer Lab",
+    "url": SCHURER_LAB_URL,
+    "icon": "bi-flask",
+    "role": "Laboratory context for the connected molecular design tool ecosystem",
+}
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -127,6 +172,27 @@ def create_app() -> Flask:
     def _public_name() -> str:
         return _public_email().split("@")[0] or "public"
 
+    @app.context_processor
+    def inject_site_links():
+        mailto = f"mailto:{SITE_CONTACT_EMAIL}?subject={MAILTO_SUBJECT.replace(' ', '%20')}"
+        nav_links = [
+            {"name": "Home", "endpoint": "home"},
+            {"name": "Build", "endpoint": "build"},
+            {"name": "Workflow", "endpoint": "workflow"},
+            {"name": "About", "endpoint": "about"},
+            {"name": "Documentation", "endpoint": "documentation"},
+            {"name": "Contact", "endpoint": "contact"},
+        ]
+        return {
+            "contact_email": SITE_CONTACT_EMAIL,
+            "contact_mailto": mailto,
+            "tool_links": TOOL_LINKS,
+            "lab_link": LAB_LINK,
+            "ecosystem_links": [*TOOL_LINKS, LAB_LINK],
+            "nav_links": nav_links,
+            "public_mode": current_app.config.get("PUBLIC_MODE", True),
+        }
+
     def _resolve_casefold_path(base_dir: Path, relative_path: Path) -> Optional[Path]:
         current = base_dir
         if not current.exists():
@@ -176,8 +242,12 @@ def create_app() -> Flask:
     # ---------- PAGES ----------
     @app.get("/")
     def home():
+        return render_template("home.html")
+
+    @app.get("/build")
+    def build():
         return render_template(
-            "home.html",
+            "build.html",
             max_receptors=app.config["MAX_RECEPTORS"],
             enable_lsf_package=app.config["ENABLE_LSF_PACKAGE"],
             default_package_mode=normalize_package_mode(
@@ -185,6 +255,33 @@ def create_app() -> Flask:
                 default_mode=app.config["DEFAULT_PACKAGE_MODE"],
                 lsf_enabled=app.config["ENABLE_LSF_PACKAGE"],
             ),
+        )
+
+    @app.get("/about")
+    def about():
+        return render_template("about.html")
+
+    @app.get("/workflow")
+    def workflow():
+        return render_template("workflow.html")
+
+    @app.get("/modules")
+    def modules():
+        return render_template("modules.html")
+
+    @app.get("/documentation")
+    def documentation():
+        return render_template("documentation.html")
+
+    @app.get("/README.md")
+    def readme_markdown():
+        return send_file(APP_ROOT / "README.md", mimetype="text/markdown")
+
+    @app.get("/contact")
+    def contact():
+        return render_template(
+            "contact.html",
+            repository_url=None,
         )
     
 
@@ -1014,6 +1111,507 @@ def create_app() -> Flask:
                 "package_mode": package_mode,
                 "warnings": warnings,
             }
+        )
+
+    # ---------- VERSIONED HEADLESS API ----------
+    def _v1_ok(data: Optional[Dict[str, Any]] = None, warnings: Optional[List[str]] = None, status: int = 200):
+        return jsonify({"ok": True, "data": data or {}, "warnings": warnings or []}), status
+
+    def _v1_error(error: str, message: str, status: int = 400, details: Optional[Dict[str, Any]] = None):
+        return jsonify({"ok": False, "error": error, "message": message, "details": details or {}}), status
+
+    def _json_payload() -> Dict[str, Any]:
+        if request.is_json:
+            return request.get_json(silent=True) or {}
+        return dict(request.form.items())
+
+    def _sanitize_workspace_name(value: str) -> str:
+        value = re.sub(r"[^A-Za-z0-9._-]+", "-", (value or "").strip()).strip(".-_")
+        return value[:80] or _public_name()
+
+    def _new_jobname(requested: str = "", reuse: bool = False) -> Tuple[str, Path, bool]:
+        safe = _sanitize_workspace_name(requested)
+        if requested:
+            candidate = safe
+            ws = _ws(candidate)
+            if reuse and ws.exists():
+                return candidate, ws, True
+            if not ws.exists():
+                return candidate, make_workspace(ws), False
+        stamp = time.strftime("%m-%d-%Y-%H-%M-%S")
+        base = f"{stamp}-{safe}"
+        candidate = base
+        idx = 2
+        while _ws(candidate).exists():
+            candidate = f"{base}-{idx}"
+            idx += 1
+        return candidate, make_workspace(_ws(candidate)), False
+
+    def _initial_state() -> Dict[str, Any]:
+        return {"receptors": [], "centers_csv": "vina_centers.csv",
+                "ligands_uploaded": False, "ligand_info": {}, "prep_job": None}
+
+    def _receptor_pdbqt_name(rel: str) -> str:
+        return (Path(rel).name.replace(".pdb", ".pdbqt")
+                .replace(".cif", ".pdbqt")
+                .replace(".mmcif", ".pdbqt")
+                .replace(".ent", ".pdbqt"))
+
+    def _resolve_receptor_for_api(ws: Path, st: Dict[str, Any], payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[Path]]:
+        requested = (payload.get("receptor") or payload.get("rel") or "").strip()
+        receptors = st.get("receptors", [])
+        rel = ""
+        if requested:
+            for rec in receptors:
+                if requested in {rec.get("rel"), rec.get("display"), Path(rec.get("rel", "")).name}:
+                    rel = rec.get("rel", "")
+                    break
+            rel = rel or requested
+        elif len(receptors) == 1:
+            rel = receptors[0].get("rel", "")
+        if not rel:
+            return None, None
+        return rel, _resolve_workspace_file(ws, rel)
+
+    def _register_receptors(ws: Path, st: Dict[str, Any], added: List[str]) -> Dict[str, Any]:
+        have = {r["rel"] for r in st["receptors"]}
+        for rel in added:
+            if rel not in have and len(st["receptors"]) < current_app.config["MAX_RECEPTORS"]:
+                st["receptors"].append({"rel": rel, "display": Path(rel).name, "status": "new"})
+                have.add(rel)
+        _save_state(ws, st)
+        return {"count": len(st["receptors"]), "receptors": st["receptors"]}
+
+    def _summary_data(jobname: str, ws: Path) -> Dict[str, Any]:
+        st = _load_state(ws)
+        out_dir = (ensure_subdir(ws, "Receptors").parent / "Receptors_PDBQT").resolve()
+        if out_dir.exists():
+            _mark_prepped_from_output(ws, st, out_dir)
+            st = _load_state(ws)
+        total = len(st.get("receptors", []))
+        centered = sum(1 for r in st.get("receptors", []) if r.get("status") in ("centered", "prepped"))
+        prepped = sum(1 for r in st.get("receptors", []) if r.get("status") == "prepped")
+        csv_map = _read_centers(ws, st)
+        expected = [_receptor_pdbqt_name(r["rel"]) for r in st.get("receptors", [])]
+        converted = [p.name for p in sorted(out_dir.glob("*.pdbqt"))] if out_dir.exists() else []
+        zips = sorted(ws.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+        return {
+            "jobname": jobname,
+            "workspace": str(ws),
+            "receptors": st.get("receptors", []),
+            "receptors_total": total,
+            "receptors_centered": centered,
+            "receptors_prepped": prepped,
+            "ligands_uploaded": bool(st.get("ligands_uploaded")),
+            "ligand_info": st.get("ligand_info") or {},
+            "centers_csv": str(_centers_csv_path(ws, st)),
+            "centers_rows": len(csv_map),
+            "expected_pdbqt": expected,
+            "have_rows_for_all": all(n in csv_map for n in expected) if expected else False,
+            "prep_running": False,
+            "prep_done": prepped == total and total > 0,
+            "package_ready": bool(zips),
+            "artifacts": [
+                {"name": p.name, "path": str(p), "download_url": url_for("download", path=str(p))}
+                for p in zips
+            ],
+            "conversion_out_dir": str(out_dir),
+            "converted_count": len(converted),
+            "converted_list": converted,
+        }
+
+    def _resolve_center_payload(jobname: str, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str], Optional[Path]]:
+        ws = _ws(jobname)
+        if not ws.exists():
+            raise CenterResolutionError("workspace_missing", f"Workspace {jobname} does not exist.", status_code=404)
+        st = _load_state(ws)
+        method = (payload.get("method") or "xyz").strip().lower()
+        rel, src = _resolve_receptor_for_api(ws, st, payload)
+        if method != "xyz":
+            if src is None:
+                raise CenterResolutionError("receptor_not_found", "A matching receptor file was not found in the workspace.", {"receptor": payload.get("receptor")}, 404)
+            result = resolve_center_from_file(src, payload)
+        else:
+            result = resolve_center_from_file(src, payload) if src is not None else resolve_xyz(payload)
+        result["jobname"] = jobname
+        if rel:
+            result["receptor_rel"] = rel
+        return result, rel, src
+
+    @app.get("/api/v1/health")
+    @login_required
+    def api_v1_health():
+        return _v1_ok({
+            "service": "autodock-vina-prepserver",
+            "api_version": "v1",
+            "public_mode": current_app.config.get("PUBLIC_MODE", True),
+            "tmp_root": current_app.config["TMP_ROOT"],
+        })
+
+    @app.post("/api/v1/workspaces")
+    @login_required
+    def api_v1_workspaces_create():
+        payload = _json_payload()
+        jobname, ws, reused = _new_jobname(
+            payload.get("workspace_name") or payload.get("jobname") or "",
+            bool(payload.get("reuse")),
+        )
+        if not reused:
+            _save_state(ws, _initial_state())
+        return _v1_ok({"jobname": jobname, "workspace": str(ws), "reused": reused}, status=201 if not reused else 200)
+
+    @app.get("/api/v1/workspaces/<jobname>")
+    @login_required
+    def api_v1_workspace_get(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        return _v1_ok({"jobname": jobname, "workspace": str(ws), "state": _load_state(ws)})
+
+    @app.get("/api/v1/workspaces/<jobname>/summary")
+    @login_required
+    def api_v1_workspace_summary(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        return _v1_ok(_summary_data(jobname, ws))
+
+    @app.post("/api/v1/workspaces/<jobname>/receptors/upload")
+    @login_required
+    def api_v1_receptors_upload(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        mode = request.form.get("mode") or "single"
+        rec_dir = ensure_subdir(ws, "Receptors")
+        added: List[str] = []
+        if mode == "folder":
+            files = request.files.getlist("files")
+            if not files:
+                return _v1_error("missing_file", "No files were uploaded.", 400)
+            for file_storage in files:
+                out = rec_dir / Path(file_storage.filename or "").name
+                file_storage.save(out)
+                if out.suffix.lower() in {".pdb", ".pdbqt", ".cif", ".mmcif", ".ent"}:
+                    added.append(str(Path("Receptors") / out.name))
+        else:
+            f = request.files.get("file")
+            if not f:
+                return _v1_error("missing_file", "No receptor file was uploaded.", 400)
+            if mode == "zip":
+                save_uploaded_zip(f, rec_dir)
+                for p in sorted(rec_dir.rglob("*")):
+                    if p.suffix.lower() in {".pdb", ".pdbqt", ".cif", ".mmcif", ".ent"}:
+                        added.append(str(Path("Receptors") / p.relative_to(rec_dir)))
+            elif mode == "single":
+                out = rec_dir / Path(f.filename).name
+                f.save(out)
+                if out.suffix.lower() in {".pdb", ".pdbqt", ".cif", ".mmcif", ".ent"}:
+                    added.append(str(Path("Receptors") / out.name))
+            else:
+                return _v1_error("bad_mode", "Receptor upload mode must be single, zip, or folder.", 400)
+        return _v1_ok(_register_receptors(ws, _load_state(ws), added))
+
+    @app.post("/api/v1/workspaces/<jobname>/receptors/fetch")
+    @login_required
+    def api_v1_receptors_fetch(jobname: str):
+        payload = _json_payload()
+        pdbid = (payload.get("pdb_id") or payload.get("pdb") or "").strip()
+        chains = payload.get("chains") or ""
+        if isinstance(chains, list):
+            chains = ",".join(str(c) for c in chains)
+        chains = str(chains).strip()
+        if not pdbid:
+            return _v1_error("missing_pdb_id", "Provide pdb_id.", 400)
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        out = fetch_pdb_and_prep(pdbid, ensure_subdir(ws, "Receptors"), chains=chains)
+        rel = str(Path("Receptors") / Path(out["pdb_path"]).name)
+        data = _register_receptors(ws, _load_state(ws), [rel])
+        data["rel"] = rel
+        return _v1_ok(data)
+
+    @app.get("/api/v1/workspaces/<jobname>/receptors")
+    @login_required
+    def api_v1_receptors_list(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        return _v1_ok({"receptors": _load_state(ws).get("receptors", [])})
+
+    @app.post("/api/v1/workspaces/<jobname>/centers/resolve")
+    @login_required
+    def api_v1_centers_resolve(jobname: str):
+        try:
+            result, _rel, _src = _resolve_center_payload(jobname, _json_payload())
+            return _v1_ok(result)
+        except CenterResolutionError as exc:
+            return _v1_error(exc.error, exc.message, exc.status_code, exc.details)
+
+    @app.post("/api/v1/workspaces/<jobname>/centers/save")
+    @login_required
+    def api_v1_centers_save(jobname: str):
+        ws = _ws(jobname)
+        try:
+            payload = _json_payload()
+            result, rel, _src = _resolve_center_payload(jobname, payload)
+            st = _load_state(ws)
+            if not rel:
+                rel, _src = _resolve_receptor_for_api(ws, st, payload)
+            if not rel:
+                return _v1_error("receptor_required", "Saving a center requires receptor when the workspace has zero or multiple receptors.", 400)
+            _upsert_center_row(ws, st, _receptor_pdbqt_name(rel), tuple(result["center"]), result["size"])
+            for receptor in st.get("receptors", []):
+                if receptor.get("rel") == rel:
+                    receptor["status"] = "centered"
+            _save_state(ws, st)
+            result["csv"] = _centers_csv_path(ws, st).name
+            return _v1_ok(result)
+        except CenterResolutionError as exc:
+            return _v1_error(exc.error, exc.message, exc.status_code, exc.details)
+
+    @app.get("/api/v1/workspaces/<jobname>/centers")
+    @login_required
+    def api_v1_centers_list(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        st = _load_state(ws)
+        centers = [
+            {"receptor_pdbqt": key, "center": [x, y, z], "size": size}
+            for key, (x, y, z, size) in _read_centers(ws, st).items()
+        ]
+        return _v1_ok({"centers": centers, "csv": str(_centers_csv_path(ws, st))})
+
+    @app.post("/api/v1/workspaces/<jobname>/prep/start")
+    @login_required
+    def api_v1_prep_start(jobname: str):
+        payload = _json_payload()
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        st = _load_state(ws)
+        recs = st.get("receptors", [])
+        if not recs:
+            return _v1_error("no_receptors", "Add receptors first.", 400)
+        csv_map = _read_centers(ws, st)
+        expected = [_receptor_pdbqt_name(r["rel"]) for r in recs]
+        if not all(n in csv_map for n in expected):
+            return _v1_error("centers_incomplete", "Save a center for each receptor first.", 400, {"expected_pdbqt": expected})
+        remove_hets = []
+        remove_all_hets = False
+        raw_hets = payload.get("remove_het_csv") or payload.get("remove_hets") or ""
+        if isinstance(raw_hets, list):
+            remove_hets = [str(x).strip().upper() for x in raw_hets if str(x).strip()]
+        elif str(raw_hets).lower() == "all":
+            remove_all_hets = True
+        elif raw_hets:
+            remove_hets = [x.strip().upper() for x in str(raw_hets).split(",") if x.strip()]
+        raw_chains = payload.get("remove_chains_csv") or payload.get("remove_chains") or ""
+        remove_chains = [str(x).strip().upper() for x in raw_chains] if isinstance(raw_chains, list) else [x.strip().upper() for x in str(raw_chains).split(",") if x.strip()]
+        altloc_mode = payload.get("altloc", "collapse")
+        rec_dir = ensure_subdir(ws, "Receptors")
+        out_dir = (rec_dir.parent / "Receptors_PDBQT").resolve()
+        log_path = (ws / "prep3a.log").resolve()
+        out_dir.mkdir(exist_ok=True)
+        with open(log_path, "w") as logf:
+            for r in recs:
+                in_path = rec_dir / Path(r["rel"]).name
+                cleaned_path = ws / f"{Path(r['rel']).stem}_clean.pdb"
+                out_path = out_dir / Path(r["rel"]).with_suffix(".pdbqt").name
+                _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
+                cmd = ["obabel", str(cleaned_path), "-O", str(out_path), "-xr"]
+                logf.write(f"Running: {' '.join(cmd)}\n")
+                result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
+                if result.returncode != 0 or not out_path.exists():
+                    logf.write(f"[ERROR] Failed to convert {in_path}\n")
+        st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
+        _save_state(ws, st)
+        return _v1_ok({"jobname": jobname, "done": True, "out_dir": str(out_dir), "log": str(log_path)})
+
+    @app.get("/api/v1/workspaces/<jobname>/prep/status")
+    @login_required
+    def api_v1_prep_status(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        st = _load_state(ws)
+        info = st.get("prep_job") or {}
+        if not info:
+            return _v1_ok({"jobname": jobname, "running": False, "done": False, "log": ""})
+        lp = Path(info.get("log", ""))
+        log = lp.read_text(errors="replace")[-8000:] if lp.exists() else ""
+        out_dir = Path(info.get("out_dir", "")).resolve()
+        files = list(out_dir.glob("*.pdbqt")) if out_dir.exists() else []
+        receptor_names = [Path(r["rel"]).name for r in st.get("receptors", [])]
+        matched = sum(1 for rel in receptor_names if any(_file_matches_receptor(rel, f) for f in files))
+        done = matched == len(receptor_names) and matched > 0
+        if files:
+            _mark_prepped_from_output(ws, st, out_dir)
+        return _v1_ok({"jobname": jobname, "running": False, "done": done, "matched_receptors": matched, "log": log})
+
+    @app.post("/api/v1/workspaces/<jobname>/ligands/upload")
+    @login_required
+    def api_v1_ligands_upload(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        mode = request.form.get("mode") or "single"
+        lig_dir = ensure_subdir(ws, "Ligands")
+        if mode == "single":
+            f = request.files.get("file")
+            if not f:
+                return _v1_error("missing_file", "No ligand file was uploaded.", 400)
+            result = save_uploaded_ligand_folder([f], lig_dir)
+            upload_name = Path(f.filename).name
+        elif mode == "zip":
+            f = request.files.get("file")
+            if not f:
+                return _v1_error("missing_file", "No ligand ZIP was uploaded.", 400)
+            result = save_uploaded_ligand_zip(f, lig_dir)
+            upload_name = Path(f.filename).name
+        elif mode == "folder":
+            files = request.files.getlist("files")
+            if not files:
+                return _v1_error("missing_file", "No ligand files were uploaded.", 400)
+            result = save_uploaded_ligand_folder(files, lig_dir)
+            upload_name = request.form.get("folder_name", "").strip() or "Ligands"
+        else:
+            return _v1_error("bad_mode", "Ligand upload mode must be single, zip, or folder.", 400)
+        if not result["accepted_count"]:
+            return _v1_error("no_supported_ligands", "No supported ligand files were found. Upload .sdf, .smiles, .smi, or .csv files.", 400, result)
+        st = _load_state(ws)
+        st["ligands_uploaded"] = True
+        st["ligand_info"] = {"upload_mode": mode, "filename": upload_name, **result}
+        _save_state(ws, st)
+        return _v1_ok(st["ligand_info"], warnings=result.get("warnings", []))
+
+    @app.get("/api/v1/workspaces/<jobname>/ligands")
+    @login_required
+    def api_v1_ligands_list(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        lig_dir = ws / "Ligands"
+        files = [str(p.relative_to(lig_dir)) for p in sorted(lig_dir.rglob("*")) if p.is_file()] if lig_dir.exists() else []
+        return _v1_ok({"ligands": files, "ligand_info": _load_state(ws).get("ligand_info") or {}})
+
+    @app.post("/api/v1/workspaces/<jobname>/build")
+    @login_required
+    def api_v1_build(jobname: str):
+        payload = _json_payload()
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        package_opts = payload.get("package") if isinstance(payload.get("package"), dict) else payload
+        package_mode = normalize_package_mode(package_opts, current_app.config["DEFAULT_PACKAGE_MODE"], current_app.config["ENABLE_LSF_PACKAGE"])
+        st = _load_state(ws)
+        if not st.get("receptors"):
+            return _v1_error("no_receptors", "Add receptors first.", 400)
+        csv_map = _read_centers(ws, st)
+        expected = [_receptor_pdbqt_name(r["rel"]) for r in st["receptors"]]
+        if not all(n in csv_map for n in expected):
+            return _v1_error("centers_incomplete", "Centers CSV is incomplete.", 400, {"expected_pdbqt": expected})
+        if not st.get("ligands_uploaded"):
+            return _v1_error("ligands_missing", "Upload ligands before building a package.", 400)
+        ligand_info = st.get("ligand_info") or {}
+        jobroot, warnings = assemble_job_tree(ws, ws / "Receptors", ws / "Ligands", package_mode=package_mode)
+        def _int_value(*keys, default):
+            for key in keys:
+                if package_opts.get(key) not in (None, ""):
+                    try:
+                        return int(package_opts.get(key))
+                    except Exception:
+                        pass
+            return int(default)
+        def _str_value(*keys, default=""):
+            for key in keys:
+                if package_opts.get(key) not in (None, ""):
+                    return str(package_opts.get(key)).strip()
+            return default
+        poses_conf = _int_value("confgen_poses", "poses_conf", "poses", default=64)
+        poses_vina = _int_value("vina_poses", "poses_vina", default=20)
+        inferred_lig_mode, inferred_lig_filetype, inferred_single_sdf = infer_ligand_workflow(ligand_info)
+        lig_mode = _str_value("lig_mode", default=inferred_lig_mode)
+        lig_filetype = _str_value("lig_filetype", "filetype", default=inferred_lig_filetype)
+        csv_smiles_col = _str_value("csv_smiles_col", "smiles_col", default="")
+        csv_id_col = _str_value("csv_id_col", "id_col", default="")
+        single_sdf_rel = _str_value("single_sdf_rel", "single_sdf", default=inferred_single_sdf or "")
+        if lig_mode == "1" and not csv_smiles_col:
+            return _v1_error("csv_smiles_column_required", "Select a CSV SMILES column before building.", 400)
+        if package_mode == "lsf":
+            build_confgen_lsfs(
+                jobroot, jobroot, poses=poses_conf,
+                workers=_int_value("workers", "ncores", default=16),
+                queue=_str_value("queue", default="hihg"),
+                project=_str_value("project", default="brd"),
+                walltime=_str_value("confgen_walltime", "walltime_confgen", default="48:00"),
+                mem_per_core=_int_value("mem_per_core", "mem", default=2000),
+                email=_public_email(),
+                env_line=_str_value("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
+                lig_mode=lig_mode,
+                lig_filetype=lig_filetype,
+                csv_smiles_col=csv_smiles_col,
+                csv_id_col=csv_id_col,
+                single_sdf_rel=(single_sdf_rel or None),
+            )
+            build_vina_lsfs(
+                jobroot, jobroot, poses=poses_vina,
+                workers=_int_value("workers", "ncores", default=16),
+                queue=_str_value("queue", default="hihg"),
+                project=_str_value("project", default="brd"),
+                walltime=_str_value("vina_walltime", "walltime_vina", "walltime", default="96:00"),
+                mem_per_core=_int_value("mem_per_core", "mem", default=2000),
+                email=_public_email(),
+                env_line=_str_value("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
+                vina_path=_str_value("vina_path", "vina_exe", default="") or None,
+            )
+        else:
+            build_portable_runners(jobroot)
+        rename_centers_with_tags(jobroot)
+        z = zip_job_tree(jobroot)
+        return _v1_ok({"zip": str(z), "download_url": url_for("download", path=str(z)), "package_mode": package_mode}, warnings=warnings)
+
+    @app.get("/api/v1/workspaces/<jobname>/artifacts")
+    @login_required
+    def api_v1_artifacts(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        zips = sorted(ws.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+        return _v1_ok({"artifacts": [{"name": p.name, "path": str(p), "download_url": url_for("download", path=str(p))} for p in zips]})
+
+    @app.get("/api/v1/workspaces/<jobname>/download")
+    @login_required
+    def api_v1_download(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        requested = request.args.get("path", "")
+        if requested:
+            p = Path(requested)
+            if not p.is_absolute():
+                p = ws / requested
+        else:
+            zips = sorted(ws.glob("*.zip"), key=lambda item: item.stat().st_mtime, reverse=True)
+            p = zips[0] if zips else Path()
+        try:
+            resolved = p.resolve()
+            if not str(resolved).startswith(str(ws.resolve())) or not resolved.exists():
+                return _v1_error("artifact_not_found", "No matching downloadable artifact was found.", 404)
+            return send_file(resolved, as_attachment=True, download_name=resolved.name)
+        except Exception:
+            return _v1_error("artifact_not_found", "No matching downloadable artifact was found.", 404)
+
+    @app.post("/api/v1/headless/package")
+    @login_required
+    def api_v1_headless_package():
+        return _v1_error(
+            "staged_workflow_required",
+            "Use the staged /api/v1 workspace, receptor, center, ligand, prep, and build endpoints for this release.",
+            501,
+            {"docs": "/documentation", "reason": "Full one-call orchestration is deferred to avoid hiding prep/build failures."},
         )
 
 

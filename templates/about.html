@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}About | AutoDock-Vina PrepServer{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <span class="eyebrow">About the PrepServer</span>
+  <h1>Browser-guided docking package preparation for research teams.</h1>
+  <p>
+    AutoDock-Vina PrepServer is a public-facing Flask application for assembling reproducible AutoDock Vina job packages
+    from receptor structures, docking-center definitions, and ligand inputs.
+  </p>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2>Overview</h2>
+    <p>The app provides a structured browser workflow for receptor intake, docking box selection, receptor preparation, ligand intake, and downloadable package generation.</p>
+  </article>
+  <article class="info-card">
+    <h2>Why this tool exists</h2>
+    <p>Docking preparation often becomes a fragile mix of manual file naming, coordinate tracking, and ad hoc folder assembly. PrepServer makes that setup more repeatable.</p>
+  </article>
+  <article class="info-card">
+    <h2>Who it helps</h2>
+    <p>It is intended for researchers, students, and shared lab users who need a guided entry point for preparing docking jobs while preserving transparent downstream files.</p>
+  </article>
+  <article class="info-card">
+    <h2>What it does</h2>
+    <p>PrepServer collects inputs, records docking centers, prepares receptor outputs, accepts common ligand formats, and builds portable or configured scheduler-oriented ZIP packages.</p>
+  </article>
+  <article class="info-card">
+    <h2>What it does not do</h2>
+    <p>It does not guarantee docking accuracy, replace scientific review, automate medicinal chemistry decisions, or claim a closed-loop AI discovery workflow.</p>
+  </article>
+  <article class="info-card">
+    <h2>Companion tools</h2>
+    <p>The site links to related tools for warhead review, degrader design continuation, E3 recruiter exploration, viral ligand triage, and molecular modeling support.</p>
+  </article>
+</section>
+
+<section class="cta-band">
+  <div>
+    <h2>Public contact</h2>
+    <p>Questions and collaboration inquiries can be sent to <a href="{{ contact_mailto }}">{{ contact_email }}</a>.</p>
+  </div>
+  <a class="btn btn-app-primary" href="{{ url_for('modules') }}">Explore modules</a>
+</section>
+{% endblock %}

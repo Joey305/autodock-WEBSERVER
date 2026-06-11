@@ -1,92 +1,105 @@
 # Qodex.summary
 
 ## Task
-Make the README completely public-facing.
+Add a headless programmatic API for AutoDock-Vina PrepServer.
 
 ## Original Goal
-The user wants the README to be fully front-facing with zero notes directed at the project owner or internal publication-prep workflow.
+The user wants a background/scriptable/API system so users, command-line workflows, Python scripts, and future AI agents can run the docking-preparation workflow without using the visual website. A key requirement is programmatic docking-box generation from residue/chain/residue ID or HETATM ligand instances such as DR7, chain A, residue 100.
 
 ## Assumptions
-
-- `app.py` is the primary Flask entrypoint and `python3 app.py` remains the simplest local startup command.
-- The default local development URL is `http://127.0.0.1:5050`.
-- The repository should document only verified capabilities and should not claim Docker, CI, or license coverage that is not present.
-- Existing files outside `README.md` and `Qodex.summary.md` should remain untouched.
+- The current dirty working tree is intentional user work and must be preserved.
+- The active browser workflow is `templates/build.html` and the legacy browser endpoints in `app.py` are the compatibility surface.
+- New endpoints should be additive under `/api/v1` and should not replace existing `/api/...` routes.
+- Headless center resolution can safely support PDB, ENT, and PDBQT fixed-column coordinate records in this pass.
+- CIF/mmCIF uploads remain accepted by the app, but selector-based headless center resolution for CIF/mmCIF should be documented as a limitation rather than implemented without a parser dependency.
+- Full one-call package orchestration is riskier than a staged workflow because prep/build failures should remain visible, so `/api/v1/headless/package` is reserved and returns a documented staged-workflow response.
 
 ## Files Inspected
-
-- `README.md` - identified owner-facing, release-prep, and internal language to remove or reframe.
-- `Qodex.summary.md` - replaced the prior task record with a summary for this documentation cleanup.
-- `app.py` - verified app entrypoint, default port, public-mode defaults, and environment-variable names.
-- `.env.example` - verified environment variables and user-facing configuration guidance.
-- `requirements.txt` - verified Python dependency documentation.
-- `manage.py` - confirmed the auth-support CLI described in the README.
-- `packager.py` - verified package modes, generated runtime files, and ligand upload behavior.
-- `runner_templates.py` - verified portable package helper scripts and local execution guidance.
-- `templates/` - confirmed the repository includes the expected Flask templates for the browser workflow.
-- `tests/` - verified the public validation command targets an existing test suite.
-- `.gitignore` - available for inspection per task scope.
-- `CONTRIBUTING.md` - confirmed a contributor guide exists and can be linked from the README.
+- `app.py` - inspected Flask pages, state helpers, existing `/api/...` endpoints, workspace handling, receptor upload/fetch, center saving, prep, ligand upload, build, and download behavior.
+- `templates/build.html` - inspected the active browser workflow and JavaScript API usage.
+- `templates/documentation.html` - inspected public documentation hub before adding the API mention.
+- `README.md` - inspected existing setup, workflow, package-mode, and security notes.
+- `packager.py` - inspected workspace, upload, fetch, center CSV, package assembly, and ZIP helpers.
+- `tests/test_public_access.py` and `tests/test_packaging_modes.py` - inspected existing Flask and packaging test patterns.
+- `tests/` - inspected available test suite layout.
+- `docs/` - checked and confirmed it did not exist before this task.
 
 ## Files Changed
-
-- `README.md` - rewritten as a polished public-facing project page for users, researchers, developers, and contributors.
-- `Qodex.summary.md` - updated to record the documentation cleanup, assumptions, validation, and remaining public-facing limitations.
+- `app.py` - added `center_resolver` imports and a versioned `/api/v1` JSON API layer for health, workspaces, receptors, centers, prep, ligands, build, artifacts, download, and a reserved headless package endpoint.
+- `README.md` - added a concise Headless API section and feature bullet.
+- `templates/documentation.html` - added a restrained documentation-card mention of the headless API.
+- `Qodex.summary.md` - updated with this task summary.
 
 ## Files Created
-
-- None.
+- `center_resolver.py` - reusable center-resolution utility with PDB/ENT/PDBQT parsing, centroid calculation, ambiguity handling, and structured errors.
+- `docs/HEADLESS_API.md` - route table, workflow, center modes, error shape, limitations, and security notes.
+- `docs/API_EXAMPLES.md` - curl and Python examples.
+- `docs/AGENT_WORKFLOW.md` - staged CLI/agent workflow, polling strategy, validation, and failure handling.
+- `docs/examples/headless_center_by_residue.py`
+- `docs/examples/headless_center_by_hetatm.py`
+- `docs/examples/headless_build_from_xyz.py`
+- `docs/examples/headless_create_package.py`
+- `tests/test_center_resolver.py`
+- `tests/test_headless_api_contract.py`
 
 ## Implementation Summary
-
-The README was rewritten to read like a finished GitHub project page rather than a publication checklist. Owner-only notes, first-public-push instructions, tracked-artifact cleanup commands, and internal reminders were removed from the README. Practical setup, environment configuration, usage workflow, package mode guidance, troubleshooting, deployment notes, validation commands, and contribution guidance were preserved and polished for public readers.
-
-Repository limitations that still matter publicly were retained in professional language. In particular, Docker support is documented as absent rather than as a future publishing task, deployment notes describe supported assumptions without release-checklist wording, and the missing license file is documented factually without directing instructions at the repository owner.
+The app now exposes an additive `/api/v1` API for creating or reusing workspaces, uploading or fetching receptors, resolving and saving docking centers, preparing receptors, uploading ligands, building packages, listing artifacts, and downloading generated ZIPs. Center generation can be done headlessly from explicit XYZ coordinates, residue selectors, HETATM/ligand instance selectors, atom-level selectors, or a simple selection object. Saved centers write to the same canonical center CSV used by the browser workflow and package builder.
 
 ## Key Decisions
-
-- The `GitHub Publishing Instructions` section was removed entirely from the public README.
-- Public setup, usage, security, troubleshooting, deployment, and validation guidance was preserved.
-- Docker support is described as not currently included, without suggesting unpublished internal follow-up work.
-- License status is documented factually because no license file exists at the repository root.
-- Internal release-prep concerns belong in this summary or future issue tracking, not in the README.
+- The `/api/v1` routes use a consistent JSON shape with `ok`, `data`, and `warnings` on success and `ok`, `error`, `message`, and `details` on failure.
+- Center resolution lives in `center_resolver.py` so it can be tested without Flask.
+- HETATM aliases `het`, `hetatm`, `ligand`, and `resname` are accepted.
+- Ligand-instance ambiguity is explicit; the resolver returns `ambiguous_selection` with candidates instead of choosing the first match.
+- The browser workflow was preserved by leaving existing `/api/...` endpoints and `templates/build.html` JavaScript unchanged.
+- The staged `/api/v1` workflow is implemented; full one-call orchestration is deferred and documented through the reserved `/api/v1/headless/package` response.
+- Agent/CLI usage is documented as a staged workflow with polling and validation rather than as a complete autonomous platform.
 
 ## Commands Run
-
-- `git status --short` - checked for pre-existing local changes before editing; the working tree was clean.
-- `rg --files -g 'README.md' -g 'Qodex.summary.md' -g 'LICENSE' -g 'LICENSE.*' -g 'COPYING' -g 'Dockerfile' -g 'docker-compose*' -g 'CONTRIBUTING.md' -g '.gitignore' -g '.env.example' -g 'requirements.txt' -g 'app.py' -g 'manage.py' -g 'packager.py' -g 'runner_templates.py'` - verified the presence or absence of documentation, license, Docker, and setup files.
-- `sed -n '1,260p' README.md` and `sed -n '261,520p' README.md` - reviewed the full original README content.
-- `sed -n '1,260p' Qodex.summary.md` - reviewed the prior task summary.
-- `sed -n '1,220p' app.py` - verified entrypoint, defaults, and environment variables.
-- `sed -n '1,220p' .env.example` - verified documented environment configuration.
-- `sed -n '1,220p' requirements.txt` - verified Python dependencies.
-- `sed -n '1,220p' manage.py` - verified the user-management CLI.
-- `sed -n '1,240p' packager.py` - verified packaging behavior and package contents.
-- `sed -n '1,260p' runner_templates.py` - verified portable package helper scripts.
-- `find templates -maxdepth 2 -type f | sort` - confirmed template files exist.
-- `find tests -maxdepth 2 -type f | sort` - confirmed test files exist.
+- `git status --short` - confirmed the repository already had uncommitted changes before this task.
+- `sed`, `find`, and `rg` inspections - reviewed routes, templates, API usage, docs, tests, and helper code.
+- `python -m flask --app app routes` - attempted before and after implementation; blocked by missing `flask_login` in the ambient Python environment.
+- `python -m py_compile app.py` - passed.
+- `python -m py_compile center_resolver.py` - passed.
+- `python -m unittest tests.test_center_resolver -v` - passed 7 resolver tests.
+- `python -m unittest tests.test_headless_api_contract -v` - skipped because Flask app dependencies are not installed.
+- `python -m unittest discover -s tests -v` - ran the broader suite; new resolver tests passed, API contract tests skipped, and unrelated existing app/PyMOL-builder tests failed.
+- Source route searches with `rg` - confirmed existing browser endpoints and new `/api/v1` route declarations are present.
+- Unsafe claim search - no new unsafe overclaims were introduced; existing safe “not a claim” text matched in informational templates.
+- `git diff --check` - passed.
 
 ## Validation Results
-
-- Owner-facing phrase search on `README.md` was run after editing and manually reviewed for any acceptable public-context matches.
-- Section coverage was checked to confirm the README still includes overview, features, prerequisites, installation, environment configuration, running locally, workflow, package modes, validation, troubleshooting, security/data notes, contributing, license, and acknowledgements.
-- `git diff --check` was run to catch patch formatting issues.
-- `python3 -m py_compile app.py packager.py runner_templates.py manage.py` was run as a lightweight syntax check and completed successfully.
-- Markdown sanity was reviewed manually by checking heading flow and section structure in the rewritten README.
+- Syntax checks passed for `app.py` and `center_resolver.py`.
+- New center resolver unit tests passed.
+- New Flask API contract tests are present but skipped locally because `flask_login` is missing.
+- Flask route listing could not run locally because `flask_login` is missing.
+- Full test discovery had unrelated failures:
+  - app-import tests fail due to missing `flask_login`;
+  - existing PyMOL-builder tests fail due to pre-existing function/CLI expectation mismatches.
+- Source checks confirmed the old browser endpoints remain declared in `app.py`.
+- Source checks confirmed all new `/api/v1` route declarations are present.
+- `git diff --check` passed.
 
 ## Known Issues
-
-- No root `LICENSE` file is present, so reuse and redistribution rights remain unspecified in the public README.
-- No Docker configuration is present, so container-based setup is intentionally not documented as supported.
-- The repository may still have broader project issues unrelated to this documentation pass; those were intentionally not surfaced as public README notes unless they affect ordinary setup or usage expectations.
+- Headless selector-based center resolution supports PDB, ENT, and PDBQT-like fixed-column records, not CIF/mmCIF.
+- Receptor preparation still relies on local `obabel` availability.
+- The API uses the app's existing lightweight synchronous prep behavior and does not add a production queue.
+- `/api/v1/headless/package` is reserved and currently returns a staged-workflow response.
+- Authentication, rate limiting, quotas, cleanup, and abuse controls were intentionally not implemented.
+- Local dynamic Flask validation could not run until dependencies such as `flask_login` are installed in the active environment.
 
 ## Manual Verification
-
-1. Read the README as if you are a first-time GitHub visitor.
-2. Confirm there are no notes addressed to the project owner.
-3. Confirm setup instructions still work.
-4. Confirm limitations are honest but public-facing.
+1. Open `/build` and confirm the browser workflow still works.
+2. Call `/api/v1/health`.
+3. Create a workspace through `/api/v1/workspaces`.
+4. Fetch or upload a receptor through `/api/v1`.
+5. Resolve a center by residue.
+6. Resolve a center by HETATM ligand instance.
+7. Save a center.
+8. Start prep and poll status.
+9. Upload ligands.
+10. Build a portable package.
+11. Confirm generated download URL works.
+12. Review `docs/HEADLESS_API.md`, `docs/API_EXAMPLES.md`, and `docs/AGENT_WORKFLOW.md`.
 
 ## Suggested Next Prompt
-
-Create a separate private release checklist file so internal publication tasks stay out of the public README.
+Add an OpenAPI schema and a tiny Python client package for the `/api/v1` staged workflow, including fixture-backed API smoke tests.

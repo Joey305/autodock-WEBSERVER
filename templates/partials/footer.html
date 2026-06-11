@@ -1,0 +1,54 @@
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <section class="footer-panel footer-about">
+        <div class="footer-brand">
+          <span class="brand-mark"><i class="bi bi-bounding-box-circles"></i></span>
+          <span>AutoDock-Vina PrepServer</span>
+        </div>
+        <p>
+          AutoDock-Vina PrepServer helps researchers assemble ready-to-run docking job packages from receptor and ligand inputs.
+        </p>
+        <p class="ecosystem-copy">Part of a growing structure-guided molecular design and analysis ecosystem.</p>
+      </section>
+
+      <section class="footer-panel">
+        <h2>Companion Tools</h2>
+        <div class="footer-tool-cloud">
+          {% for tool in tool_links %}
+            <a class="footer-tool" href="{{ tool.url }}" target="_blank" rel="noopener noreferrer">
+              <i class="bi {{ tool.icon }}"></i>{{ tool.name }}
+            </a>
+          {% endfor %}
+          {# TODO: Replace "#" with the official Schürer Lab URL once verified in this repository. #}
+          <a class="footer-tool" href="{{ lab_link.url }}" {% if lab_link.url != "#" %}target="_blank" rel="noopener noreferrer"{% endif %}>
+            <i class="bi {{ lab_link.icon }}"></i>{{ lab_link.name }}
+          </a>
+        </div>
+      </section>
+
+      <section class="footer-panel">
+        <h2>Explore</h2>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="{{ url_for('home') }}">Home</a>
+          <a href="{{ url_for('build') }}">Build</a>
+          <a href="{{ url_for('workflow') }}">Workflow</a>
+          <a href="{{ url_for('about') }}">About</a>
+          <a href="{{ url_for('documentation') }}">Documentation</a>
+          <a href="{{ url_for('contact') }}">Contact</a>
+        </nav>
+      </section>
+
+      <section class="footer-panel">
+        <h2>Contact</h2>
+        <p>
+          Questions and deployment feedback:
+          <a href="{{ contact_mailto }}">{{ contact_email }}</a>
+        </p>
+        <p class="footer-safety">
+          Do not upload confidential structures or ligand libraries to public deployments unless the instance is configured for that use.
+        </p>
+      </section>
+    </div>
+  </div>
+</footer>

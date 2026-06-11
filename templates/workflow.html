@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block title %}Workflow | AutoDock-Vina PrepServer{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <span class="eyebrow">Workflow guide</span>
+  <h1>From receptor intake to downloadable docking package.</h1>
+  <p>
+    This guide explains the browser workflow at a high level so new users can understand what each step is preparing
+    before they build a package.
+  </p>
+</section>
+
+<section class="timeline">
+  <article class="timeline-item">
+    <span class="timeline-number">1</span>
+    <div>
+      <h2>Receptor intake</h2>
+      <p>Start a workspace, then upload a single receptor, upload a ZIP or browser-selected folder of receptors, or fetch by PDB ID where supported.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">2</span>
+    <div>
+      <h2>Docking box selection</h2>
+      <p>Open receptors in the viewer and save a docking center by supported methods such as ligand/residue selection, pasted XYZ coordinates, or clicked atoms in the structure view.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">3</span>
+    <div>
+      <h2>Receptor preparation</h2>
+      <p>Review cleanup options such as HETATM or chain removal, choose preparation settings, and generate receptor files suitable for downstream docking package assembly.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">4</span>
+    <div>
+      <h2>Ligand intake</h2>
+      <p>Upload ligand inputs as SDF, SMILES, SMI, CSV, ZIP, or browser folder inputs where supported. CSV inputs require selecting the SMILES column before building.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">5</span>
+    <div>
+      <h2>Package generation</h2>
+      <p>Build a portable ZIP for generic local use, or choose the optional LSF/HPC-oriented package mode when the deployment enables that workflow.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">6</span>
+    <div>
+      <h2>Running generated packages</h2>
+      <p>Move the ZIP to the execution environment, unpack it, and follow the package README or included runner scripts. The web app prepares the package; docking execution happens downstream.</p>
+    </div>
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-shield-exclamation"></i>
+  <div>
+    <h2>Safety and data note</h2>
+    <p>Public deployments should not receive confidential structures or ligand libraries unless the instance is configured, governed, and operated for that use.</p>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,56 @@
+<nav class="navbar navbar-expand-lg app-navbar sticky-top" aria-label="Primary navigation">
+  <div class="container">
+    <a class="navbar-brand app-brand" href="{{ url_for('home') }}">
+      <span class="brand-mark"><i class="bi bi-bounding-box-circles"></i></span>
+      <span>AutoDock-Vina PrepServer</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#primaryNav" aria-controls="primaryNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="primaryNav">
+      <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-1">
+        {% for link in nav_links %}
+          <li class="nav-item">
+            <a class="nav-link {% if request.endpoint == link.endpoint %}active{% endif %}" href="{{ url_for(link.endpoint) }}">{{ link.name }}</a>
+          </li>
+        {% endfor %}
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {% if request.endpoint == 'modules' %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Open companion modules menu">
+            Modules
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end app-dropdown">
+            {% for tool in tool_links %}
+              <li>
+                <a class="dropdown-item" href="{{ tool.url }}" target="_blank" rel="noopener noreferrer">
+                  <i class="bi {{ tool.icon }} me-2"></i>{{ tool.name }}
+                  <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                </a>
+              </li>
+            {% endfor %}
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              {# TODO: Replace "#" with the official Schürer Lab URL once verified in this repository. #}
+              <a class="dropdown-item" href="{{ lab_link.url }}" {% if lab_link.url != "#" %}target="_blank" rel="noopener noreferrer"{% endif %}>
+                <i class="bi {{ lab_link.icon }} me-2"></i>{{ lab_link.name }}
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('modules') }}">
+                <i class="bi bi-grid-3x3-gap me-2"></i>View ecosystem page
+              </a>
+            </li>
+          </ul>
+        </li>
+      </ul>
+      <div class="nav-actions">
+        {% if public_mode %}
+          <span class="badge public-badge"><i class="bi bi-unlock me-1"></i>Public Access</span>
+        {% endif %}
+        <button class="theme-toggle" type="button" aria-label="Toggle theme" data-theme-toggle>
+          <i class="bi bi-moon-stars" data-theme-icon></i>
+          <span data-theme-label>Dark</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>

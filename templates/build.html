@@ -1,458 +1,932 @@
 {% extends 'base.html' %}
 {% block content %}
 <style>
-  :root{ --bg:#0a1118; --panel:#0f172a; --ink:#e5e7eb; --muted:#9ca3af;
-         --brand:#22d3ee; --accent:#0ea5e9; --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --hair:rgba(255,255,255,.08); }
-  .dock-h1{font-weight:800; letter-spacing:.2px;}
-  .stage-card{background:rgba(15,23,42,.7); border:1px solid var(--hair); border-radius:14px; box-shadow:0 12px 28px rgba(0,0,0,.18);}
-  .stage-head{background:linear-gradient(135deg,#0f172a,#0b1321); color:#eaf6ff; border-bottom:1px solid var(--hair);
-              border-top-left-radius:14px;border-top-right-radius:14px}
-  .chip{display:inline-flex;align-items:center;gap:.5rem;background:#0b1220;border:1px solid var(--hair);color:var(--muted);
-        padding:.25rem .55rem;border-radius:999px;font-size:.85rem}
-  .flag{padding:.2rem .5rem;border-radius:999px;font-weight:700;font-size:.75rem}
-  .NEW{background:#0b1220;color:#9ca3af;border:1px solid var(--hair)}
-  .CONVERTING{background:#161400;color:#facc15;border:1px solid #554c0a}
-  .CONVERTED{background:#061923;color:#67e8f9;border:1px solid #14414d}
-  .STAGED{background:#071c16;color:#86efac;border:1px solid #14412c}
-  .PREPPED{background:#0b1626;color:#93c5fd;border:1px solid #263c6b}
-  .btn-brand{background:linear-gradient(135deg,var(--accent),var(--brand));border:none;color:#041118;font-weight:700}
-  .help{color:#7dd3fc; cursor:help}
-  .viewer{width:100%;height:520px;background:#050b12;border:1px solid var(--hair);border-radius:10px}
-  .coach{position:fixed;right:24px;bottom:24px;max-width:420px;background:#0f172a;border:1px solid var(--hair);
-         color:#e5e7eb;border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.45);padding:12px 14px;display:none;z-index:50}
-  .toast-mini{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:#071c16;border:1px solid #14412c;
-              color:#c6f6d5;padding:.4rem .8rem;border-radius:10px;display:none;z-index:70}
-  .progress{height:8px;background:#0b1220;border-radius:999px}
-  .progress-bar{background:linear-gradient(90deg,#0ea5e9,#22d3ee);border-radius:999px}
-  .muted{color:var(--muted)}
+  :root{
+    --ink:var(--app-text);--muted:var(--app-muted);--ok:var(--app-success);--warn:var(--app-warning);--info:var(--app-brand);--bad:var(--app-danger);
+    --panel:var(--app-surface);--soft:var(--app-surface-2);
+  }
+  .step-card{border:1px solid var(--app-border);background:var(--panel);box-shadow:var(--app-shadow);border-radius:14px}
+  .step-header{background:linear-gradient(135deg,var(--app-brand),var(--app-surface-2));color:#eaffff;border-radius:14px 14px 0 0;padding:.8rem 1rem}
+  .viewport{height:460px;border:1px solid var(--app-border);border-radius:10px;background:#020617}
+  .badge-pipe{font-size:.72rem;border-radius:999px;padding:.28rem .6rem}
+  .b-new{background:#e5e7eb;color:#374151}
+  .b-centering{background:#fde68a;color:#854d0e}
+  .b-centered{background:#bfdbfe;color:#1e3a8a}
+  .b-prepped{background:#bbf7d0;color:#065f46}
+  .row-receptor{padding:.55rem 0}
+  .pill{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .6rem;border-radius:999px;background:var(--app-surface-2);font-size:.8rem;color:var(--app-text)}
+  .chip-check{display:inline-flex;align-items:center;gap:.35rem;margin:.22rem .4rem .22rem 0;padding:.25rem .55rem;border:1px solid var(--app-border);border-radius:999px;background:var(--app-surface-2)}
+  /* Hide carousel chrome */
+  #viewerCarousel .carousel-indicators,
+  #viewerCarousel .carousel-control-prev,
+  #viewerCarousel .carousel-control-next { display:none!important; }
+  .floating-toast{
+    position:fixed; bottom:20px; right:20px; background:#0f172a;color:#fff; padding:.6rem .9rem;
+    border-radius:10px; box-shadow:0 12px 30px rgba(2,6,23,.25); z-index:1100; opacity:0; transform:translateY(8px);
+    transition:all .25s ease;
+  }
+  .floating-toast.show{opacity:1; transform:translateY(0)}
+  .mode-card{border:1px solid var(--app-border);border-radius:14px;padding:1rem;background:var(--app-surface);cursor:pointer;transition:all .2s ease}
+  .mode-card.active{border-color:var(--app-brand);box-shadow:0 10px 24px var(--app-glow)}
+  .mode-card.disabled{opacity:.55;cursor:not-allowed}
+  .mode-eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--app-muted)}
+  .lsf-panel{border:1px dashed var(--app-border);border-radius:12px;padding:1rem;background:var(--app-surface-2)}
+  .mode-result{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .7rem;border-radius:999px;background:var(--app-surface-2);color:var(--app-brand);font-size:.85rem}
+  .csv-config{border:1px solid var(--app-border);border-radius:12px;padding:.9rem;background:var(--app-surface-2)}
 </style>
 
 <div class="d-flex align-items-center justify-content-between mb-3">
-  <h1 class="dock-h1 text-light">Build a Docking Job</h1>
-  <a class="btn btn-sm btn-outline-info" href="/workspace/new"><i class="bi bi-stars me-1"></i> New Workspace</a>
-</div>
-
-<!-- 1) Protein Prep (uploads + flow switch) -->
-<div class="stage-card mb-4">
-  <div class="stage-head p-3 d-flex align-items-center">
-    <div class="fw-bold">1) Protein Prep</div>
-    <span class="ms-3 small chip"><i class="bi bi-diagram-3 me-1"></i><span id="flowLabel">Single receptor workflow</span></span>
-    <div class="ms-auto d-flex align-items-center gap-2">
-      <span class="small muted me-2">Flow:</span>
-      <div class="btn-group btn-group-sm" role="group">
-        <button id="singleBtn" class="btn btn-outline-light active">Single</button>
-        <button id="multiBtn" class="btn btn-outline-light">Multiple</button>
-      </div>
-    </div>
-  </div>
-  <div class="p-3">
-    <div class="row g-3">
-      <div class="col-lg-6">
-        <label class="form-label text-light">Upload SINGLE receptor (.pdb / .cif / .pdbqt / .ent)
-          <i class="bi bi-info-circle-fill help" title="Upload exactly one receptor file."></i>
-        </label>
-        <div class="input-group">
-          <input id="singleFile" class="form-control" type="file" />
-          <button id="uploadSingle" class="btn btn-brand">Upload</button>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <label class="form-label text-light">OR upload ZIP of Receptors/
-          <i class="bi bi-info-circle-fill help" title="Upload a .zip containing multiple receptor files."></i>
-        </label>
-        <div class="input-group">
-          <input id="zipRecs" class="form-control" type="file" />
-          <button id="uploadZip" class="btn btn-brand">Upload ZIP</button>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <label class="form-label text-light">Upload FOLDER of Receptors
-          <i class="bi bi-info-circle-fill help" title="Pick a folder; browser will upload the contained files."></i>
-        </label>
-        <div class="input-group">
-          <input id="folderRecs" class="form-control" type="file" webkitdirectory directory multiple />
-          <button id="uploadFolder" class="btn btn-brand">Upload Folder</button>
-        </div>
-      </div>
-      <div class="col-lg-6">
-        <label class="form-label text-light">Fetch by PDB ID
-          <i class="bi bi-info-circle-fill help" title="Fetch from RCSB by 4-letter id; optional chain filter (e.g., A,B)."></i>
-        </label>
-        <div class="input-group">
-          <input id="pdbId" class="form-control" placeholder="e.g., 3EKY"/>
-          <input id="chainFilter" class="form-control" placeholder="Chains (optional)"/>
-          <button id="fetchPdb" class="btn btn-brand">Fetch</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- quick status chips -->
-    <div id="miniSummary" class="mt-3 d-flex flex-wrap gap-2">
-      <span class="chip"><i class="bi bi-cpu me-1"></i> Receptors: <span id="recCount">0</span></span>
-      <span class="chip"><i class="bi bi-filetype-csv me-1"></i> Centers CSV: <span id="csvRows">0</span> rows</span>
-      <span class="chip"><i class="bi bi-box-seam me-1"></i> Converted: <span id="convCount">0</span></span>
-    </div>
+  <h3 class="m-0">Build a Docking Job</h3>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-muted">Job: <span id="jobname" class="fw-semibold">—</span></span>
+    <button id="btnNewWS" class="btn btn-outline-primary"><i class="bi bi-asterisk"></i> New Workspace</button>
   </div>
 </div>
 
-<!-- receptor rows -->
-<div id="recList" class="mb-3"></div>
-
-<!-- 1a) Box Generation -->
-<div id="viewerCard" class="stage-card mb-4" style="display:none;">
-  <div class="stage-head p-3 d-flex align-items-center">
-    <div class="fw-bold">1a) Box Generation</div>
-    <i class="bi bi-info-circle-fill ms-2 help" title="Click atoms to select a center (yellow spheres). Multiple clicks are averaged. Or paste XYZ."></i>
-    <button id="openPath" class="btn btn-sm btn-outline-light ms-auto" disabled>Open (path)</button>
+<!-- STEP 1 -->
+<div class="step-card mb-3">
+  <div class="step-header">
+    <strong>1) Protein Prep</strong>
+    <span id="flowPill" class="pill ms-2"><i class="bi bi-diagram-3"></i><span>Single receptor workflow</span></span>
   </div>
-  <div class="p-3">
-    <div id="ngl" class="viewer mb-3"></div>
+  <div class="card-body">
 
-    <div class="row g-2 align-items-center">
-      <div class="col-12 col-md-2 d-flex gap-2">
-        <div class="input-group input-group-sm">
-          <span class="input-group-text">Resi</span>
-          <input id="resi" class="form-control" placeholder="opt"/>
-        </div>
-        <div class="input-group input-group-sm">
-          <span class="input-group-text">Chain</span>
-          <input id="chain" class="form-control" placeholder="opt"/>
-        </div>
-      </div>
-
-      <div class="col-12 col-md-3">
-        <div class="input-group input-group-sm">
-          <span class="input-group-text">Residue</span>
-          <input id="resName" class="form-control" placeholder="GLU"/>
-          <span class="input-group-text">Å</span>
-          <input id="boxSize" class="form-control" value="20"/>
-        </div>
-      </div>
-
-      <div class="col-12 col-md-5">
-        <input id="xyzPaste" class="form-control form-control-sm" placeholder="Or paste XYZ as x,y,z"/>
-      </div>
-
-      <div class="col-12 col-md-2 d-flex gap-2">
-        <button id="useXyz" class="btn btn-outline-info btn-sm w-50">Use XYZ</button>
-        <button id="clearAtoms" class="btn btn-outline-light btn-sm w-50">Clear atoms</button>
-      </div>
-    </div>
-
-    <div class="mt-3 d-grid">
-      <button id="saveCenter" class="btn btn-brand"><i class="bi bi-geo-alt-fill me-1"></i>Save center</button>
-    </div>
-  </div>
-</div>
-<div id="savedToast" class="toast-mini"><i class="bi bi-check2-circle me-1"></i> Data saved</div>
-
-<!-- 1b) Protein Staging -->
-<div id="stageCard" class="stage-card mb-4" style="display:none;">
-  <div class="stage-head p-3 d-flex align-items-center">
-    <div class="fw-bold">1b) Protein Staging</div>
-    <i class="bi bi-info-circle-fill ms-2 help" title="Choose what to remove before preparation. Click HET codes to toggle."></i>
-    <div id="stageFlag" class="ms-auto flag STAGED" style="display:none;">STAGED</div>
-  </div>
-  <div class="p-3">
-    <div class="row g-2">
-      <div class="col-lg-6">
-        <label class="form-label text-light">Remove HET</label>
-        <input id="removeHet" class="form-control" value="all"/>
-        <div id="hetPills" class="mt-2 d-flex flex-wrap gap-2"></div>
-        <small class="muted">Aggregated across uploaded receptors.</small>
-      </div>
-      <div class="col-lg-6">
-        <label class="form-label text-light">Remove chains</label>
-        <input id="removeChains" class="form-control" placeholder="e.g., B,C"/>
-        <div class="row mt-2 g-2">
-          <div class="col-6">
-            <label class="form-label text-light">Backend</label>
-            <select id="backend" class="form-select"><option value="auto">auto</option><option>adt_module</option></select>
-          </div>
-          <div class="col-6">
-            <label class="form-label text-light">AltLoc</label>
-            <select id="altloc" class="form-select"><option value="collapse">collapse</option><option value="keep">keep</option></select>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="mt-3 d-flex gap-2">
-      <button id="stageNext" class="btn btn-outline-light w-100"><i class="bi bi-boxes me-1"></i>Stage Protein</button>
-      <button id="stageAll" class="btn btn-outline-light w-100" style="display:none;"><i class="bi bi-collection me-1"></i>Stage NEXT Protein</button>
-    </div>
-    <small class="muted d-block mt-2" id="stageHint"></small>
-  </div>
-</div>
-
-<!-- 1c) Protein Preparation -->
-<div id="prepCard" class="stage-card mb-4" style="display:none;">
-  <div class="stage-head p-3 d-flex align-items-center">
-    <div class="fw-bold">1c) Protein Preparation</div>
-    <i class="bi bi-info-circle-fill ms-2 help" title="Generate PDBQT. You can choose ligands while this runs."></i>
-    <div id="prepBadge" class="ms-auto flag CONVERTING" style="display:none;">CONVERTING</div>
-  </div>
-  <div class="p-3">
-    <div class="d-flex gap-2">
-      <button id="prepBtn" class="btn btn-brand"><i class="bi bi-gear-wide-connected me-1"></i>Prepare Protein</button>
-      <button id="prepAllBtn" class="btn btn-brand" style="display:none;"><i class="bi bi-cpu me-1"></i>Prepare ALL Proteins</button>
-      <button id="clearSelections" class="btn btn-outline-danger ms-auto"><i class="bi bi-trash3 me-1"></i>Clear selections</button>
-    </div>
-    <pre id="prepLog" class="mt-3" style="background:#0a0f18;color:#d1d5db;border-radius:10px;padding:12px;max-height:280px;overflow:auto;display:none;"></pre>
-    <div class="mt-3">
-      <div class="progress"><div id="prepProgress" class="progress-bar" style="width:0%"></div></div>
-      <div class="mt-2 d-flex gap-2 flex-wrap" id="summaryChips"></div>
-    </div>
-  </div>
-</div>
-
-<!-- 2) Ligand Prep (unlocked while prepping) -->
-<div id="ligandCard" class="stage-card mb-4" style="display:none;">
-  <div class="stage-head p-3 d-flex align-items-center">
-    <div class="fw-bold">2) Ligand Prep</div>
-  </div>
-  <div class="p-3">
+    <!-- Upload / Fetch -->
     <div class="row g-3 align-items-end">
       <div class="col-lg-6">
-        <label class="form-label text-light">Single ligand (.sdf / .smiles / .csv)</label>
+        <label class="form-label">Upload SINGLE receptor (.pdb / .cif / .pdbqt / .ent)</label>
         <div class="input-group">
-          <input id="ligSingle" class="form-control" type="file"/>
-          <button id="ligUpload" class="btn btn-brand">Upload</button>
+          <input id="receptorSingle" type="file" class="form-control" accept=".pdb,.cif,.pdbqt,.mmcif,.ent" disabled>
+          <button id="btnRecSingle" class="btn btn-success" disabled>Upload</button>
         </div>
       </div>
       <div class="col-lg-6">
-        <label class="form-label text-light">ZIP of Ligands/</label>
+        <label class="form-label">OR upload ZIP of Receptors/</label>
         <div class="input-group">
-          <input id="ligZip" class="form-control" type="file"/>
-          <button id="ligZipUpload" class="btn btn-brand">Upload ZIP</button>
+          <input id="receptorZip" type="file" class="form-control" accept=".zip" disabled>
+          <button id="btnRecZip" class="btn btn-success" disabled>Upload ZIP</button>
         </div>
       </div>
-      <div class="col-md-3">
-        <label class="form-label text-light"># conformations</label>
-        <input id="nConf" class="form-control" value="64"/>
+      <div class="col-lg-6">
+        <label class="form-label">Upload FOLDER of Receptors</label>
+        <div class="input-group">
+          <input id="receptorFolder" type="file" class="form-control" webkitdirectory multiple disabled>
+          <button id="btnRecFolder" class="btn btn-success" disabled>Upload Folder</button>
+        </div>
+        <div class="text-muted small mt-1">Folder chooser count may include hidden items; only receptor file types are ingested.</div>
       </div>
-      <div class="col-md-3">
-        <label class="form-label text-light"># docking poses</label>
-        <input id="nPoses" class="form-control" value="9"/>
+      <div class="col-lg-6">
+        <label class="form-label">Fetch by PDB ID</label>
+        <div class="input-group">
+          <input id="pdbFetch" class="form-control" placeholder="e.g., 3EKY" disabled>
+          <input id="pdbChains" class="form-control" placeholder="Chains (optional)" style="max-width:180px" disabled>
+          <button id="btnFetchPDB" class="btn btn-success" disabled>Fetch</button>
+        </div>
       </div>
-      <div class="col-md-3">
-        <label class="form-label text-light">CSV SMILES column</label>
-        <input id="csvSmilesCol" class="form-control" disabled/>
+    </div>
+
+    <!-- Receptor list -->
+    <div id="receptorList" class="mt-3 d-none"></div>
+
+    <!-- 1a: viewer (carousel) -->
+    <div id="carouselWrap" class="mt-4 d-none">
+      <h6 class="mb-2">1a) Box Generation</h6>
+      <div id="viewerCarousel" class="carousel slide" data-bs-interval="false">
+        <div class="carousel-inner" id="carouselInner"></div>
       </div>
-      <div class="col-md-3">
-        <label class="form-label text-light">CSV ID column</label>
-        <input id="csvIdCol" class="form-control" disabled/>
+
+      <!-- box inputs -->
+      <div class="row g-2 align-items-center mt-2">
+        <div class="col-md-3"><div class="input-group"><span class="input-group-text">Lig</span><input id="ligCode" class="form-control" placeholder="ADP"></div></div>
+        <div class="col-md-4">
+          <div class="input-group">
+            <span class="input-group-text">Resi</span><input id="ligResi" class="form-control" placeholder="(opt)" style="max-width:90px">
+            <span class="input-group-text">Chain</span><input id="ligChain" class="form-control" placeholder="(opt)" style="max-width:90px">
+          </div>
+        </div>
+        <div class="col-md-5">
+          <div class="input-group">
+            <span class="input-group-text">Residue</span>
+            <input id="resName" class="form-control" placeholder="GLU" style="max-width:110px">
+            <input id="resId" class="form-control" placeholder="82" style="max-width:110px">
+            <input id="resChain" class="form-control" placeholder="(opt)" style="max-width:110px">
+          </div>
+        </div>
+        <div class="col-md-6"><input id="xyzPaste" class="form-control" placeholder="Or paste XYZ as x,y,z"></div>
+        <div class="col-md-2 d-grid"><button id="btnUseXYZ" class="btn btn-outline-secondary">Use XYZ</button></div>
+        <div class="col-md-2 d-grid"><button id="btnClearClicks" class="btn btn-outline-secondary">Clear atoms</button></div>
+        <div class="col-md-2"><div class="input-group"><span class="input-group-text">Å</span><input id="boxSize" class="form-control" value="20"></div></div>
+        <div class="col-12 d-grid"><button id="btnSaveCenter" class="btn btn-warning"><i class="bi bi-bullseye"></i> Save center</button></div>
       </div>
+    </div>
+
+    <!-- 1b: Single-receptor prep (checkboxes; hidden until a receptor is OPENED) -->
+    <div id="stagingMini" class="mt-4 d-none">
+      <h6 class="mb-2">1b) Protein Preparation (3a)</h6>
+
+      <div class="border rounded-4 p-3">
+        <div class="fw-semibold mb-1">HETATM to remove</div>
+        <div id="miniHet" class="mb-2 small text-muted">Open a receptor to populate…</div>
+
+        <div class="fw-semibold mb-1">Chains to remove</div>
+        <div id="miniChains" class="mb-2 small text-muted">Open a receptor to populate…</div>
+
+        <div class="row g-2">
+          <div class="col-md-6">
+            <div class="input-group">
+              <span class="input-group-text">Backend</span>
+              <select id="backend" class="form-select">
+                <option value="auto" selected>auto</option>
+                <option value="adt">ADT_py3</option>
+                <option value="meeko">meeko</option>
+                <option value="mgl">MGLTools</option>
+              </select>
+              <span class="input-group-text">AltLoc</span>
+              <select id="altloc" class="form-select">
+                <option value="collapse" selected>collapse</option>
+                <option value="all">all</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 mt-3">
+          <button id="btnPrepCurrent" class="btn btn-primary"><i class="bi bi-gear"></i> Prepare Protein</button>
+          <span id="runStatusSingle" class="badge text-bg-secondary d-none">queued…</span>
+        </div>
+
+        <!-- Single-mode live log -->
+        <pre id="prepLogSingle" class="mt-2" style="display:none; max-height:280px; overflow:auto; background:#0b1020; color:#e5edff; border-radius:10px; padding:12px"></pre>
+      </div>
+    </div>
+
+    <!-- 1c: Multi-receptor prep -->
+    <div id="prepPanel" class="mt-4 d-none">
+      <div class="step-card">
+        <div class="step-header"><strong>1c) Preparation</strong></div>
+        <div class="card-body">
+          <div class="mb-2">Select HETATMs and chains to remove for each receptor:</div>
+          <div id="prepList"></div>
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <button id="btnPrepAll" class="btn btn-outline-primary"><i class="bi bi-collection"></i> Prepare All Receptors</button>
+            <span id="runStatusBatch" class="badge text-bg-secondary d-none">queued…</span>
+          </div>
+          <!-- Multi-mode live log -->
+          <pre id="prepLogBatch" class="mt-2" style="display:none; max-height:280px; overflow:auto; background:#0b1020; color:#e5edff; border-radius:10px; padding:12px"></pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- STEP 2 -->
+<div id="ligandStep" class="step-card mb-3 d-none">
+  <div class="step-header"><strong>2) Ligand Prep</strong></div>
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-lg-7">
+        <label class="form-label">Single ligand (.sdf / .smiles / .smi / .csv)</label>
+        <div class="input-group">
+          <input id="ligSingle" type="file" class="form-control" accept=".sdf,.smiles,.smi,.csv" disabled>
+          <button id="btnLigSingle" class="btn btn-success" disabled>Upload</button>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <label class="form-label">ZIP of Ligands/</label>
+        <div class="input-group">
+          <input id="ligZip" type="file" class="form-control" accept=".zip" disabled>
+          <button id="btnLigZip" class="btn btn-success" disabled>Upload ZIP</button>
+        </div>
+      </div>
+    </div>
+    <div class="row g-3 align-items-end mt-1">
+      <div class="col-lg-7">
+        <label class="form-label">Folder of Ligands/</label>
+        <div class="input-group">
+          <input id="ligFolder" type="file" class="form-control" webkitdirectory directory multiple disabled>
+          <button id="btnLigFolder" class="btn btn-success" disabled>Upload Folder</button>
+        </div>
+      </div>
+    </div>
+    <div class="row g-3 mt-2">
+      <div class="col-md-3"><label class="form-label"># conformations</label><input id="posesConf" class="form-control" value="64"></div>
+      <div class="col-md-3"><label class="form-label"># docking poses</label><input id="posesVina" class="form-control" value="9"></div>
+    </div>
+    <div id="ligUploadStatus" class="small text-muted mt-2"></div>
+    <div id="csvColumnPanel" class="csv-config mt-3 d-none">
+      <div class="fw-semibold mb-2">CSV column mapping</div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">SMILES column</label>
+          <select id="csvSmilesCol" class="form-select" disabled></select>
+          <div class="form-text">Required for CSV ligand input.</div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Custom SMILES</label>
+          <input id="csvSmilesCustom" class="form-control" placeholder="optional" disabled>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Ligand ID column</label>
+          <select id="csvIdCol" class="form-select" disabled></select>
+          <div class="form-text">Optional if your CSV has no identifier column.</div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Custom ID</label>
+          <input id="csvIdCustom" class="form-control" placeholder="optional" disabled>
+        </div>
+      </div>
+      <div id="csvColumnStatus" class="small text-muted mt-2"></div>
     </div>
   </div>
 </div>
 
-<!-- 3) Build LSF + Zip -->
-<div id="buildCard" class="stage-card mb-4" style="display:none;">
-  <div class="stage-head p-3 d-flex align-items-center">
-    <div class="fw-bold">3) Build LSF + Zip</div>
-  </div>
-  <div class="p-3">
+<!-- STEP 3 -->
+<div id="buildStep" class="step-card mb-4 d-none">
+  <div class="step-header"><strong>3) Build Job Package</strong></div>
+  <div class="card-body">
     <div class="row g-3">
-      <div class="col-md-3"><input id="queue" class="form-control" value="hihg" placeholder="queue"/></div>
-      <div class="col-md-3"><input id="project" class="form-control" value="brd" placeholder="project"/></div>
-      <div class="col-md-3"><input id="wall" class="form-control" value="96:00" placeholder="wall hh:mm"/></div>
-      <div class="col-md-3"><input id="cores" class="form-control" value="16" placeholder="cores"/></div>
-      <div class="col-md-3"><input id="mem" class="form-control" value="2000" placeholder="mem (MB)"/></div>
-      <div class="col-md-9"><input id="envline" class="form-control" placeholder="Env line (conda activate ...)—optional"/></div>
+      <div class="col-lg-6">
+        <label class="mode-card d-block" id="portableModeCard">
+          <input type="radio" class="form-check-input me-2" name="packageMode" value="portable" id="packageModePortable" checked>
+          <span class="mode-eyebrow d-block mb-1">Default</span>
+          <span class="fw-semibold d-block">Portable ZIP for public/local use</span>
+          <span class="text-muted small">Builds a generic package with local runner scripts and no LSF, `bsub`, or lab-specific paths.</span>
+        </label>
+      </div>
+      <div class="col-lg-6">
+        <label class="mode-card d-block" id="lsfModeCard">
+          <input type="radio" class="form-check-input me-2" name="packageMode" value="lsf" id="packageModeLsf">
+          <span class="mode-eyebrow d-block mb-1">Optional</span>
+          <span class="fw-semibold d-block">Joey's Docking Server Mode / Include LSF-HPC scripts</span>
+          <span class="text-muted small" id="lsfModeHelp">Includes the extra LSF/batch files and preserves the lab HPC workflow.</span>
+        </label>
+      </div>
     </div>
-    <div class="d-flex gap-2 mt-3">
-      <button id="buildZip" class="btn btn-brand"><i class="bi bi-archive me-1"></i>Build Zip</button>
-      <a id="downloadZip" class="btn btn-outline-light disabled" href="#" download style="pointer-events:none;"><i class="bi bi-download me-1"></i>Download job.zip</a>
-      <span id="buildStatus" class="small muted ms-2"></span>
+
+    <div id="lsfPanel" class="lsf-panel mt-3">
+      <div class="small text-muted mb-2">This mode is for LSF/HPC cluster use. These settings only apply when Joey's Docking Server Mode is enabled.</div>
+      <div class="row g-2">
+        <div class="col-md-2"><input id="queue"   class="form-control" value="hihg"   placeholder="Queue"></div>
+        <div class="col-md-2"><input id="project" class="form-control" value="brd"    placeholder="Project"></div>
+        <div class="col-md-2"><input id="walltime"class="form-control" value="96:00"  placeholder="Walltime"></div>
+        <div class="col-md-2"><input id="workers" class="form-control" value="16"     placeholder="Workers"></div>
+        <div class="col-md-2"><input id="mem"     class="form-control" value="2000"   placeholder="mem/core (MB)"></div>
+        <div class="col-md-2"><input id="vinaPath"class="form-control" placeholder="Optional VINA_EXE"></div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-12"><input id="envLine" class="form-control" placeholder="Env line (conda activate ...)—optional"></div>
+      </div>
+    </div>
+
+    <div class="d-flex align-items-center gap-3 mt-3">
+      <button id="btnBuild" class="btn btn-success" disabled>Build ZIP</button>
+      <a id="downloadLink" target="_blank"></a>
+      <span id="buildStatus" class="small text-muted"></span>
+      <span id="buildModeResult" class="mode-result d-none"></span>
     </div>
   </div>
 </div>
 
-<!-- coachmark -->
-<div id="coach" class="coach">
-  <div class="d-flex align-items-start gap-2">
-    <div class="pt-1"><i class="bi bi-cursor-fill text-info"></i></div>
-    <div class="flex-grow-1">
-      <div class="fw-bold">Next step</div>
-      <div class="small">Click <b>Open</b> on a receptor to start Box Generation.</div>
-    </div>
-    <div class="text-secondary" id="coachClose" style="cursor:pointer"><i class="bi bi-x-lg"></i></div>
-  </div>
-</div>
+<div id="toast" class="floating-toast">Saved!</div>
 
+<script src="https://unpkg.com/ngl@latest/dist/ngl.js"></script>
 <script>
-/* ============= SMALL CONTROLLER ============= */
-/* Uses the same /api/... endpoints you already have. Only UI plumbing here. */
+/* ---------- helpers ---------- */
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const enable = (el,on=true)=>{ el.disabled=!on; };
+const toast = (msg, ms=1400)=>{ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), ms); };
+const ENABLE_LSF_PACKAGE = {{ enable_lsf_package|tojson }};
+const DEFAULT_PACKAGE_MODE = {{ default_package_mode|tojson }};
 
-const $ = s => document.querySelector(s);
-const post = (url, data) => fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json());
-const postFD = (url, fd) => fetch(url,{method:'POST',body:fd}).then(r=>r.json());
+/* ---------- state ---------- */
+let jobname=null, state=null, isMulti=false;
+let currentRel=null;
+let stagesByRel = {};
+let slideByRel  = new Map();
+let carousel=null;
+let pickedAtoms=[];
+let prepPoll=null;
+let ligandUploadState = { kind:null, headers:[], selectedSmiles:'', selectedId:'' };
 
-const store = { flow:'single', receptors:[], current:null, centers:0, converted:0 };
-
-function flagHTML(s){ return `<span class="flag ${s}">${s}</span>`; }
-function updateMini(){ $("#recCount").textContent=store.receptors.length; $("#csvRows").textContent=store.centers; $("#convCount").textContent=store.converted; }
-
-/* --- flow switch --- */
-$("#singleBtn").onclick=()=>{store.flow='single';$("#flowLabel").textContent='Single receptor workflow';$("#multiBtn").classList.remove('active');$("#singleBtn").classList.add('active');};
-$("#multiBtn").onclick=()=>{store.flow='multi';$("#flowLabel").textContent='Multiple receptor workflow';$("#singleBtn").classList.remove('active');$("#multiBtn").classList.add('active');};
-
-/* --- uploads (wire to your backend) --- */
-$("#uploadSingle").onclick=async()=>{
-  const f=$("#singleFile").files[0]; if(!f) return;
-  const fd=new FormData(); fd.append('file',f);
-  const j=await postFD('/api/receptors/upload_one',fd);
-  addRec(j.name,j.path);
-};
-$("#uploadZip").onclick=async()=>{
-  const f=$("#zipRecs").files[0]; if(!f) return;
-  const j=await postFD('/api/receptors/upload_zip', new FormData().append('file',f));
-};
-$("#uploadFolder").onclick=async()=>{
-  const files=[...$("#folderRecs").files];
-  for(const f of files){ const fd=new FormData(); fd.append('file',f); const j=await postFD('/api/receptors/upload_one',fd); addRec(j.name,j.path); }
-};
-$("#fetchPdb").onclick=async()=>{
-  const id=$("#pdbId").value.trim(); const chains=$("#chainFilter").value.trim();
-  if(!id) return;
-  const j=await post('/api/receptors/fetch',{pdb:id,chains});
-  addRec(j.name,j.path);
-};
-
-function addRec(name,path){
-  store.receptors.push({name,path,state:'NEW'}); renderRecList(); updateMini();
-  setTimeout(()=>{ if(!store.current) $("#coach").style.display='block'; },3000);
+function getSelectedPackageMode(){
+  const selected = document.querySelector('input[name="packageMode"]:checked');
+  return selected ? selected.value : 'portable';
 }
-function renderRecList(){
-  const host=$("#recList"); host.innerHTML='';
-  store.receptors.forEach(r=>{
-    const row=document.createElement('div');
-    row.className='d-flex align-items-center justify-content-between py-2 border-bottom border-dark-subtle';
-    row.innerHTML=`<div class="d-flex align-items-center gap-2">
-      <button class="btn btn-sm btn-outline-info openBtn">Open</button>
-      <span class="text-light fw-semibold">${r.name}</span>
-      ${flagHTML(r.state)}
-    </div><div class="small muted">${r.path||''}</div>`;
-    row.querySelector('.openBtn').onclick=()=>openRec(r.name);
-    host.appendChild(row);
+function setPackageMode(mode){
+  const normalized = (mode === 'lsf' && ENABLE_LSF_PACKAGE) ? 'lsf' : 'portable';
+  $('#packageModePortable').checked = normalized === 'portable';
+  $('#packageModeLsf').checked = normalized === 'lsf';
+  syncPackageModeUI();
+}
+function syncPackageModeUI(){
+  const mode = getSelectedPackageMode();
+  const lsfAllowed = ENABLE_LSF_PACKAGE;
+  $('#packageModeLsf').disabled = !lsfAllowed;
+  $('#lsfModeCard').classList.toggle('disabled', !lsfAllowed);
+  $('#portableModeCard').classList.toggle('active', mode === 'portable');
+  $('#lsfModeCard').classList.toggle('active', mode === 'lsf');
+  $('#lsfModeHelp').textContent = lsfAllowed
+    ? 'Includes the extra LSF/batch files and preserves the lab HPC workflow.'
+    : 'LSF packaging is disabled by server configuration.';
+
+  const showLsf = mode === 'lsf' && lsfAllowed;
+  $('#lsfPanel').classList.toggle('d-none', !showLsf);
+  ['queue','project','walltime','workers','mem','vinaPath','envLine'].forEach(id => enable($('#'+id), showLsf));
+  $('#btnBuild').textContent = showLsf ? "Build Joey's ZIP" : "Build ZIP";
+}
+['packageModePortable','packageModeLsf'].forEach(id=>{
+  document.addEventListener('DOMContentLoaded', ()=>{
+    $('#'+id).addEventListener('change', syncPackageModeUI);
   });
+});
+
+/* ---------- carousel ---------- */
+function ensureCarousel(){ if(!carousel){ carousel=new bootstrap.Carousel($('#viewerCarousel'),{interval:false,ride:false,touch:false,keyboard:false,wrap:false}); } }
+function safeId(rel){ return 'vp-'+btoa(rel).replace(/=/g,'').replace(/[+/]/g,'_'); }
+function ensureSlide(rel){
+  if(slideByRel.has(rel)) return slideByRel.get(rel);
+  const inner=$('#carouselInner');
+  const idx=inner.children.length;
+  const vpId=safeId(rel);
+  const item=document.createElement('div');
+  item.className='carousel-item'+(idx===0?' active':'');
+  item.innerHTML=`<div id="${vpId}" class="viewport"></div>`;
+  inner.appendChild(item);
+  const rec={idx, vpId}; slideByRel.set(rel,rec);
+  return rec;
 }
-
-/* --- viewer (NGL loaded by base.html) --- */
-let stage, comp, picks=[];
-async function openRec(name){
-  $("#coach").style.display='none';
-  const r=store.receptors.find(x=>x.name===name);
-  if(!r) return;
-
-  // ensure single component
-  if(!stage){ stage=new NGL.Stage("ngl",{backgroundColor:"#050b12"}); window.addEventListener("resize",()=>stage.handleResize()); }
-  if(comp){ stage.removeComponent(comp); comp=null; }
-  picks.length=0; // reset picks
-
-  // get file blob from server
-  const res=await fetch('/api/receptors/get_pdb?name='+encodeURIComponent(name));
-  const blob=await res.blob();
-  comp=await stage.loadFile(new Blob([blob]),{ext:'pdb'});
-  comp.addRepresentation("cartoon",{colorScheme:"chainname"});
-  comp.addRepresentation("ball+stick",{sele:"hetero"});
-  stage.autoView();
-  store.current=name; $("#openPath").disabled=false;
-
-  // pick to yellow spheres
-  stage.signals.clicked.removeAll();
+function getStage(rel, vpId){
+  if(stagesByRel[rel]) return stagesByRel[rel];
+  const stage=new NGL.Stage(vpId,{backgroundColor:'white'});
+  window.addEventListener('resize', ()=>stage.handleResize());
   stage.signals.clicked.add(p=>{
-    if(!p||!p.atom) return;
-    const v=p.atom.positionToVector3(); picks.push([v.x,v.y,v.z]); drawPickMarkers();
+    if(!p || !p.atom) return;
+    pickedAtoms.push([p.atom.x, p.atom.y, p.atom.z]);
+    drawPickMarkersOn(stage);
   });
-
-  $("#viewerCard").style.display='block';
-  $("#stageCard").style.display='block';
-  $("#stageHint").textContent = (store.flow==='multi')
-    ? "Stage this protein; the viewer will close and the next one will be opened."
-    : "Stage applies to this receptor. Then prepare.";
+  stagesByRel[rel]=stage;
+  return stage;
 }
-function drawPickMarkers(){
-  if(!stage) return;
-  stage.getComponentsByName('picks').list.forEach(c=>stage.removeComponent(c));
-  if(!picks.length) return;
-  const shape=new NGL.Shape('picks'); picks.forEach(p=>shape.addSphere(p,[1,0.85,0],1.0));
-  const sh=stage.addComponentFromObject(shape); sh.addRepresentation("buffer"); sh.name='picks';
+function disposeStage(rel){
+  const st=stagesByRel[rel];
+  if(st){ try{ st.removeAllComponents(); st.dispose(); }catch{} }
+  delete stagesByRel[rel];
 }
-$("#clearAtoms").onclick=()=>{picks=[];drawPickMarkers();};
-$("#useXyz").onclick=()=>{ if(!$("#xyzPaste").value.trim()) return; picks=[]; drawPickMarkers(); };
+function drawPickMarkersOn(stage){
+  stage.getComponentsByName('picks').list.forEach(c=> stage.removeComponent(c));
+  if(!pickedAtoms.length) return;
+  const shape=new NGL.Shape('picks');
+  pickedAtoms.forEach(p=> shape.addSphere(p,[1,0.8,0],0.9));
+  const c=stage.addComponentFromObject(shape); c.addRepresentation('buffer'); c.name='picks';
+}
 
-/* --- save center --- */
-$("#saveCenter").onclick=async()=>{
-  if(!store.current) return;
-  let center=null;
-  const xyz=$("#xyzPaste").value.trim();
-  if(xyz){ const m=xyz.split(',').map(Number); if(m.length!==3) return alert('XYZ must be x,y,z'); center=m; }
-  else{
-    if(picks.length===0) return alert('Pick at least one atom or paste XYZ.');
-    let x=0,y=0,z=0; picks.forEach(a=>{x+=a[0];y+=a[1];z+=a[2];}); center=[x/picks.length,y/picks.length,z/picks.length];
+/* --- Add once at top --- */
+async function convertToPDBQT(file,pH=7.4){
+  const data=await file.text();
+  const ob=await OpenBabel(); // loads the wasm
+  const conv=new ob.OBConversion();
+  conv.SetInAndOutFormats("pdb","pdbqt");
+  const mol=new ob.OBMol();
+  conv.ReadString(mol,data);
+  ob.addHydrogens(mol,true,pH);
+  const out=conv.WriteString(mol);
+  return new Blob([out],{type:"text/plain"});
+}
+
+
+
+/* ---------- workspace ---------- */
+async function newWS(){
+  // hard reset UI
+  Object.keys(stagesByRel).forEach(disposeStage);
+  stagesByRel={}; slideByRel.clear(); $('#carouselInner').innerHTML='';
+  $('#carouselWrap').classList.add('d-none'); $('#stagingMini').classList.add('d-none'); $('#prepPanel').classList.add('d-none');
+  $('#ligandStep').classList.add('d-none'); $('#buildStep').classList.add('d-none');
+  $('#miniHet').innerHTML='Open a receptor to populate…'; $('#miniChains').innerHTML='Open a receptor to populate…';
+  currentRel=null; state=null; isMulti=false; pickedAtoms=[]; if(prepPoll) clearInterval(prepPoll);
+
+  const r=await fetch('/api/workspace',{method:'POST'}); const j=await r.json();
+  jobname=j.jobname; $('#jobname').textContent=jobname;
+  ['receptorSingle','receptorZip','receptorFolder','pdbFetch','pdbChains'].forEach(id=>enable($('#'+id),true));
+  ['btnRecSingle','btnRecZip','btnRecFolder','btnFetchPDB'].forEach(id=>enable($('#'+id),true));
+  await reloadAll();
+}
+$('#btnNewWS').onclick=newWS;
+
+/* ---------- server state ---------- */
+async function fetchState(){
+  const r=await fetch(`/api/receptors/list?jobname=${encodeURIComponent(jobname)}`); state=await r.json();
+  isMulti=(state?.receptors?.length||0)>1;
+  $('#flowPill span').textContent = isMulti ? 'Multi receptor workflow' : 'Single receptor workflow';
+}
+async function fetchSummary(){ const r=await fetch(`/api/summary?jobname=${encodeURIComponent(jobname)}`); return r.json(); }
+async function reloadAll(){ if(!jobname) return; await fetchState(); drawReceptorList(); await gatePanels(); }
+
+/* ---------- receptor list ---------- */
+function badgeFor(r){
+  const st=r.status||'new';
+  if(st==='prepped')  return `<span class="badge-pipe b-prepped">PREPPED</span>`;
+  if(st==='centered') return `<span class="badge-pipe b-centered">CENTERED</span>`;
+  if(st==='centering')return `<span class="badge-pipe b-centering">CENTERING</span>`;
+  return `<span class="badge-pipe b-new">NEW</span>`;
+}
+function drawReceptorList(){
+  const box=$('#receptorList'); box.innerHTML='';
+  const recs=state?.receptors||[];
+  if(!recs.length){ box.classList.add('d-none'); return; }
+  box.classList.remove('d-none');
+
+  recs.forEach(r=>{
+    const row=document.createElement('div'); row.className='d-flex align-items-center justify-content-between row-receptor border-bottom';
+    row.innerHTML=`
+      <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-sm btn-outline-primary btn-open"><i class="bi bi-box-arrow-in-right"></i> Open</button>
+        <span class="fw-semibold fs-6">${r.display}</span>
+        ${badgeFor(r)}
+      </div>`;
+    row.querySelector('.btn-open').onclick=()=>openReceptor(r.rel);
+    box.appendChild(row);
+  });
+}
+
+/* ---------- uploads ---------- */
+async function postForm(url, fd){ const r=await fetch(url,{method:'POST', body:fd}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+function likelyHeader(headers, candidates){
+  const normalized = headers.map(h => ({ raw:h, norm:h.trim().toLowerCase() }));
+  for(const candidate of candidates){
+    const match = normalized.find(h => h.norm === candidate.toLowerCase());
+    if(match) return match.raw;
   }
-  await post('/api/centers/save',{receptor:store.current,center_xyz:center,size:parseFloat($("#boxSize").value)||20});
-  $("#savedToast").style.display='block'; setTimeout(()=>$("#savedToast").style.display='none',1100);
-  const r=store.receptors.find(x=>x.name===store.current); r.state='CONVERTED'; renderRecList();
-  store.centers++; updateMini();
+  return '';
+}
+function parseCsvHeaderLine(text){
+  const firstLine = text.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] || '';
+  if(!firstLine.trim()) return [];
+  const out = [];
+  let current = '';
+  let inQuotes = false;
+  for(let i=0;i<firstLine.length;i++){
+    const ch = firstLine[i];
+    if(ch === '"'){
+      if(inQuotes && firstLine[i+1] === '"'){
+        current += '"';
+        i += 1;
+      }else{
+        inQuotes = !inQuotes;
+      }
+    }else if(ch === ',' && !inQuotes){
+      out.push(current.trim());
+      current = '';
+    }else{
+      current += ch;
+    }
+  }
+  out.push(current.trim());
+  return out.map(h => h.replace(/^\uFEFF/, '')).filter(Boolean);
+}
+async function detectCsvHeaders(file){
+  const chunk = await file.slice(0, 65536).text();
+  return parseCsvHeaderLine(chunk);
+}
+function populateCsvSelect(selectEl, headers, selectedValue, allowBlank=true){
+  selectEl.innerHTML = '';
+  if(allowBlank){
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Select column';
+    selectEl.appendChild(blank);
+  }
+  headers.forEach(header=>{
+    const opt = document.createElement('option');
+    opt.value = header;
+    opt.textContent = header;
+    selectEl.appendChild(opt);
+  });
+  const custom = document.createElement('option');
+  custom.value = '__custom__';
+  custom.textContent = 'Custom column...';
+  selectEl.appendChild(custom);
+  selectEl.value = headers.includes(selectedValue) ? selectedValue : (selectedValue ? '__custom__' : '');
+}
+function syncCsvColumnInputs(){
+  const smilesCustom = $('#csvSmilesCol').value === '__custom__';
+  const idCustom = $('#csvIdCol').value === '__custom__';
+  enable($('#csvSmilesCustom'), smilesCustom);
+  enable($('#csvIdCustom'), idCustom);
+}
+function getCsvColumnValue(selectId, customId){
+  const selected = $('#'+selectId).value;
+  if(selected === '__custom__'){
+    return $('#'+customId).value.trim();
+  }
+  return selected.trim();
+}
+function resetCsvColumnUI(message=''){
+  ligandUploadState = { kind:null, headers:[], selectedSmiles:'', selectedId:'' };
+  $('#csvColumnPanel').classList.add('d-none');
+  ['csvSmilesCol','csvIdCol','csvSmilesCustom','csvIdCustom'].forEach(id=>{
+    const el = $('#'+id);
+    if(el.tagName === 'SELECT') el.innerHTML = '';
+    else el.value = '';
+    enable(el, false);
+  });
+  $('#csvColumnStatus').textContent = message;
+}
+async function setupCsvColumnUI(file){
+  try{
+    const headers = await detectCsvHeaders(file);
+    if(!headers.length){
+      $('#csvColumnPanel').classList.remove('d-none');
+      ['csvSmilesCol','csvIdCol','csvSmilesCustom','csvIdCustom'].forEach(id=> enable($('#'+id), true));
+      populateCsvSelect($('#csvSmilesCol'), [], '', false);
+      populateCsvSelect($('#csvIdCol'), [], '', true);
+      $('#csvSmilesCol').value='__custom__';
+      $('#csvIdCol').value='__custom__';
+      syncCsvColumnInputs();
+      $('#csvColumnStatus').textContent = 'No CSV headers were detected. Enter custom column names if needed.';
+      ligandUploadState = { kind:'csv', headers:[], selectedSmiles:'', selectedId:'' };
+      return;
+    }
+    const smilesGuess = likelyHeader(headers, ['SMILES','smiles','Smile','canonical_smiles','isomeric_smiles','Ligand SMILES']);
+    const idGuess = likelyHeader(headers, ['ID','id','Name','name','Ligand','ligand_id','compound_id','CompoundID','Title']);
+    ligandUploadState = { kind:'csv', headers, selectedSmiles:smilesGuess, selectedId:idGuess };
+    $('#csvColumnPanel').classList.remove('d-none');
+    populateCsvSelect($('#csvSmilesCol'), headers, smilesGuess, true);
+    populateCsvSelect($('#csvIdCol'), headers, idGuess, true);
+    ['csvSmilesCol','csvIdCol'].forEach(id=> enable($('#'+id), true));
+    enable($('#csvSmilesCustom'), $('#csvSmilesCol').value === '__custom__');
+    enable($('#csvIdCustom'), $('#csvIdCol').value === '__custom__');
+    $('#csvColumnStatus').textContent = `Detected ${headers.length} column${headers.length===1?'':'s'} from ${file.name}.`;
+    syncCsvColumnInputs();
+  }catch(err){
+    resetCsvColumnUI('Could not parse CSV headers. You can still enter custom column names.');
+    $('#csvColumnPanel').classList.remove('d-none');
+    ['csvSmilesCol','csvIdCol','csvSmilesCustom','csvIdCustom'].forEach(id=> enable($('#'+id), true));
+    populateCsvSelect($('#csvSmilesCol'), [], '', false);
+    populateCsvSelect($('#csvIdCol'), [], '', true);
+    $('#csvSmilesCol').value='__custom__';
+    $('#csvIdCol').value='__custom__';
+    syncCsvColumnInputs();
+  }
+}
+$('#btnRecSingle').onclick=async()=>{
+  const f=$('#receptorSingle').files[0]; if(!f) return alert('Choose a file');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
+  await postForm('/api/receptors/upload', fd); await reloadAll();
+};
+$('#btnRecZip').onclick=async()=>{
+  const f=$('#receptorZip').files[0]; if(!f) return alert('Choose a ZIP');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','zip'); fd.append('file',f);
+  await postForm('/api/receptors/upload', fd); await reloadAll();
+};
+$('#btnRecFolder').onclick=async()=>{
+  const files=[...$('#receptorFolder').files]; if(!files.length) return alert('Pick a folder');
+  let count=0;
+  for(const f of files){
+    if(!/\.(pdb|cif|pdbqt|mmcif|ent)$/i.test(f.name)) continue;
+    const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
+    await postForm('/api/receptors/upload', fd); count++;
+  }
+  toast(`Uploaded ${count} receptor${count===1?'':'s'}.`); await reloadAll();
+};
+$('#btnFetchPDB').onclick=async()=>{
+  const fd=new FormData();
+  fd.append('jobname',jobname); fd.append('pdb',$('#pdbFetch').value.trim()); fd.append('chains',$('#pdbChains').value.trim());
+  await postForm('/api/receptors/fetch', fd); await reloadAll();
 };
 
-/* --- staging --- */
-function stageParams(){
-  return { remove_het: $("#removeHet").value.trim()||"all",
-           remove_chains: ($("#removeChains").value.trim()||'').split(',').map(s=>s.trim()).filter(Boolean),
-           backend: $("#backend").value, altloc: $("#altloc").value };
+/* ---------- open receptor ---------- */
+async function parsePdbForOptions(rel){
+  const fileUrl = `/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`;
+  const res = await fetch(fileUrl);
+  if(!res.ok){
+    throw new Error(`Could not load receptor file (${res.status})`);
+  }
+  const txt = await res.text();
+  const hets=new Set(), chains=new Set();
+  txt.split(/\r?\n/).forEach(line=>{
+    if(line.startsWith('ATOM')||line.startsWith('HETATM')){
+      const rn=line.slice(17,20).trim().toUpperCase();
+      const ch=line[21]?.toUpperCase();
+      if(line.startsWith('HETATM')) hets.add(rn);
+      if(ch && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
+    }
+  });
+  return {hets, chains, raw:txt, fileUrl};
 }
-$("#stageNext").onclick=async()=>{
-  if(!store.current) return;
-  await post('/api/stage/save',{ receptor:store.current, params:stageParams() });
-  const r=store.receptors.find(x=>x.name===store.current); r.state='STAGED'; renderRecList();
-  if(comp){ stage.removeComponent(comp); comp=null; }
-  $("#viewerCard").style.display='none';
-  if(store.flow==='multi'){
-    const next=store.receptors.find(x=>x.state==='NEW'); if(next) openRec(next.name);
-    else { $("#prepCard").style.display='block'; $("#prepAllBtn").style.display='inline-block'; $("#ligandCard").style.display='block'; }
+function chips(set, cls, checked=false){
+  const arr=[...set].sort();
+  if(!arr.length) return '<span class="text-muted">None detected</span>';
+  return arr.map(v=>`<label class="chip-check"><input type="checkbox" class="${cls}" value="${v}" ${checked?'checked':''}> ${v}</label>`).join('');
+}
+function renderMiniOptions({hets, chains}){
+  $('#miniHet').innerHTML   = chips(hets,'het-mini',true);
+  $('#miniChains').innerHTML= chips(chains,'chain-mini',false);
+}
+async function openReceptor(rel){
+  currentRel=rel;
+  state.receptors.forEach(r=>{ if(r.rel===rel) r.status='centering'; });
+  drawReceptorList();
+
+  $('#carouselWrap').classList.remove('d-none');
+  ensureCarousel();
+  const {idx, vpId}=ensureSlide(rel);
+  carousel.to(idx);
+
+  pickedAtoms=[];
+  let parsed;
+  try{
+    parsed = await parsePdbForOptions(rel);
+  }catch(err){
+    alert(err.message || 'Failed to open receptor');
+    state.receptors.forEach(r=>{ if(r.rel===rel && r.status==='centering') r.status='new'; });
+    drawReceptorList();
+    return;
+  }
+  const {hets, chains, fileUrl} = parsed;
+  renderMiniOptions({hets, chains});
+
+  let stage=getStage(rel, vpId);
+  try{ stage.removeAllComponents(); }catch{}
+  const low=rel.toLowerCase();
+  const ext=(low.endsWith('.cif')||low.endsWith('.mmcif'))?'cif':'pdb';
+  const comp=await stage.loadFile(fileUrl,{ext});
+  comp.addRepresentation('cartoon',{pickable:true,opacity:.92,colorScheme:'chainname'});
+  comp.addRepresentation('licorice',{sele:'hetero OR not protein',pickable:true});
+  comp.addRepresentation('ball+stick',{sele:'hetero',pickable:true});
+  comp.autoView();
+
+  // show 1b only after a receptor is OPENED in single flow
+  await gatePanels(true);
+}
+
+/* ---------- centering ---------- */
+$('#btnClearClicks').onclick = ()=>{ pickedAtoms=[]; const st=stagesByRel[currentRel]; if(st) drawPickMarkersOn(st); };
+$('#btnUseXYZ').onclick = ()=>{
+  if(!$('#xyzPaste').value.trim()) return alert('Paste x,y,z first');
+  ['ligCode','ligResi','ligChain','resName','resId','resChain'].forEach(id=> $('#'+id).value='');
+  pickedAtoms=[]; const st=stagesByRel[currentRel]; if(st) drawPickMarkersOn(st);
+};
+$('#btnSaveCenter').onclick=async()=>{
+  if(!jobname||!currentRel) return alert('Open a receptor first');
+  const lig=$('#ligCode').value.trim(), lresi=$('#ligResi').value.trim(), lch=$('#ligChain').value.trim();
+  const rn=$('#resName').value.trim(), id=$('#resId').value.trim(), ch=$('#resChain').value.trim();
+  const xyz=$('#xyzPaste').value.trim();
+  let payload=null;
+  if(lig && !rn && !id && !xyz && pickedAtoms.length===0) payload={method:'ligand', lig_resname:lig, resi:lresi||null, chain:lch||null};
+  else if(!lig && rn && id && !xyz && pickedAtoms.length===0) payload={method:'residue', resname:rn, resi:id, chain:ch||null};
+  else if(!lig && !rn && !id && xyz && pickedAtoms.length===0){
+    const m=xyz.split(',').map(s=>parseFloat(s.trim())).filter(v=>!Number.isNaN(v)); if(m.length!==3) return alert('XYZ must be x,y,z');
+    payload={method:'xyz', center:m};
+  }else if(!lig && !rn && !id && !xyz && pickedAtoms.length){
+    payload={method:'selection_atoms', atoms:pickedAtoms.slice()};
+  }else return alert('Choose ONE method (ligand OR residue OR XYZ OR clicked atoms).');
+
+  const size=parseFloat($('#boxSize').value||'20');
+  const r=await fetch('/api/receptor/center',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobname, rel:currentRel, size, ...payload})});
+  if(!r.ok){ return alert('Center save failed: '+await r.text()); }
+  await r.json();
+  toast('Center saved ✓');
+
+  state.receptors.forEach(rr=>{ if(rr.rel===currentRel) rr.status='centered'; });
+  drawReceptorList();
+
+  if(isMulti){
+    // close viewer and wait for others to be centered
+    disposeStage(currentRel);
+    $('#carouselWrap').classList.add('d-none');
+    currentRel=null;
+  }
+  await gatePanels();
+};
+
+/* ---------- gating for panels ---------- */
+function statusAllCentered(){
+  const recs=state?.receptors||[];
+  return recs.length>0 && recs.every(r=>r.status==='centered' || r.status==='prepped');
+}
+async function gatePanels(openedNow=false){
+  if(isMulti){
+    // Hide single panel in multi flow
+    $('#stagingMini').classList.add('d-none');
+    if(statusAllCentered()){
+      await buildPrepPanel();
+      $('#prepPanel').classList.remove('d-none');
+    }else{
+      $('#prepPanel').classList.add('d-none');
+    }
   }else{
-    $("#prepCard").style.display='block'; $("#ligandCard").style.display='block';
+    // Single flow: show 1b ONLY after a receptor is opened (currentRel set)
+    $('#prepPanel').classList.add('d-none');
+    $('#stagingMini').classList.toggle('d-none', !currentRel);
+  }
+}
+
+/* ---------- 1c list ---------- */
+let prepListToken=null;
+async function buildPrepPanel(){
+  const token=(state?.receptors||[]).map(r=>r.rel).sort().join('|');
+  if(prepListToken===token) return;
+  prepListToken=token;
+
+  const list=$('#prepList'); list.innerHTML='';
+  const seen=new Set();
+  for(const r of state.receptors){
+    if(seen.has(r.rel)) continue; seen.add(r.rel);
+    const {hets, chains}=await parsePdbForOptions(r.rel);
+    const card=document.createElement('div'); card.className='border rounded-4 p-3 mb-3';
+    card.innerHTML=`
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <div class="fw-bold fs-5">${r.display}</div>
+        <span class="badge-pipe b-centered">CENTERED</span>
+      </div>
+      <div class="fw-semibold mb-1">HETATM to remove</div>
+      <div class="mb-2">${chips(hets,'het',true).replaceAll('class="het"', `class="het" data-rel="${r.rel}"`)}</div>
+      <div class="fw-semibold mb-1">Chains to remove</div>
+      <div>${chips(chains,'chain',false).replaceAll('class="chain"', `class="chain" data-rel="${r.rel}"`)}</div>
+    `;
+    list.appendChild(card);
+  }
+}
+
+/* ---------- start prep (single & batch) ---------- */
+function showLogArea(isBatch){
+  const badge = isBatch ? $('#runStatusBatch') : $('#runStatusSingle');
+  const log   = isBatch ? $('#prepLogBatch')   : $('#prepLogSingle');
+  badge.classList.remove('d-none'); badge.classList.remove('text-bg-success'); badge.classList.add('text-bg-info');
+  badge.textContent='converting…';
+  log.style.display='block'; log.textContent='';
+}
+function writeLog(text, isBatch){
+  const log = isBatch ? $('#prepLogBatch') : $('#prepLogSingle');
+  log.textContent = text || '';
+}
+function doneLog(isBatch){
+  const badge = isBatch ? $('#runStatusBatch') : $('#runStatusSingle');
+  badge.classList.remove('text-bg-info'); badge.classList.add('text-bg-success'); badge.textContent='PDBQT ready';
+}
+$('#btnPrepCurrent').onclick = startPrepSingle;
+$('#btnPrepAll').onclick     = startPrepBatch;
+
+async function startPrepSingle(){
+  if(!currentRel){ alert('Open a receptor first'); return; }
+  const het = $$('#miniHet input.het-mini:checked').map(i=>i.value);
+  const ch  = $$('#miniChains input.chain-mini:checked').map(i=>i.value);
+
+  const fd=new FormData();
+  fd.append('jobname',jobname);
+  fd.append('remove_het_csv', het.length ? het.join(',') : 'all');
+  fd.append('remove_chains_csv', ch.join(','));
+  fd.append('backend', $('#backend').value);
+  fd.append('altloc', $('#altloc').value);
+  fd.append('pdbqt_only','true'); fd.append('keep_clean_pdb','false'); fd.append('write_summary','false');
+
+  const resp=await fetch('/api/prep/start',{method:'POST', body:fd});
+  if(!resp.ok){ alert('Failed to start 3a (single): '+await resp.text()); return; }
+  toast('Protein preparation started');
+  showLogArea(false);
+  pollPrep(false);
+}
+async function startPrepBatch(){
+  const hetSet=new Set(), chainSet=new Set();
+  $$('#prepList input.het:checked').forEach(i=>hetSet.add(i.value));
+  $$('#prepList input.chain:checked').forEach(i=>chainSet.add(i.value));
+
+  const fd=new FormData();
+  fd.append('jobname',jobname);
+  fd.append('remove_het_csv', hetSet.size? [...hetSet].join(',') : 'all');
+  fd.append('remove_chains_csv', [...chainSet].join(','));
+  fd.append('backend', $('#backend').value);
+  fd.append('altloc', $('#altloc').value);
+  fd.append('pdbqt_only','true'); fd.append('keep_clean_pdb','false'); fd.append('write_summary','false');
+
+  const resp=await fetch('/api/prep/start',{method:'POST', body:fd});
+  if(!resp.ok){ alert('Failed to start 3a (batch): '+await resp.text()); return; }
+  toast('Batch protein preparation started');
+  showLogArea(true);
+  await gateLigandsAndBuild(true);
+  pollPrep(true);
+}
+
+/* ---------- poll prep ---------- */
+function pollPrep(isBatch){
+  if(prepPoll) clearInterval(prepPoll);
+  prepPoll=setInterval(async ()=>{
+    const rr=await fetch(`/api/prep/status?jobname=${encodeURIComponent(jobname)}`); const j=await rr.json();
+    writeLog(j.log || '', isBatch);
+    if(j.done){
+      clearInterval(prepPoll);
+      doneLog(isBatch);
+      await reloadAll();
+      await gateLigandsAndBuild(true);
+    }else{
+      await gateLigandsAndBuild(true);
+    }
+  }, 2000);
+}
+
+/* ---------- ligands ---------- */
+['csvSmilesCol','csvIdCol'].forEach(id=> document.addEventListener('DOMContentLoaded', ()=>$('#'+id).addEventListener('change', syncCsvColumnInputs)));
+$('#ligSingle').onchange=async()=>{
+  const f=$('#ligSingle').files[0];
+  const isCSV=!!(f&&/\.csv$/i.test(f.name));
+  if(isCSV){
+    await setupCsvColumnUI(f);
+  }else{
+    resetCsvColumnUI('');
   }
 };
-
-/* --- prep --- */
-async function runPrep(names){
-  $("#prepLog").style.display='block'; $("#prepBadge").style.display='inline-block'; $("#prepBadge").textContent='CONVERTING';
-  $("#prepProgress").style.width='18%';
-  await post('/api/prep/run',{receptors:names, params:stageParams()});
-  const poll=setInterval(async()=>{
-    const s=await fetch('/api/prep/status').then(r=>r.json());
-    $("#prepLog").textContent=s.log||''; $("#prepProgress").style.width=(s.progress||0)+'%';
-    if(s.done){ clearInterval(poll); $("#prepBadge").textContent='PREPPED';
-      names.forEach(n=>{ const r=store.receptors.find(x=>x.name===n); if(r) r.state='PREPPED'; });
-      renderRecList(); $("#buildCard").style.display='block'; store.converted=s.converted||store.converted; updateMini(); }
-  },1000);
+$('#ligZip').onchange=()=>resetCsvColumnUI('');
+$('#ligFolder').onchange=()=>resetCsvColumnUI('');
+function summarizeLigandUpload(payload, fallbackLabel){
+  const accepted = payload.accepted_files || [];
+  const warnings = payload.warnings || [];
+  const prefix = accepted.length
+    ? `Uploaded ${accepted.length} ligand file${accepted.length===1?'':'s'}: ${accepted.join(', ')}`
+    : (fallbackLabel || 'Ligands uploaded');
+  const detail = warnings.length ? `${prefix} Warnings: ${warnings.join(' | ')}` : prefix;
+  $('#ligUploadStatus').textContent = detail;
+  toast(prefix);
 }
-$("#prepBtn").onclick=()=> runPrep(store.current?[store.current]:store.receptors.map(r=>r.name));
-$("#prepAllBtn").onclick=()=> runPrep(store.receptors.map(r=>r.name));
-
-/* --- ligand --- */
-$("#ligUpload").onclick=async()=>{ const f=$("#ligSingle").files[0]; if(!f) return;
-  const fd=new FormData(); fd.append('file',f); await postFD('/api/ligands/upload_one',fd);
-  if(/\.csv$/i.test(f.name)){ $("#csvSmilesCol").disabled=false; $("#csvIdCol").disabled=false; } };
-$("#ligZipUpload").onclick=async()=>{ const f=$("#ligZip").files[0]; if(!f) return;
-  const fd=new FormData(); fd.append('file',f); await postFD('/api/ligands/upload_zip',fd); };
-
-/* --- build zip --- */
-$("#buildZip").onclick=async()=>{
-  $("#buildStatus").textContent='Building…';
-  const j = await post('/api/build',{ queue:$("#queue").value, project:$("#project").value, wall:$("#wall").value,
-    cores:$("#cores").value, mem:$("#mem").value, env:$("#envline").value,
-    smiles_col:$("#csvSmilesCol").value, id_col:$("#csvIdCol").value });
-  const a=$("#downloadZip"); a.href=j.url; a.classList.remove('disabled'); a.style.pointerEvents='auto';
-  $("#buildStatus").textContent='Ready';
+$('#btnLigSingle').onclick=async()=>{
+  const f=$('#ligSingle').files[0]; if(!f) return alert('Pick a file');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
+  const payload = await postForm('/api/ligands/upload', fd); summarizeLigandUpload(payload, `Ligand uploaded: ${f.name}`); await reloadAll(); await gateLigandsAndBuild();
+};
+$('#btnLigZip').onclick=async()=>{
+  const f=$('#ligZip').files[0]; if(!f) return alert('Pick a ZIP');
+  resetCsvColumnUI('');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','zip'); fd.append('file',f);
+  const payload = await postForm('/api/ligands/upload', fd); summarizeLigandUpload(payload, 'Ligand ZIP uploaded'); await reloadAll(); await gateLigandsAndBuild();
+};
+$('#btnLigFolder').onclick=async()=>{
+  const files = Array.from($('#ligFolder').files||[]); if(!files.length) return alert('Pick a folder');
+  resetCsvColumnUI('');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','folder');
+  const firstRel = files[0].webkitRelativePath || files[0].name || 'Ligands';
+  fd.append('folder_name', firstRel.split('/')[0] || 'Ligands');
+  files.forEach(f=> fd.append('files', f, f.webkitRelativePath || f.name));
+  const payload = await postForm('/api/ligands/upload', fd); summarizeLigandUpload(payload, 'Ligand folder uploaded'); await reloadAll(); await gateLigandsAndBuild();
 };
 
-/* --- coachmark --- */
-$("#coachClose").onclick=()=> $("#coach").style.display='none';
+/* ---------- gating for steps 2 & 3 ---------- */
+async function gateLigandsAndBuild(started=false, s=null){
+  s = s || await fetchSummary();
+  const expected=(s.expected_pdbqt||[]).length, converted=(s.converted_count||0);
+  const conversionStarted = started || converted>0;
+  const conversionDone = expected>0 && converted>=expected;
+
+  $('#ligandStep').classList.toggle('d-none', !conversionStarted);
+  [$('#ligSingle'),$('#ligZip'),$('#ligFolder'),$('#btnLigSingle'),$('#btnLigZip'),$('#btnLigFolder')].forEach(el=> enable(el, conversionStarted));
+
+  const canBuild = conversionDone && (s.ligands_uploaded || state?.ligands_uploaded);
+  $('#buildStep').classList.toggle('d-none', !conversionStarted);
+  enable($('#btnBuild'), canBuild);
+}
+
+/* ---------- build ---------- */
+$('#btnBuild').onclick=async()=>{
+  const packageMode = getSelectedPackageMode();
+  const csvSmilesCol = getCsvColumnValue('csvSmilesCol','csvSmilesCustom');
+  const csvIdCol = getCsvColumnValue('csvIdCol','csvIdCustom');
+  const singleLig = $('#ligSingle').files[0];
+  if(singleLig && /\.csv$/i.test(singleLig.name) && !csvSmilesCol){
+    $('#buildStatus').textContent='Failed: select a CSV SMILES column first';
+    return;
+  }
+  const fd=new FormData();
+  fd.append('jobname',jobname);
+  fd.append('package_mode', packageMode);
+  fd.append('include_lsf', packageMode === 'lsf' ? '1' : '0');
+  if(packageMode === 'lsf'){
+    fd.append('queue',$('#queue').value); fd.append('project',$('#project').value);
+    fd.append('walltime',$('#walltime').value); fd.append('workers',$('#workers').value);
+    fd.append('mem_per_core',$('#mem').value); fd.append('env_line',$('#envLine').value);
+    fd.append('vina_path',$('#vinaPath').value);
+  }
+  fd.append('poses_conf',$('#posesConf').value); fd.append('poses_vina',$('#posesVina').value);
+  fd.append('csv_smiles_col', csvSmilesCol); fd.append('csv_id_col', csvIdCol);
+  $('#buildStatus').textContent='Building…';
+  $('#buildModeResult').classList.add('d-none');
+  const r=await fetch('/api/build',{method:'POST', body:fd});
+  if(!r.ok){ $('#buildStatus').textContent='Failed: '+await r.text(); return; }
+  const j=await r.json();
+  const dl=$('#downloadLink');
+  dl.href=j.download_url || ('/download?path='+encodeURIComponent(j.zip));
+  dl.textContent='Download '+j.zip.split('/').pop();
+  const warnings = (j.warnings || []).length ? ` Warnings: ${(j.warnings || []).join(' | ')}` : '';
+  $('#buildStatus').textContent=`Ready (${j.package_mode})${warnings}`;
+  $('#buildModeResult').textContent = j.package_mode === 'lsf' ? "Packaged: Joey's Docking Server Mode" : 'Packaged: Portable ZIP';
+  $('#buildModeResult').classList.remove('d-none');
+};
+
+/* ---------- init ---------- */
+document.addEventListener('DOMContentLoaded', ()=>{
+  setPackageMode(DEFAULT_PACKAGE_MODE);
+  // Auto-create a workspace so uploads are enabled immediately.
+  newWS();
+});
 </script>
 {% endblock %}

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <h5>Viewer</h5>
-<div id="stage" style="width:100%; height:620px; border:1px solid #ccc; border-radius:8px;"></div>
+<div id="stage" style="width:100%; height:620px; border:1px solid var(--app-border); border-radius:12px; background:#020617;"></div>
 <div class="d-flex gap-2 mt-2">
   <input class="form-control" id="sel" placeholder="NGL selection (e.g., resname LIG or chain A and resi 123)">
   <input class="form-control" id="size" value="{{ size }}" style="max-width:120px;">

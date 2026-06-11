@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Modules & Ecosystem | AutoDock-Vina PrepServer{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <span class="eyebrow">Modules ecosystem</span>
+  <h1>A connected set of molecular preparation and analysis entry points.</h1>
+  <p>
+    Together, these tools support a growing workflow for structure-guided molecular preparation, ligand analysis,
+    warhead/exposure review, and induced-proximity design.
+  </p>
+</section>
+
+<section class="module-grid">
+  <article class="module-card current">
+    <span class="module-kicker">Current tool</span>
+    <h2><i class="bi bi-bounding-box-circles"></i>AutoDock-Vina PrepServer</h2>
+    <p>Role: docking job package preparation from receptor structures, docking centers, and ligand inputs.</p>
+    <a href="{{ url_for('build') }}">Build a package <i class="bi bi-arrow-right"></i></a>
+  </article>
+  <article class="module-card">
+    <span class="module-kicker">Companion tool</span>
+    <h2><i class="bi bi-crosshair"></i>Warhead Hunter</h2>
+    <p>Role: solvent-exposed ligand atom and warhead/linker follow-up.</p>
+    <a href="https://warheadhunter.com" target="_blank" rel="noopener noreferrer">Open Warhead Hunter <i class="bi bi-box-arrow-up-right"></i></a>
+  </article>
+  <article class="module-card">
+    <span class="module-kicker">External continuation</span>
+    <h2><i class="bi bi-diagram-3"></i>PROTAC Builder</h2>
+    <p>Role: degrader design continuation and linker-recruiter-warhead assembly.</p>
+    <a href="https://protacbuilder.com" target="_blank" rel="noopener noreferrer">Open PROTAC Builder <i class="bi bi-box-arrow-up-right"></i></a>
+  </article>
+  <article class="module-card">
+    <span class="module-kicker">Related workflow</span>
+    <h2><i class="bi bi-bounding-box-circles"></i>E3 Ligandalyzer</h2>
+    <p>Role: E3 recruiter and ligase-context exploration.</p>
+    <a href="https://e3ligandalyzer.com" target="_blank" rel="noopener noreferrer">Open E3 Ligandalyzer <i class="bi bi-box-arrow-up-right"></i></a>
+  </article>
+  <article class="module-card">
+    <span class="module-kicker">Companion tool</span>
+    <h2><i class="bi bi-grid"></i>V-LiSEMOD</h2>
+    <p>Role: viral ligand solvent-exposed moiety and PROTACability-style triage.</p>
+    <a href="https://vlisemod.com" target="_blank" rel="noopener noreferrer">Open V-LiSEMOD <i class="bi bi-box-arrow-up-right"></i></a>
+  </article>
+  <article class="module-card">
+    <span class="module-kicker">GitHub tool</span>
+    <h2><i class="bi bi-github"></i>Pymacs</h2>
+    <p>Role: Schürer Lab GitHub tool for PyMOL, molecular modeling, and MD-related helper workflows.</p>
+    <a href="https://github.com/schurerlab/Pymacs" target="_blank" rel="noopener noreferrer">Open Pymacs <i class="bi bi-box-arrow-up-right"></i></a>
+  </article>
+  <article class="module-card">
+    <span class="module-kicker">Lab context</span>
+    <h2><i class="bi bi-flask"></i>Schürer Lab</h2>
+    <p>Role: laboratory context for the connected tool ecosystem.</p>
+    {# TODO: Replace "#" with the official Schürer Lab URL once verified in this repository. #}
+    <a href="{{ lab_link.url }}">Schürer Lab link pending verification</a>
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-link-45deg"></i>
+  <div>
+    <h2>Connection model</h2>
+    <p>
+      These are ecosystem links and companion workflows, not a claim of a fully integrated platform or automated closed-loop discovery system.
+    </p>
+  </div>
+</section>
+{% endblock %}
