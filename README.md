@@ -1,39 +1,46 @@
 # AutoDock-Vina PrepServer
 
-AutoDock-Vina PrepServer is a Flask-based web application for assembling molecular docking job packages. It helps a user upload or fetch receptor structures, define docking boxes, prepare receptors, upload ligand inputs, and export a ready-to-run package for either local execution or an LSF-style HPC workflow.
+AutoDock-Vina PrepServer is a Flask-based web application for assembling molecular docking job packages. It provides a browser workflow for collecting receptor structures, defining docking boxes, preparing receptors, uploading ligand inputs, and exporting ready-to-run AutoDock Vina package archives for local execution or LSF-style cluster workflows.
 
-The repository also includes the Python scripts that the generated package uses for ligand conformer generation, AutoDock Vina batch docking, score parsing, PyMOL export, and plotting.
+The repository also includes the Python scripts bundled into generated packages for ligand conformer generation, batch docking, score parsing, result aggregation, plotting, and PyMOL-oriented export.
 
-## Who this is for
+## Overview
+
+This project is intended for teams that want a reproducible, browser-driven entry point for AutoDock Vina job preparation without hand-building directory trees for every run. It is especially useful when researchers, students, or shared lab users need a lightweight portal for packaging docking studies while still retaining access to the underlying runtime scripts.
+
+## Who This Is For
 
 - Researchers preparing AutoDock Vina screening jobs
-- Lab members who want a browser-based setup workflow instead of hand-building folders
-- Developers who need to maintain or extend the portal and its packaged runtime scripts
+- Lab members who want a guided browser workflow for receptor and ligand intake
+- Users generating portable ZIP packages for downstream docking execution
+- HPC-oriented groups packaging jobs for LSF-based environments
+- Developers extending the Flask app or the packaged docking utilities
+- Contributors evaluating the project structure and validation workflow
 
 ## Features
 
-- Public, no-login workflow by default
-- Receptor intake from single files, ZIP uploads, folder uploads, or RCSB PDB fetches
+- Public, browser-based workflow by default
+- Receptor intake from single-file uploads, ZIP uploads, folder uploads, or RCSB PDB fetches
 - Interactive docking-center selection in the browser
-- Receptor cleanup and preparation into PDBQT-compatible outputs
+- Receptor preparation into docking-ready outputs
 - Ligand intake from `.sdf`, `.smiles`, `.smi`, `.csv`, ZIP archives, or folder uploads
-- Ligand upload normalization that ignores macOS junk files and flattens nested ligand paths
-- Build output in two modes:
+- Ligand upload normalization that ignores common macOS metadata files and flattens nested ligand paths
+- Package generation in two modes:
   - `portable` for generic local execution
-  - `lsf` for lab/HPC packaging with generated scheduler scripts
-- Included post-processing scripts for docking score parsing, aggregation, plotting, and PyMOL-oriented export
+  - `lsf` for environments that use LSF scheduler workflows
+- Bundled post-processing scripts for score parsing, aggregation, plotting, and PyMOL-oriented export
 
 ## Tech Stack
 
 - Backend: [Flask](https://flask.palletsprojects.com/), Flask-Login, Flask-WTF, Flask-SQLAlchemy
 - Database: SQLite by default
 - Language: Python 3
-- Scientific Python libraries used in this repo: RDKit, pandas, NumPy, matplotlib
+- Scientific Python libraries used in this repository: RDKit, pandas, NumPy, matplotlib
 - External scientific executables used by the workflow:
   - Open Babel (`obabel`) for receptor and ligand conversion steps
   - AutoDock Vina (`vina`) for docking runs in generated packages
 - Bundled tool source: `AutoDockTools_py3/`
-- Frontend: server-rendered HTML templates plus static CSS/JS assets; no Node build pipeline is present
+- Frontend: server-rendered HTML templates with static CSS/JS assets
 - Scheduler support: LSF helper script generation
 
 ## Repository Structure
@@ -41,10 +48,10 @@ The repository also includes the Python scripts that the generated package uses 
 ```text
 .
 ├── app.py                         # Flask app entrypoint
-├── manage.py                      # Simple user-management CLI for auth-enabled mode
+├── manage.py                      # User-management CLI for auth-enabled deployments
 ├── packager.py                    # Workspace assembly and ZIP packaging
 ├── runner_templates.py            # Portable runner script templates
-├── requirements.txt               # Python dependencies used by the app/tests
+├── requirements.txt               # Python dependencies used by the app and tests
 ├── templates/                     # Flask HTML templates
 ├── static/                        # CSS and images
 ├── tests/                         # unittest-based regression tests
@@ -63,29 +70,24 @@ The repository also includes the Python scripts that the generated package uses 
 
 ### Required to run the web app
 
-- Python 3.9+ recommended
+- Python 3.9 or newer is recommended
 - `pip`
 
 ### Required for the full docking workflow
 
 - Open Babel available as `obabel`
-- AutoDock Vina available as `vina` if you plan to execute the generated docking package
+- AutoDock Vina available as `vina` if generated packages will be executed
 
 ### Optional or environment-specific
 
-- RDKit: required by ligand conformer generation and some downstream utilities
-- `gemmi` and optionally `meeko`: used by the standalone receptor preparation script `2a_PDB2PDBQTbatch.py`
-- An LSF environment: only needed if you will generate and run `lsf` packages
+- RDKit for ligand conformer generation and downstream utilities
+- `gemmi` and optionally `meeko` for the standalone receptor preparation script `2a_PDB2PDBQTbatch.py`
+- An LSF environment if `lsf` package generation will be used in practice
 
-If you are unsure which Python version you have, check with:
+Check local versions with:
 
 ```bash
 python3 --version
-```
-
-To confirm external executables:
-
-```bash
 obabel -V
 vina --version
 ```
@@ -113,15 +115,11 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Notes:
-
-- `requirements.txt` covers the Flask app and test dependencies currently tracked in the repo.
-- External tools such as `obabel` and `vina` are not installed by `pip install -r requirements.txt`.
-- If you plan to run `2a_PDB2PDBQTbatch.py` directly, you may also need to install `gemmi` and optionally `meeko`.
+`requirements.txt` covers the Flask application and currently tracked test dependencies. External executables such as `obabel` and `vina` are installed separately.
 
 ## Environment Configuration
 
-This project includes a sample environment file at `.env.example`.
+The repository includes a sample environment file at `.env.example`.
 
 ### 1. Copy the template
 
@@ -131,11 +129,11 @@ cp .env.example .env
 
 ### 2. Edit the values
 
-Use safe, local values only. Do not put production or shared secrets into version control.
+Use deployment-appropriate values and keep `.env` out of version control.
 
 ### 3. Load the variables into your shell
 
-The app does not currently auto-load `.env`, so load it before starting the server:
+The app does not auto-load `.env`, so load it before starting the server:
 
 ```bash
 set -a
@@ -158,9 +156,9 @@ set +a
 - `PORTAL_PUBLIC_EMAIL`
   Optional. Placeholder identity used in public mode.
 - `PUBLIC_MODE`
-  Optional. Default `true`. Keeps the portal open without user login.
+  Optional. Defaults to `true`. Keeps the portal open without login.
 - `ENABLE_AUTH`
-  Optional. Default `false`. Enables legacy auth-dependent behavior if set to `true`.
+  Optional. Defaults to `false`. Enables auth-dependent behavior when set to `true`.
 - `ENABLE_LSF_PACKAGE`
   Optional. Enables `lsf` package generation in the UI.
 - `DEFAULT_PACKAGE_MODE`
@@ -176,11 +174,7 @@ After installing dependencies and loading environment variables, start the Flask
 python3 app.py
 ```
 
-This starts the development server on:
-
-```text
-http://127.0.0.1:5050
-```
+This starts the development server on `http://127.0.0.1:5050`.
 
 ### Option 2: Use Flask CLI
 
@@ -191,24 +185,18 @@ flask --app app:create_app run --debug --port 5050
 ### What to expect
 
 - The homepage is public by default.
-- Creating a workspace triggers the upload/build workflow in the browser.
+- Creating a workspace launches the upload and packaging workflow in the browser.
 - Uploaded workspace data is stored under `PORTAL_TMP`.
-- The local SQLite database is created wherever your configured `PORTAL_DB` points.
-
-## Docker
-
-No `Dockerfile`, `docker-compose.yml`, or other container configuration is currently present in this repository.
-
-If you want Docker-based setup before publishing broadly, add and validate container files separately rather than assuming a container workflow already exists.
+- The local SQLite database is created wherever `PORTAL_DB` points.
 
 ## Typical Usage Workflow
 
-1. Open the app in the browser.
+1. Open the app in a browser.
 2. Create a new workspace.
-3. Add receptor structures by uploading files, uploading a ZIP/folder, or fetching a PDB entry.
+3. Add receptor structures by uploading files, uploading a ZIP or folder, or fetching an RCSB PDB entry.
 4. Open each receptor in the viewer and save a docking center.
-5. Prepare receptors so PDBQT-ready files are generated.
-6. Upload ligand input as a single file, ZIP, or folder.
+5. Prepare receptors so docking-ready files are generated.
+6. Upload ligand input as a single file, ZIP archive, or folder.
 7. If the ligand input is a CSV, map the SMILES column and optional ligand ID column.
 8. Choose a package mode:
    - `portable` for local or generic environments
@@ -243,14 +231,14 @@ The ligand upload path intentionally ignores unsupported files and common macOS 
 
 ### Portable mode
 
-Portable builds include the normalized runtime files plus helper scripts such as:
+Portable builds include normalized runtime files plus helper scripts such as:
 
 - `run_confgen_local.sh`
 - `run_vina_local.sh`
 - `run_all_local.sh`
 - `README_RUN_LOCAL.md`
 
-Use this when you want a generic ZIP for local or non-LSF environments.
+Use this mode for local execution or non-LSF environments.
 
 ### LSF mode
 
@@ -262,7 +250,7 @@ LSF builds include the portable content plus scheduler-oriented files such as:
 - `runDOCKING-tmux.sh`
 - generated `.lsf` submission scripts
 
-Use this only if your lab or cluster environment already supports the expected LSF workflow.
+Use this mode only in environments that already provide the expected LSF scheduler workflow.
 
 ## Scripts and Commands
 
@@ -273,9 +261,9 @@ Use this only if your lab or cluster environment already supports the expected L
 - `flask --app app:create_app run --debug --port 5050`
   Starts the app via Flask CLI.
 - `python3 manage.py`
-  Opens a simple interactive CLI for user management if auth mode is enabled.
+  Opens the user-management CLI for auth-enabled deployments.
 
-### Workflow scripts included in this repo
+### Workflow scripts included in this repository
 
 - `python3 1_ConformerGeneration.py --help`
   Ligand conformer generation and PDBQT conversion.
@@ -292,15 +280,15 @@ Use this only if your lab or cluster environment already supports the expected L
 
 ## Testing and Validation
 
-This repository currently uses `unittest`-style tests under `tests/`.
+This repository uses `unittest`-style tests under `tests/`.
 
-### Run the test suite
+Run the test suite with:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-### Run a basic syntax check
+Run a basic syntax check with:
 
 ```bash
 python3 -m py_compile app.py packager.py runner_templates.py manage.py
@@ -308,7 +296,7 @@ python3 -m py_compile app.py packager.py runner_templates.py manage.py
 
 ### Manual validation checklist
 
-If you do not have all scientific executables installed locally, at least verify the web app flow manually:
+If all scientific executables are not available locally, a lightweight browser workflow check is still useful:
 
 1. Start the app.
 2. Open `http://127.0.0.1:5050`.
@@ -316,68 +304,32 @@ If you do not have all scientific executables installed locally, at least verify
 4. Upload a small receptor file.
 5. Save a center.
 6. Upload a small ligand file.
-7. Build a `portable` package and confirm a ZIP is produced.
+7. Build a `portable` package and confirm that a ZIP archive is produced.
 
 ## Deployment Notes
 
-This repository does not include a production deployment manifest, reverse-proxy config, or container image definition.
+AutoDock-Vina PrepServer can be deployed as a standard Flask application in environments that provide Python, writable storage, and the scientific executables required by the workflows users will run.
 
-If you deploy it yourself:
+For production-style deployments:
 
-- set a strong `PORTAL_SECRET`
-- use a writable, non-repo path for `PORTAL_TMP`
+- configure a strong `PORTAL_SECRET`
+- set `PORTAL_TMP` to a writable non-repository path
 - use a writable database location
-- ensure `obabel` is installed if users will perform receptor preparation
-- disable or gate public mode if the deployment should not be open to everyone
+- install `obabel` if receptor preparation will be available to users
+- install `vina` if generated packages will be executed in the deployment environment
+- disable or gate public access if open anonymous use is not intended
 
-## GitHub Publishing Instructions
+This repository does not include a production deployment manifest, reverse-proxy configuration, or container image definition.
 
-Review the repository carefully before the first public push, especially:
+## Docker
 
-- `.env` and any other local environment files
-- generated ZIPs and docking result folders
-- local databases and logs
-- any secrets that may have been committed previously
-
-Important: `.gitignore` only affects new untracked files. This repository currently has tracked runtime artifacts such as `.pyc`, `.db`, and log files, so review and remove them from version control before the first public release commit if they are not meant to ship:
-
-```bash
-git rm --cached -r __pycache__
-git rm --cached instance/*.db logs/server.out
-git rm --cached .DS_Store AutoDockTools_py3/.DS_Store AutoDockTools_py3/AutoDockTools/.DS_Store
-```
-
-After review, the owner can publish manually with:
-
-```bash
-git init
-git status
-git add .
-git commit -m "Initial public release"
-git remote add origin <repo-url>
-git branch -M main
-git push -u origin main
-```
-
-If this repository is already initialized locally, skip `git init` and keep the existing history as appropriate.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for a lightweight contribution workflow.
-
-At a minimum:
-
-1. Fork the repository.
-2. Create a branch.
-3. Make focused changes.
-4. Run validation commands.
-5. Open a pull request with a clear summary.
+This repository does not currently include Docker configuration. Use the local Python setup instructions above.
 
 ## Troubleshooting
 
-### `source .env` works but the app still uses defaults
+### Environment variables appear unchanged after editing `.env`
 
-Confirm you loaded the file into the current shell:
+Confirm the file was loaded into the current shell:
 
 ```bash
 set -a
@@ -388,7 +340,7 @@ env | rg '^PORTAL_|^PUBLIC_MODE|^ENABLE_'
 
 ### `obabel` is missing
 
-Receptor preparation and several packaged workflow steps rely on Open Babel. Install it and confirm:
+Receptor preparation and several packaged workflow steps rely on Open Babel. Confirm availability with:
 
 ```bash
 obabel -V
@@ -396,13 +348,13 @@ obabel -V
 
 ### `vina` is missing
 
-The generated docking scripts expect a working AutoDock Vina executable. Confirm:
+The generated docking scripts expect a working AutoDock Vina executable. Confirm availability with:
 
 ```bash
 vina --version
 ```
 
-If needed, set:
+If needed:
 
 ```bash
 export VINA_EXE=/path/to/vina
@@ -410,11 +362,11 @@ export VINA_EXE=/path/to/vina
 
 ### RDKit installation is difficult on your machine
 
-RDKit can be easier to install through Conda-based scientific environments than through a plain system Python setup. If your target environment already provides RDKit, use that environment for workflow-script execution.
+RDKit can be easier to install through Conda-based scientific environments than through a plain system Python setup. If the target execution environment already provides RDKit, use that environment for workflow-script execution.
 
 ### Port `5050` is already in use
 
-Start the app with a different port:
+Start the app on a different port:
 
 ```bash
 flask --app app:create_app run --debug --port 5051
@@ -422,21 +374,24 @@ flask --app app:create_app run --debug --port 5051
 
 ### The build button fails for `lsf` mode
 
-Check whether `ENABLE_LSF_PACKAGE=true` is set in your environment. The UI intentionally falls back to `portable` mode when LSF packaging is disabled.
+Check whether `ENABLE_LSF_PACKAGE=true` is set in the environment. The UI falls back to `portable` mode when LSF packaging is disabled.
 
 ## Security and Data Notes
 
 - Do not commit `.env`, credentials, or cluster-specific secrets.
+- Use a strong `PORTAL_SECRET`, especially outside local development.
 - Uploaded inputs and generated workspaces are stored on disk under `PORTAL_TMP`.
-- Local SQLite databases, logs, caches, and generated job outputs should not be committed.
-- If a secret was ever committed previously, rotate it before making the repository public.
-- Review generated docking result folders and ZIP packages before sharing them publicly; they may contain project-specific inputs or derived outputs.
+- Use a writable storage path outside source-controlled directories for `PORTAL_TMP` in shared or deployed environments.
+- Review generated docking packages before sharing them; they may contain project-specific inputs, intermediate files, or derived outputs.
+- Public mode should only be used in environments where open access is intended.
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation, and pull request guidance.
 
 ## License
 
-No repository-level license file is currently present.
-
-Before publishing publicly, the repository owner should choose and add a license so users know how they may use, modify, and redistribute the project.
+This repository does not currently include a license file. Use, modification, and redistribution rights are therefore not granted unless provided separately by the maintainers.
 
 ## Acknowledgements
 
