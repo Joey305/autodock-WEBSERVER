@@ -21,7 +21,7 @@
             </a>
           {% endfor %}
           {# TODO: Replace "#" with the official Schürer Lab URL once verified in this repository. #}
-          <a class="footer-tool" href="{{ lab_link.url }}" {% if lab_link.url != "http://schurerlab.org/" %}target="_blank" rel="noopener noreferrer"{% endif %}>
+          <a class="footer-tool" href="{{ lab_link.url }}" {% if lab_link.url != "#" %}target="_blank" rel="noopener noreferrer"{% endif %}>
             <i class="bi {{ lab_link.icon }}"></i>{{ lab_link.name }}
           </a>
         </div>
