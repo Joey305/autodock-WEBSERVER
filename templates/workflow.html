@@ -1,65 +1,363 @@
 {% extends 'base.html' %}
 {% block title %}Workflow | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}Visual workflow guide for AutoDock-Vina PrepServer, showing receptor intake, docking box selection, receptor preparation, ligand upload, package generation, and downstream docking execution.{% endblock %}
+
 {% block content %}
-<section class="page-hero compact">
-  <span class="eyebrow">Workflow guide</span>
-  <h1>From receptor intake to downloadable docking package.</h1>
-  <p>
-    This guide explains the browser workflow at a high level so new users can understand what each step is preparing
-    before they build a package.
-  </p>
+
+<section class="workflow-hero page-hero compact">
+  <div class="workflow-hero-copy">
+    <span class="eyebrow">Workflow guide</span>
+    <h1>From receptor intake to a downloadable docking package.</h1>
+    <p>
+      AutoDock-Vina PrepServer turns a messy docking setup into a staged, traceable pipeline:
+      receptor intake, docking box definition, receptor preparation, ligand intake, package generation,
+      and downstream execution.
+    </p>
+
+    <div class="hero-actions">
+      <a class="btn btn-app-primary btn-lg" href="{{ url_for('build') }}">
+        <i class="bi bi-box-seam me-2"></i>Start build workflow
+      </a>
+      <a class="btn btn-app-ghost btn-lg" href="{{ url_for('api_docs') if 'api_docs' in globals() else '/api' }}">
+        <i class="bi bi-terminal me-2"></i>View API docs
+      </a>
+    </div>
+  </div>
+
+  <div class="workflow-visual" aria-hidden="true">
+    <svg class="workflow-thread-svg" viewBox="0 0 680 420" role="img">
+      <defs>
+        <linearGradient id="workflowThreadGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="var(--app-brand)" />
+          <stop offset="52%" stop-color="var(--app-brand-2)" />
+          <stop offset="100%" stop-color="var(--app-success)" />
+        </linearGradient>
+
+        <radialGradient id="workflowNodeGradient" cx="50%" cy="50%" r="60%">
+          <stop offset="0%" stop-color="var(--app-success)" />
+          <stop offset="55%" stop-color="var(--app-brand)" />
+          <stop offset="100%" stop-color="var(--app-brand-2)" />
+        </radialGradient>
+
+        <filter id="workflowGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="6" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
+      <path
+        class="workflow-thread-base"
+        d="M72 95 C150 30, 232 78, 280 142 S410 260, 508 192 S590 132, 626 210 C668 300, 552 368, 442 320 S252 230, 160 306 C104 354, 62 292, 96 232 C124 182, 168 174, 214 204"
+      />
+
+      <path
+        class="workflow-thread-active"
+        d="M72 95 C150 30, 232 78, 280 142 S410 260, 508 192 S590 132, 626 210 C668 300, 552 368, 442 320 S252 230, 160 306 C104 354, 62 292, 96 232 C124 182, 168 174, 214 204"
+      />
+
+      <circle class="workflow-pulse-dot dot-a" cx="72" cy="95" r="7" />
+      <circle class="workflow-pulse-dot dot-b" cx="280" cy="142" r="7" />
+      <circle class="workflow-pulse-dot dot-c" cx="508" cy="192" r="7" />
+      <circle class="workflow-pulse-dot dot-d" cx="626" cy="210" r="7" />
+      <circle class="workflow-pulse-dot dot-e" cx="442" cy="320" r="7" />
+      <circle class="workflow-pulse-dot dot-f" cx="160" cy="306" r="7" />
+
+      <g class="workflow-node node-receptor" transform="translate(72 95)">
+        <circle r="35" />
+        <text y="6">PDB</text>
+      </g>
+
+      <g class="workflow-node node-center" transform="translate(280 142)">
+        <circle r="35" />
+        <text y="6">XYZ</text>
+      </g>
+
+      <g class="workflow-node node-prep" transform="translate(508 192)">
+        <circle r="35" />
+        <text y="6">PDBQT</text>
+      </g>
+
+      <g class="workflow-node node-ligand" transform="translate(626 210)">
+        <circle r="35" />
+        <text y="6">SDF</text>
+      </g>
+
+      <g class="workflow-node node-package" transform="translate(442 320)">
+        <circle r="35" />
+        <text y="6">ZIP</text>
+      </g>
+
+      <g class="workflow-node node-run" transform="translate(160 306)">
+        <circle r="35" />
+        <text y="6">VINA</text>
+      </g>
+    </svg>
+
+    <div class="workflow-orbit-card receptor-card">
+      <i class="bi bi-diagram-3"></i>
+      <span>Receptor</span>
+    </div>
+
+    <div class="workflow-orbit-card ligand-card">
+      <i class="bi bi-capsule"></i>
+      <span>Ligand</span>
+    </div>
+
+    <div class="workflow-orbit-card package-card">
+      <i class="bi bi-archive"></i>
+      <span>Package</span>
+    </div>
+  </div>
 </section>
 
-<section class="timeline">
+<section class="workflow-map-section">
+  <div class="workflow-map-heading">
+    <span class="eyebrow">Pipeline map</span>
+    <h2>The thread connects every preparation decision.</h2>
+    <p>
+      Each stage produces a state the next stage depends on. Receptors need centers, centers need prepared
+      receptor outputs, packages need ligands, and downstream docking needs the final ZIP plus a working Vina executable.
+    </p>
+  </div>
+
+  <div class="workflow-path-grid">
+    <article class="workflow-step-card step-one">
+      <div class="workflow-card-top">
+        <span class="workflow-step-number">01</span>
+        <i class="bi bi-folder-plus"></i>
+      </div>
+      <h3>Workspace creation</h3>
+      <p>
+        A workspace isolates receptor files, center tables, ligand uploads, logs, and generated package artifacts.
+      </p>
+      <span class="workflow-chip">Job root</span>
+    </article>
+
+    <article class="workflow-step-card step-two">
+      <div class="workflow-card-top">
+        <span class="workflow-step-number">02</span>
+        <i class="bi bi-cloud-download"></i>
+      </div>
+      <h3>Receptor intake</h3>
+      <p>
+        Upload receptor files or fetch structures by PDB ID. The server normalizes receptor storage under the workspace.
+      </p>
+      <span class="workflow-chip">PDB / CIF / PDBQT</span>
+    </article>
+
+    <article class="workflow-step-card step-three">
+      <div class="workflow-card-top">
+        <span class="workflow-step-number">03</span>
+        <i class="bi bi-bullseye"></i>
+      </div>
+      <h3>Docking box selection</h3>
+      <p>
+        Save an XYZ center and box size for each receptor so the generated Vina configuration has a defined search space.
+      </p>
+      <span class="workflow-chip">vina_centers.csv</span>
+    </article>
+
+    <article class="workflow-step-card step-four">
+      <div class="workflow-card-top">
+        <span class="workflow-step-number">04</span>
+        <i class="bi bi-gear-wide-connected"></i>
+      </div>
+      <h3>Receptor preparation</h3>
+      <p>
+        Clean the receptor, apply selected cleanup options, and convert receptor structures into docking-ready PDBQT files.
+      </p>
+      <span class="workflow-chip">Open Babel</span>
+    </article>
+
+    <article class="workflow-step-card step-five">
+      <div class="workflow-card-top">
+        <span class="workflow-step-number">05</span>
+        <i class="bi bi-capsule"></i>
+      </div>
+      <h3>Ligand intake</h3>
+      <p>
+        Upload SDF, SMI, SMILES, CSV, ZIP, or folder-style ligand inputs. CSV workflows can preserve ligand provenance.
+      </p>
+      <span class="workflow-chip">SDF / SMI / CSV</span>
+    </article>
+
+    <article class="workflow-step-card step-six">
+      <div class="workflow-card-top">
+        <span class="workflow-step-number">06</span>
+        <i class="bi bi-box-seam"></i>
+      </div>
+      <h3>Package generation</h3>
+      <p>
+        Build a portable ZIP or optional LSF package containing receptors, ligands, centers, runner scripts, and instructions.
+      </p>
+      <span class="workflow-chip">job.zip</span>
+    </article>
+  </div>
+</section>
+
+<section class="workflow-thread-panel">
+  <div class="workflow-thread-copy">
+    <span class="eyebrow">Stateful by design</span>
+    <h2>Failures become visible before docking starts.</h2>
+    <p>
+      Instead of discovering a broken setup after hours of compute time, each preparation checkpoint can be inspected:
+      receptor state, saved centers, PDBQT conversion, ligand upload status, package artifacts, and final ZIP download.
+    </p>
+  </div>
+
+  <div class="workflow-signal-stack" aria-label="Workflow state checkpoints">
+    <div class="workflow-signal-row">
+      <span class="signal-dot"></span>
+      <strong>Receptor registered</strong>
+      <code>Receptors/3eky.pdb</code>
+    </div>
+    <div class="workflow-signal-row">
+      <span class="signal-dot"></span>
+      <strong>Center saved</strong>
+      <code>3eky.pdbqt → [x, y, z]</code>
+    </div>
+    <div class="workflow-signal-row">
+      <span class="signal-dot"></span>
+      <strong>Receptor prepared</strong>
+      <code>converted_count: 1</code>
+    </div>
+    <div class="workflow-signal-row">
+      <span class="signal-dot"></span>
+      <strong>Ligand uploaded</strong>
+      <code>accepted_count: 1</code>
+    </div>
+    <div class="workflow-signal-row">
+      <span class="signal-dot"></span>
+      <strong>Package ready</strong>
+      <code>job.zip</code>
+    </div>
+  </div>
+</section>
+
+<section class="workflow-split">
+  <article class="workflow-explainer-card">
+    <div class="workflow-icon-bubble">
+      <i class="bi bi-diagram-2"></i>
+    </div>
+    <h2>Browser workflow</h2>
+    <p>
+      Use the visual workflow when you want a guided, human-readable setup. This is ideal for first-time users,
+      classroom demonstrations, or debugging receptor and ligand preparation interactively.
+    </p>
+    <a class="text-link" href="{{ url_for('build') }}">Open browser workflow <i class="bi bi-arrow-right"></i></a>
+  </article>
+
+  <article class="workflow-explainer-card">
+    <div class="workflow-icon-bubble">
+      <i class="bi bi-terminal"></i>
+    </div>
+    <h2>Headless API workflow</h2>
+    <p>
+      Use the API when you want scripted, reproducible docking package creation. Every browser stage has a corresponding
+      endpoint under the versioned API.
+    </p>
+    <a class="text-link" href="/api">Open API documentation <i class="bi bi-arrow-right"></i></a>
+  </article>
+</section>
+
+<section class="timeline workflow-detailed-timeline">
   <article class="timeline-item">
     <span class="timeline-number">1</span>
     <div>
       <h2>Receptor intake</h2>
-      <p>Start a workspace, then upload a single receptor, upload a ZIP or browser-selected folder of receptors, or fetch by PDB ID where supported.</p>
+      <p>
+        Start a workspace, then upload a single receptor, upload a ZIP or browser-selected folder of receptors,
+        or fetch by PDB ID where supported.
+      </p>
     </div>
   </article>
+
   <article class="timeline-item">
     <span class="timeline-number">2</span>
     <div>
       <h2>Docking box selection</h2>
-      <p>Open receptors in the viewer and save a docking center by supported methods such as ligand/residue selection, pasted XYZ coordinates, or clicked atoms in the structure view.</p>
+      <p>
+        Open receptors in the viewer and save a docking center by supported methods such as ligand/residue selection,
+        pasted XYZ coordinates, or clicked atoms in the structure view.
+      </p>
     </div>
   </article>
+
   <article class="timeline-item">
     <span class="timeline-number">3</span>
     <div>
       <h2>Receptor preparation</h2>
-      <p>Review cleanup options such as HETATM or chain removal, choose preparation settings, and generate receptor files suitable for downstream docking package assembly.</p>
+      <p>
+        Review cleanup options such as HETATM or chain removal, choose preparation settings,
+        and generate receptor files suitable for downstream docking package assembly.
+      </p>
     </div>
   </article>
+
   <article class="timeline-item">
     <span class="timeline-number">4</span>
     <div>
       <h2>Ligand intake</h2>
-      <p>Upload ligand inputs as SDF, SMILES, SMI, CSV, ZIP, or browser folder inputs where supported. CSV inputs require selecting the SMILES column before building.</p>
+      <p>
+        Upload ligand inputs as SDF, SMILES, SMI, CSV, ZIP, or browser folder inputs where supported.
+        CSV inputs require selecting the SMILES column before building.
+      </p>
     </div>
   </article>
+
   <article class="timeline-item">
     <span class="timeline-number">5</span>
     <div>
       <h2>Package generation</h2>
-      <p>Build a portable ZIP for generic local use, or choose the optional LSF/HPC-oriented package mode when the deployment enables that workflow.</p>
+      <p>
+        Build a portable ZIP for generic local use, or choose the optional LSF/HPC-oriented package mode
+        when the deployment enables that workflow.
+      </p>
     </div>
   </article>
+
   <article class="timeline-item">
     <span class="timeline-number">6</span>
     <div>
       <h2>Running generated packages</h2>
-      <p>Move the ZIP to the execution environment, unpack it, and follow the package README or included runner scripts. The web app prepares the package; docking execution happens downstream.</p>
+      <p>
+        Move the ZIP to the execution environment, unpack it, activate the docking environment,
+        and follow the package README or included runner scripts. The web app prepares the package;
+        docking execution happens downstream.
+      </p>
     </div>
   </article>
 </section>
 
-<section class="notice-card">
+<section class="notice-card workflow-safety-note">
   <i class="bi bi-shield-exclamation"></i>
   <div>
     <h2>Safety and data note</h2>
-    <p>Public deployments should not receive confidential structures or ligand libraries unless the instance is configured, governed, and operated for that use.</p>
+    <p>
+      Public deployments should not receive confidential structures or ligand libraries unless the instance is configured,
+      governed, and operated for that use.
+    </p>
   </div>
 </section>
+
+<section class="cta-band workflow-cta">
+  <div>
+    <h2>Ready to build a docking package?</h2>
+    <p>
+      Start with the guided browser workflow, or use the API page when you want a fully scripted setup.
+    </p>
+  </div>
+  <div class="hero-actions">
+    <a class="btn btn-app-primary" href="{{ url_for('build') }}">
+      <i class="bi bi-box-seam me-2"></i>Start build
+    </a>
+    <a class="btn btn-app-ghost" href="/api">
+      <i class="bi bi-terminal me-2"></i>Use API
+    </a>
+  </div>
+</section>
+
 {% endblock %}
