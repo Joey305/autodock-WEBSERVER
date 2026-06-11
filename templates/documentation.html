@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
-{% block title %}Documentation | AutoDock-Vina PrepServer{% endblock %}
-{% block meta_description %}Documentation for AutoDock-Vina PrepServer: docking workflow, accepted receptor and ligand inputs, package modes, headless API endpoints, GitHub repository, and troubleshooting guidance.{% endblock %}
+{% block title %}AutoDock Vina PrepServer Documentation | Workflow, API, Packages{% endblock %}
+{% block meta_description %}Documentation for AutoDock-Vina PrepServer covering molecular docking preparation workflow, accepted receptor and ligand inputs, portable ZIP package modes, headless API endpoints, GitHub source, and troubleshooting guidance.{% endblock %}
+{% block og_title %}AutoDock-Vina PrepServer Documentation Hub{% endblock %}
+{% block og_description %}Browse workflow, API, package, troubleshooting, and open-source references for the AutoDock Vina docking preparation web server.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
   <span class="eyebrow">Documentation hub</span>
@@ -9,6 +11,43 @@
     Use this page as a starting point for the public workflow, accepted input types, generated package modes,
     setup expectations, API endpoints, GitHub repository, and common troubleshooting paths.
   </p>
+</section>
+
+<section class="split-section">
+  <div>
+    <span class="eyebrow">What this page covers</span>
+    <h2>Use the docs as a map, not a single wall of instructions.</h2>
+    <p>
+      The documentation hub groups public resources by task: starting a browser workflow, understanding why docking
+      setup fails, checking accepted file types, scripting with the API, diagnosing package errors, and reviewing the
+      open-source repository.
+    </p>
+    <p>
+      If you are new to the server, begin with the workflow guide. If you are automating package creation, use the API
+      page. If an existing job is stuck, start with troubleshooting before rerunning every step.
+    </p>
+  </div>
+  {% set visual_type = "package" %}
+  {% include "partials/page_visual.html" %}
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-person"></i> Beginner path</h2>
+    <p>Start at the browser build workflow, then read the workflow guide to understand how receptor intake, centers, ligand upload, and package generation depend on each other.</p>
+  </article>
+  <article class="info-card">
+    <h2><i class="bi bi-flask"></i> Researcher path</h2>
+    <p>Review docking preparation problems, data cautions, receptor cleanup assumptions, and generated package contents before moving files into downstream docking runs.</p>
+  </article>
+  <article class="info-card">
+    <h2><i class="bi bi-code-slash"></i> Developer path</h2>
+    <p>Use the API reference, GitHub repository, and open-source page to understand the Flask routes, templates, helper modules, and extension points.</p>
+  </article>
+  <article class="info-card">
+    <h2><i class="bi bi-cloud-check"></i> Deployment path</h2>
+    <p>Check public/private data boundaries, external conversion dependencies, package-mode configuration, and operational controls before exposing an instance to users.</p>
+  </article>
 </section>
 
 <section class="doc-grid">
@@ -51,4 +90,28 @@
     <a href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">Open GitHub repository</a>
   </article>
 </section>
+
+{% set faqs = [
+  {
+    "question": "Where should I start if I only want to build a package?",
+    "answer": "Use the Build page first. The documentation hub is here when you need explanations, API references, troubleshooting, or deployment context."
+  },
+  {
+    "question": "Where are the programmatic API instructions?",
+    "answer": "The Headless API page documents the staged JSON workflow for workspace creation, receptor intake, center saving, receptor preparation, ligand upload, package generation, artifact listing, and download."
+  },
+  {
+    "question": "Does the documentation describe scientific validation?",
+    "answer": "No. These pages explain preparation and packaging behavior. Docking parameters, pose review, controls, and scientific interpretation require separate validation by the research team."
+  }
+] %}
+{% set faq_title = "Documentation FAQ" %}
+{% include "partials/faq.html" %}
+
+{% set related_pages = [
+  {"title": "Workflow guide", "description": "Read the staged explanation of browser-based docking package preparation.", "endpoint": "workflow", "icon": "bi-map", "label": "Read workflow"},
+  {"title": "API docs", "description": "Script the same preparation stages through versioned JSON endpoints.", "endpoint": "api_docs", "icon": "bi-braces", "label": "Open API"},
+  {"title": "Open source", "description": "Inspect the repository and deployment-oriented developer context.", "endpoint": "open_source", "icon": "bi-github", "label": "View source context"}
+] %}
+{% include "partials/related_pages.html" %}
 {% endblock %}

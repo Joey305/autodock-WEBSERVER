@@ -1,0 +1,70 @@
+<div class="svg-panel {{ visual_class|default('') }}" aria-hidden="true">
+  {% if visual_type == "package" %}
+    <svg viewBox="0 0 720 360" class="concept-svg">
+      <path class="concept-line" d="M90 178 H205 C250 178 250 92 305 92 H430 C485 92 485 178 540 178 H628" />
+      <path class="concept-line alt" d="M205 178 C250 178 250 262 305 262 H430 C485 262 485 178 540 178" />
+      <g class="concept-node" transform="translate(90 178)">
+        <rect x="-52" y="-36" width="104" height="72" rx="20" />
+        <text y="5">PDB</text>
+      </g>
+      <g class="concept-node" transform="translate(305 92)">
+        <rect x="-58" y="-36" width="116" height="72" rx="20" />
+        <text y="5">Center</text>
+      </g>
+      <g class="concept-node" transform="translate(305 262)">
+        <rect x="-58" y="-36" width="116" height="72" rx="20" />
+        <text y="5">Ligands</text>
+      </g>
+      <g class="concept-node" transform="translate(540 178)">
+        <rect x="-60" y="-38" width="120" height="76" rx="22" />
+        <text y="5">PDBQT</text>
+      </g>
+      <g class="concept-node final" transform="translate(628 178)">
+        <circle r="48" />
+        <text y="5">ZIP</text>
+      </g>
+    </svg>
+  {% elif visual_type == "troubleshooting" %}
+    <svg viewBox="0 0 720 360" class="concept-svg">
+      <path class="concept-line" d="M120 80 H300 V180 H455" />
+      <path class="concept-line alt" d="M300 180 V284 H540" />
+      <g class="concept-node" transform="translate(120 80)">
+        <rect x="-72" y="-34" width="144" height="68" rx="20" />
+        <text y="5">Input?</text>
+      </g>
+      <g class="concept-node" transform="translate(300 180)">
+        <rect x="-80" y="-36" width="160" height="72" rx="22" />
+        <text y="5">Center saved?</text>
+      </g>
+      <g class="concept-node" transform="translate(455 180)">
+        <rect x="-76" y="-34" width="152" height="68" rx="20" />
+        <text y="5">Prep log</text>
+      </g>
+      <g class="concept-node final" transform="translate(540 284)">
+        <rect x="-78" y="-34" width="156" height="68" rx="20" />
+        <text y="5">Build ZIP</text>
+      </g>
+    </svg>
+  {% else %}
+    <svg viewBox="0 0 720 360" class="concept-svg">
+      <circle class="concept-orbit" cx="360" cy="180" r="120" />
+      <circle class="concept-orbit alt" cx="360" cy="180" r="78" />
+      <g class="concept-node" transform="translate(220 180)">
+        <rect x="-62" y="-34" width="124" height="68" rx="20" />
+        <text y="5">Research</text>
+      </g>
+      <g class="concept-node" transform="translate(360 80)">
+        <rect x="-58" y="-34" width="116" height="68" rx="20" />
+        <text y="5">Develop</text>
+      </g>
+      <g class="concept-node" transform="translate(500 180)">
+        <rect x="-62" y="-34" width="124" height="68" rx="20" />
+        <text y="5">Deploy</text>
+      </g>
+      <g class="concept-node final" transform="translate(360 280)">
+        <circle r="46" />
+        <text y="5">Share</text>
+      </g>
+    </svg>
+  {% endif %}
+</div>

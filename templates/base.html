@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <title>{% block title %}AutoDock-Vina PrepServer{% endblock %}</title>
     <meta name="description" content="{% block meta_description %}Browser-guided AutoDock Vina docking package preparation for receptor and ligand workflows.{% endblock %}">
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="{{ request.url }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="AutoDock-Vina PrepServer">
+    <meta property="og:title" content="{% block og_title %}AutoDock-Vina PrepServer{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Browser-guided AutoDock Vina docking package preparation for receptor and ligand workflows.{% endblock %}">
+    <meta property="og:url" content="{{ request.url }}">
     <script>
       (() => {
         const key = "autodock-prepserver-theme";
@@ -23,6 +30,19 @@
     <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='images/favicon-16.png') }}?v=2">
     <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/favicon-192.png') }}?v=2">
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}?v=2">
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "AutoDock-Vina PrepServer",
+        "applicationCategory": "ScientificApplication",
+        "operatingSystem": "Web",
+        "description": "Browser-guided AutoDock Vina docking package preparation for receptor and ligand workflows.",
+        "url": {{ request.url_root.rstrip('/')|tojson }},
+        "softwareHelp": {{ url_for('documentation', _external=True)|tojson }},
+        "codeRepository": {{ repository_url|tojson }}
+      }
+    </script>
     {% block extra_head %}{% endblock %}
   </head>
   <body>
@@ -54,99 +74,93 @@
           .forEach(el => new bootstrap.Tooltip(el));
       });
     </script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const codeBlocks = document.querySelectorAll("pre > code");
+
+        codeBlocks.forEach(function (codeEl) {
+          const preEl = codeEl.parentElement;
+
+          if (!preEl || preEl.dataset.copyEnhanced === "true") {
+            return;
+          }
+
+          preEl.dataset.copyEnhanced = "true";
+
+          const wrapper = document.createElement("div");
+          wrapper.className = "code-copy-wrap";
+
+          preEl.parentNode.insertBefore(wrapper, preEl);
+          wrapper.appendChild(preEl);
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "code-copy-btn";
+          button.setAttribute("aria-label", "Copy code block");
+          button.setAttribute("title", "Copy code");
+          button.innerHTML = '<i class="bi bi-clipboard"></i><span>Copy</span>';
+
+          wrapper.insertBefore(button, preEl);
+
+          const setButtonState = function (state, label, iconClass) {
+            button.classList.remove("copied", "failed");
+
+            if (state) {
+              button.classList.add(state);
+            }
+
+            button.innerHTML = '<i class="bi ' + iconClass + '"></i><span>' + label + '</span>';
+
+            window.setTimeout(function () {
+              button.classList.remove("copied", "failed");
+              button.innerHTML = '<i class="bi bi-clipboard"></i><span>Copy</span>';
+            }, 1600);
+          };
+
+          const fallbackCopy = function (text) {
+            const textarea = document.createElement("textarea");
+            textarea.value = text;
+            textarea.setAttribute("readonly", "");
+            textarea.style.position = "fixed";
+            textarea.style.top = "-9999px";
+            textarea.style.left = "-9999px";
+
+            document.body.appendChild(textarea);
+            textarea.select();
+
+            try {
+              const successful = document.execCommand("copy");
+              document.body.removeChild(textarea);
+              return successful;
+            } catch (error) {
+              document.body.removeChild(textarea);
+              return false;
+            }
+          };
+
+          button.addEventListener("click", async function () {
+            const text = codeEl.innerText || codeEl.textContent || "";
+
+            try {
+              if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                setButtonState("copied", "Copied", "bi-check2");
+              } else if (fallbackCopy(text)) {
+                setButtonState("copied", "Copied", "bi-check2");
+              } else {
+                setButtonState("failed", "Failed", "bi-x-lg");
+              }
+            } catch (error) {
+              if (fallbackCopy(text)) {
+                setButtonState("copied", "Copied", "bi-check2");
+              } else {
+                setButtonState("failed", "Failed", "bi-x-lg");
+              }
+            }
+          });
+        });
+      });
+    </script>
     {% block extra_scripts %}{% endblock %}
   </body>
 </html>
-
-
-<script>
-  document.addEventListener("DOMContentLoaded", function () {
-    const codeBlocks = document.querySelectorAll("pre > code");
-
-    codeBlocks.forEach(function (codeEl, index) {
-      const preEl = codeEl.parentElement;
-
-      if (!preEl || preEl.dataset.copyEnhanced === "true") {
-        return;
-      }
-
-      preEl.dataset.copyEnhanced = "true";
-
-      const wrapper = document.createElement("div");
-      wrapper.className = "code-copy-wrap";
-
-      preEl.parentNode.insertBefore(wrapper, preEl);
-      wrapper.appendChild(preEl);
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "code-copy-btn";
-      button.setAttribute("aria-label", "Copy code block");
-      button.setAttribute("title", "Copy code");
-      button.innerHTML = '<i class="bi bi-clipboard"></i><span>Copy</span>';
-
-      wrapper.insertBefore(button, preEl);
-
-      const setButtonState = function (state, label, iconClass) {
-        button.classList.remove("copied", "failed");
-
-        if (state) {
-          button.classList.add(state);
-        }
-
-        button.innerHTML = '<i class="bi ' + iconClass + '"></i><span>' + label + '</span>';
-
-        window.setTimeout(function () {
-          button.classList.remove("copied", "failed");
-          button.innerHTML = '<i class="bi bi-clipboard"></i><span>Copy</span>';
-        }, 1600);
-      };
-
-      const fallbackCopy = function (text) {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.setAttribute("readonly", "");
-        textarea.style.position = "fixed";
-        textarea.style.top = "-9999px";
-        textarea.style.left = "-9999px";
-
-        document.body.appendChild(textarea);
-        textarea.select();
-
-        try {
-          const successful = document.execCommand("copy");
-          document.body.removeChild(textarea);
-          return successful;
-        } catch (error) {
-          document.body.removeChild(textarea);
-          return false;
-        }
-      };
-
-      button.addEventListener("click", async function () {
-        const text = codeEl.innerText || codeEl.textContent || "";
-
-        try {
-          if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(text);
-            setButtonState("copied", "Copied", "bi-check2");
-          } else {
-            const copied = fallbackCopy(text);
-            if (copied) {
-              setButtonState("copied", "Copied", "bi-check2");
-            } else {
-              setButtonState("failed", "Failed", "bi-x-lg");
-            }
-          }
-        } catch (error) {
-          const copied = fallbackCopy(text);
-          if (copied) {
-            setButtonState("copied", "Copied", "bi-check2");
-          } else {
-            setButtonState("failed", "Failed", "bi-x-lg");
-          }
-        }
-      });
-    });
-  });
-</script>

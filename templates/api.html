@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}Headless API Documentation | AutoDock-Vina PrepServer{% endblock %}
 {% block meta_description %}Complete headless API documentation for AutoDock-Vina PrepServer, including workspace creation, receptor fetch/upload, docking center definition, receptor preparation, ligand upload, package generation, artifact listing, ZIP download, and a full DR7 example workflow.{% endblock %}
+{% block og_title %}Headless AutoDock Vina PrepServer API Documentation{% endblock %}
+{% block og_description %}Use staged JSON endpoints to create reproducible AutoDock Vina docking preparation workspaces, save centers, upload ligands, build packages, and download ZIP artifacts.{% endblock %}
 
 {% block content %}
 
@@ -181,17 +183,15 @@
       <i class="bi bi-box-seam me-2"></i>Use browser workflow
     </a>
 
-```
-<a class="btn btn-app-ghost btn-lg" href="https://autodockvina.com" target="_blank" rel="noopener noreferrer">
-  <i class="bi bi-globe2 me-2"></i>Open autodockvina.com
-</a>
+    <a class="btn btn-app-ghost btn-lg" href="https://autodockvina.com" target="_blank" rel="noopener noreferrer">
+      <i class="bi bi-globe2 me-2"></i>Open autodockvina.com
+    </a>
 
-{% if repository_url is defined %}
-  <a class="btn btn-app-ghost btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
-    <i class="bi bi-github me-2"></i>View GitHub repository
-  </a>
-{% endif %}
-```
+    {% if repository_url is defined %}
+      <a class="btn btn-app-ghost btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
+        <i class="bi bi-github me-2"></i>View GitHub repository
+      </a>
+    {% endif %}
 
   </div>
 
@@ -1137,6 +1137,30 @@ heroku run --no-tty 'echo BABEL_LIBDIR=$BABEL_LIBDIR && which obabel && obabel -
     <i class="bi bi-box-seam me-2"></i>Open build workflow
   </a>
 </section>
+
+{% set faqs = [
+  {
+    "question": "Is the API a single automatic docking endpoint?",
+    "answer": "No. The API is intentionally staged so scripts can inspect workspace state, receptor intake, center saving, receptor preparation, ligand upload, package generation, artifacts, and download separately."
+  },
+  {
+    "question": "Can API users define docking boxes without a browser?",
+    "answer": "Yes. API workflows can save explicit XYZ centers and use supported selector-based center resolution where the uploaded receptor format is supported by the resolver."
+  },
+  {
+    "question": "What should automation handle after downloading a ZIP?",
+    "answer": "Automation should unpack the package, verify generated inputs, provide the correct AutoDock Vina runtime environment, run docking with appropriate parameters, and preserve logs for review."
+  }
+] %}
+{% set faq_title = "Headless API FAQ" %}
+{% include "partials/faq.html" %}
+
+{% set related_pages = [
+  {"title": "Browser workflow", "description": "Use the visual workflow when receptor setup and center selection need human inspection.", "endpoint": "workflow", "icon": "bi-map", "label": "Read workflow"},
+  {"title": "Troubleshooting", "description": "Diagnose missing centers, failed PDBQT conversion, ligand upload issues, and package build problems.", "endpoint": "troubleshooting", "icon": "bi-tools", "label": "Troubleshoot"},
+  {"title": "Open source", "description": "Inspect the Flask app, route structure, tests, and deployment-oriented source context.", "endpoint": "open_source", "icon": "bi-github", "label": "Open source page"}
+] %}
+{% include "partials/related_pages.html" %}
 
 <script>
   document.addEventListener("DOMContentLoaded", function () {

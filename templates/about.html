@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}About AutoDock-Vina PrepServer | Reproducible Docking Package Preparation{% endblock %}
 {% block meta_description %}AutoDock-Vina PrepServer helps scientists prepare reproducible molecular docking packages by guiding receptor intake, docking box definition, receptor cleanup, ligand upload, and AutoDock Vina job packaging.{% endblock %}
+{% block og_title %}About AutoDock-Vina PrepServer{% endblock %}
+{% block og_description %}Learn why the PrepServer focuses on transparent, reproducible molecular docking package preparation rather than black-box scientific claims.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
   <span class="eyebrow">Why we built AutoDock-Vina PrepServer</span>
@@ -112,6 +114,24 @@
   </article>
 </section>
 
+<section class="split-section">
+  <div>
+    <span class="eyebrow">How it fits</span>
+    <h2>A focused preparation layer, not a replacement for docking review.</h2>
+    <p>
+      PrepServer sits before downstream docking execution. It helps assemble the files and metadata that scientists
+      usually collect manually: receptor structures, cleanup choices, docking box coordinates, ligand inputs, package
+      mode, and generated instructions.
+    </p>
+    <p>
+      That focus is deliberate. It keeps preparation inspectable while leaving scoring, pose review, medicinal chemistry
+      interpretation, and experimental relevance to the appropriate downstream tools and expert review.
+    </p>
+  </div>
+  {% set visual_type = "ecosystem" %}
+  {% include "partials/page_visual.html" %}
+</section>
+
 <section class="cta-band">
   <div>
     <h2>Build a reproducible docking package.</h2>
@@ -122,4 +142,28 @@
   </div>
   <a class="btn btn-app-primary" href="{{ url_for('build') }}">Start workflow</a>
 </section>
+
+{% set faqs = [
+  {
+    "question": "Why focus on docking preparation instead of docking execution?",
+    "answer": "Preparation is where many reproducibility problems begin. Keeping file intake, center selection, receptor conversion, ligand provenance, and package assembly visible makes downstream docking easier to audit."
+  },
+  {
+    "question": "Who should review generated packages?",
+    "answer": "A scientist familiar with the receptor system, ligand set, search-space choice, and downstream AutoDock Vina parameters should review generated files before using results for decisions."
+  },
+  {
+    "question": "Can teams adapt the server for private deployments?",
+    "answer": "Yes. The Flask application is open source and can be inspected or adapted, but private or regulated deployments still need appropriate authentication, storage, cleanup, and data-governance controls."
+  }
+] %}
+{% set faq_title = "About the preparation approach" %}
+{% include "partials/faq.html" %}
+
+{% set related_pages = [
+  {"title": "Docking preparation problems", "description": "Understand the setup errors this workflow is designed to make visible.", "endpoint": "docking_problems", "icon": "bi-exclamation-diamond", "label": "Read problem guide"},
+  {"title": "Open source", "description": "Review the developer and deployment context behind the Flask molecular docking app.", "endpoint": "open_source", "icon": "bi-unlock", "label": "Open source page"},
+  {"title": "Troubleshooting", "description": "Check common receptor, ligand, center, and package generation issues.", "endpoint": "troubleshooting", "icon": "bi-tools", "label": "Troubleshoot"}
+] %}
+{% include "partials/related_pages.html" %}
 {% endblock %}

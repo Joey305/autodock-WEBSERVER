@@ -1,5 +1,8 @@
 {% extends 'base.html' %}
-{% block title %}AutoDock-Vina PrepServer | Public Docking Package Preparation{% endblock %}
+{% block title %}AutoDock Vina Web Server | Docking Package Preparation{% endblock %}
+{% block meta_description %}AutoDock-Vina PrepServer is a browser-guided AutoDock Vina web server for molecular docking preparation, receptor setup, docking box coordinates, ligand upload, and portable ZIP package generation.{% endblock %}
+{% block og_title %}AutoDock Vina Web Server for Docking Package Preparation{% endblock %}
+{% block og_description %}Prepare receptor, docking box, ligand, and portable ZIP package assets for downstream AutoDock Vina workflows from a guided Flask web app.{% endblock %}
 {% block content %}
 <section class="hero-section">
   <div class="hero-copy">
@@ -48,6 +51,56 @@
 
 <section class="split-section">
   <div>
+    <span class="eyebrow">What the server prepares</span>
+    <h2>A practical bridge between structure files and downstream Vina runs.</h2>
+    <p>
+      The public site is designed for the preparation layer of molecular docking: organizing receptor inputs,
+      storing docking box coordinates, converting receptor assets where supported, collecting ligand files, and
+      generating a package that can be reviewed before execution.
+    </p>
+    <p>
+      It does not replace scientific judgment, parameter selection, receptor curation, or downstream validation.
+      Instead, it helps make the setup steps visible and repeatable so researchers can spend less time rebuilding
+      folders and more time inspecting the actual docking workflow.
+    </p>
+  </div>
+  {% set visual_type = "package" %}
+  {% include "partials/page_visual.html" %}
+</section>
+
+<section class="checklist-grid">
+  <article class="check-card">
+    <i class="bi bi-person-check"></i>
+    <div>
+      <h2>For first-time users</h2>
+      <p>Follow the browser workflow when you want visual checkpoints for receptor upload, docking center selection, ligand upload, and ZIP generation.</p>
+    </div>
+  </article>
+  <article class="check-card">
+    <i class="bi bi-mortarboard"></i>
+    <div>
+      <h2>For teaching and onboarding</h2>
+      <p>Use the staged interface to explain why docking preparation depends on file formats, box coordinates, receptor cleanup, and ligand provenance.</p>
+    </div>
+  </article>
+  <article class="check-card">
+    <i class="bi bi-terminal"></i>
+    <div>
+      <h2>For scripted workflows</h2>
+      <p>Use the headless API when a repeatable command-line or agent-driven docking package preparation flow is a better fit than the browser.</p>
+    </div>
+  </article>
+  <article class="check-card">
+    <i class="bi bi-shield-exclamation"></i>
+    <div>
+      <h2>For public deployments</h2>
+      <p>Treat public instances as public tools and avoid confidential structures or proprietary ligand libraries unless the deployment is governed for that use.</p>
+    </div>
+  </article>
+</section>
+
+<section class="split-section">
+  <div>
     <span class="eyebrow">Connected ecosystem</span>
     <h2>Designed as a clean entry point into companion molecular design tools.</h2>
     <p>
@@ -70,4 +123,29 @@
   </div>
   <a class="btn btn-app-primary" href="{{ url_for('contact') }}">Contact</a>
 </section>
+
+{% set faqs = [
+  {
+    "question": "Is AutoDock-Vina PrepServer a docking results engine?",
+    "answer": "No. The site prepares and packages inputs for downstream AutoDock Vina execution. Docking runs, parameter choices, interpretation, and validation remain separate scientific steps."
+  },
+  {
+    "question": "What does the generated ZIP package contain?",
+    "answer": "The package is intended to collect prepared receptor assets, ligand inputs, docking center data, runner scripts, and instructions so the workflow can move into a local or configured compute environment."
+  },
+  {
+    "question": "Can I use the workflow without the browser?",
+    "answer": "Yes. The versioned headless API supports scripted workspace creation, receptor intake, center saving, receptor preparation, ligand upload, package building, artifact listing, and download."
+  }
+] %}
+{% set faq_title = "AutoDock Vina PrepServer FAQ" %}
+{% set faq_intro = "Short answers for users deciding whether the web server, workflow guide, or API is the right entry point." %}
+{% include "partials/faq.html" %}
+
+{% set related_pages = [
+  {"title": "Workflow guide", "description": "See how receptor intake, docking boxes, PDBQT preparation, ligand upload, and package generation connect.", "endpoint": "workflow", "icon": "bi-map", "label": "Read workflow"},
+  {"title": "Documentation hub", "description": "Browse accepted input types, package modes, API references, troubleshooting, and GitHub links.", "endpoint": "documentation", "icon": "bi-journal-text", "label": "Open docs"},
+  {"title": "Headless API", "description": "Use staged JSON endpoints for reproducible docking package preparation from scripts or agents.", "endpoint": "api_docs", "icon": "bi-braces", "label": "View API"}
+] %}
+{% include "partials/related_pages.html" %}
 {% endblock %}

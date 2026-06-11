@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
-{% block title %}Contact | AutoDock-Vina PrepServer{% endblock %}
-{% block meta_description %}Contact the AutoDock-Vina PrepServer maintainer for docking workflow questions, bug reports, deployment feedback, open-source collaboration, and scientific software support.{% endblock %}
+{% block title %}Contact AutoDock-Vina PrepServer | Docking Workflow Support{% endblock %}
+{% block meta_description %}Contact the AutoDock-Vina PrepServer maintainer for molecular docking preparation workflow questions, bug reports, deployment feedback, open-source collaboration, API issues, and scientific software support.{% endblock %}
+{% block og_title %}Contact AutoDock-Vina PrepServer{% endblock %}
+{% block og_description %}Send concise questions, bug reports, deployment feedback, and collaboration inquiries for the AutoDock Vina docking preparation web server.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
   <span class="eyebrow">Contact</span>
@@ -16,6 +18,17 @@
     <a class="btn btn-app-ghost btn-lg" href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">
       <i class="bi bi-github me-2"></i>GitHub repository
     </a>
+  </div>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-shield-exclamation"></i>
+  <div>
+    <h2>Before sending files</h2>
+    <p>
+      Please avoid sending confidential receptor structures, proprietary ligand libraries, private deployment credentials,
+      or sensitive project data through public channels. Use small non-confidential examples when possible.
+    </p>
   </div>
 </section>
 
@@ -37,4 +50,28 @@
     <p>For ecosystem questions, mention whether your workflow touches docking preparation, warhead review, E3 recruiter exploration, PROTAC design, V-LiSEMOD, or Pymacs.</p>
   </article>
 </section>
+
+{% set faqs = [
+  {
+    "question": "What makes a workflow question easier to answer?",
+    "answer": "Include the page or API endpoint, the input format, package mode, concise error text, and the step where behavior diverged from expectations."
+  },
+  {
+    "question": "Should I report scientific interpretation questions here?",
+    "answer": "This contact path is best for PrepServer workflow, code, deployment, and packaging questions. Docking interpretation should be reviewed with the relevant scientific team."
+  },
+  {
+    "question": "Can I ask about deployments or collaborations?",
+    "answer": "Yes. Include the intended deployment context, whether it is public or private, expected users, and any constraints around authentication, storage, cleanup, or API use."
+  }
+] %}
+{% set faq_title = "Contact FAQ" %}
+{% include "partials/faq.html" %}
+
+{% set related_pages = [
+  {"title": "Troubleshooting", "description": "Try common checks before filing a workflow issue.", "endpoint": "troubleshooting", "icon": "bi-tools", "label": "Troubleshoot"},
+  {"title": "Open source", "description": "Review the repository and contribution-oriented project context.", "endpoint": "open_source", "icon": "bi-github", "label": "Open source page"},
+  {"title": "Documentation", "description": "Find workflow, API, package, and input-format references.", "endpoint": "documentation", "icon": "bi-journal-text", "label": "Open docs"}
+] %}
+{% include "partials/related_pages.html" %}
 {% endblock %}

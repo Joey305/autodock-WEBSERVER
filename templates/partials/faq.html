@@ -1,0 +1,37 @@
+{% if faqs %}
+<section class="faq-section" aria-labelledby="{{ faq_id|default('page-faq-title') }}">
+  <div class="section-heading">
+    <span class="eyebrow">FAQ</span>
+    <h2 id="{{ faq_id|default('page-faq-title') }}">{{ faq_title|default('Frequently asked questions') }}</h2>
+    {% if faq_intro is defined %}
+      <p>{{ faq_intro }}</p>
+    {% endif %}
+  </div>
+  <div class="faq-list">
+    {% for faq in faqs %}
+      <details class="faq-item">
+        <summary>{{ faq.question }}</summary>
+        <p>{{ faq.answer }}</p>
+      </details>
+    {% endfor %}
+  </div>
+</section>
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {% for faq in faqs %}
+      {
+        "@type": "Question",
+        "name": {{ faq.question|tojson }},
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": {{ faq.answer|striptags|tojson }}
+        }
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  }
+</script>
+{% endif %}

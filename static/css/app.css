@@ -374,7 +374,10 @@ a:hover {
 .quick-grid,
 .content-grid,
 .module-grid,
-.doc-grid {
+.doc-grid,
+.related-grid,
+.audience-grid,
+.checklist-grid {
   display: grid;
   gap: 1rem;
   margin-top: 1.25rem;
@@ -386,7 +389,10 @@ a:hover {
 
 .two-col,
 .doc-grid,
-.module-grid {
+.module-grid,
+.related-grid,
+.audience-grid,
+.checklist-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -394,7 +400,9 @@ a:hover {
 .info-card,
 .module-card,
 .doc-card,
-.notice-card {
+.notice-card,
+.related-card,
+.check-card {
   border-radius: 1.35rem;
   padding: 1.25rem;
 }
@@ -409,10 +417,132 @@ a:hover {
 .info-card h2,
 .module-card h2,
 .doc-card h2,
-.notice-card h2 {
+.notice-card h2,
+.related-card h3,
+.check-card h2,
+.section-heading h2 {
   color: var(--app-text);
   font-size: 1.1rem;
   font-weight: 850;
+}
+
+.section-heading {
+  max-width: 920px;
+  margin-top: 1.75rem;
+}
+
+.section-heading p,
+.related-card p,
+.check-card p,
+.faq-item p {
+  color: var(--app-muted);
+}
+
+.related-pages,
+.faq-section {
+  margin-top: 1.25rem;
+}
+
+.related-card,
+.check-card {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow);
+}
+
+.related-card > i,
+.check-card > i {
+  flex: 0 0 auto;
+  width: 2.65rem;
+  height: 2.65rem;
+  display: grid;
+  place-items: center;
+  border-radius: 0.9rem;
+  color: #02111d;
+  background: linear-gradient(135deg, var(--app-brand), var(--app-brand-2));
+  box-shadow: 0 0 20px var(--app-glow);
+}
+
+.faq-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.faq-item {
+  border: 1px solid var(--app-border);
+  border-radius: 1.1rem;
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  box-shadow: var(--app-shadow);
+  overflow: hidden;
+}
+
+.faq-item summary {
+  cursor: pointer;
+  padding: 1rem 1.15rem;
+  color: var(--app-text);
+  font-weight: 850;
+}
+
+.faq-item p {
+  margin: 0;
+  padding: 0 1.15rem 1.1rem;
+}
+
+.svg-panel {
+  min-height: 300px;
+  border: 1px solid var(--app-border);
+  border-radius: 1.6rem;
+  background:
+    radial-gradient(circle at 18% 18%, color-mix(in srgb, var(--app-brand) 22%, transparent), transparent 16rem),
+    radial-gradient(circle at 82% 82%, color-mix(in srgb, var(--app-success) 18%, transparent), transparent 16rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--app-surface-2) 82%, transparent), color-mix(in srgb, var(--app-surface) 62%, transparent));
+  box-shadow: var(--app-shadow);
+  overflow: hidden;
+}
+
+.concept-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+}
+
+.concept-line,
+.concept-orbit {
+  fill: none;
+  stroke: color-mix(in srgb, var(--app-brand) 72%, transparent);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 12 12;
+}
+
+.concept-line.alt,
+.concept-orbit.alt {
+  stroke: color-mix(in srgb, var(--app-success) 68%, transparent);
+}
+
+.concept-node rect,
+.concept-node circle {
+  fill: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  stroke: color-mix(in srgb, var(--app-brand) 58%, var(--app-border));
+  stroke-width: 2;
+  filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--app-brand) 18%, transparent));
+}
+
+.concept-node.final rect,
+.concept-node.final circle {
+  stroke: color-mix(in srgb, var(--app-success) 65%, var(--app-border));
+}
+
+.concept-node text {
+  fill: var(--app-text);
+  font-size: 1rem;
+  font-weight: 900;
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 
 .page-hero,
@@ -729,6 +859,9 @@ pre.log {
   .two-col,
   .doc-grid,
   .module-grid,
+  .related-grid,
+  .audience-grid,
+  .checklist-grid,
   .footer-grid {
     grid-template-columns: 1fr;
   }

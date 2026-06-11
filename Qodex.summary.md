@@ -1,105 +1,110 @@
 # Qodex.summary
 
 ## Task
-Add a headless programmatic API for AutoDock-Vina PrepServer.
+Improve and extend public website pages for SEO, content depth, visuals, and maintainability.
 
 ## Original Goal
-The user wants a background/scriptable/API system so users, command-line workflows, Python scripts, and future AI agents can run the docking-preparation workflow without using the visual website. A key requirement is programmatic docking-box generation from residue/chain/residue ID or HETATM ligand instances such as DR7, chain A, residue 100.
+The user wants to work in the AutoDock-Vina PrepServer repository and improve/extend all pages so they are more in depth, continue to optimize for SEO, add more SVGs/visuals, and keep everything organized for future expansion.
 
 ## Assumptions
-- The current dirty working tree is intentional user work and must be preserved.
-- The active browser workflow is `templates/build.html` and the legacy browser endpoints in `app.py` are the compatibility surface.
-- New endpoints should be additive under `/api/v1` and should not replace existing `/api/...` routes.
-- Headless center resolution can safely support PDB, ENT, and PDBQT fixed-column coordinate records in this pass.
-- CIF/mmCIF uploads remain accepted by the app, but selector-based headless center resolution for CIF/mmCIF should be documented as a limitation rather than implemented without a parser dependency.
-- Full one-call package orchestration is riskier than a staged workflow because prep/build failures should remain visible, so `/api/v1/headless/package` is reserved and returns a documented staged-workflow response.
+- Existing route names and workflow/API behavior should remain stable.
+- The public pages can be expanded through templates and CSS without backend refactors.
+- Public deployments should continue to warn users not to upload confidential structures or proprietary ligand libraries unless the instance is governed for that use.
+- Generated packages prepare inputs for downstream AutoDock Vina use; they do not guarantee scientific validity or clinical relevance.
 
 ## Files Inspected
-- `app.py` - inspected Flask pages, state helpers, existing `/api/...` endpoints, workspace handling, receptor upload/fetch, center saving, prep, ligand upload, build, and download behavior.
-- `templates/build.html` - inspected the active browser workflow and JavaScript API usage.
-- `templates/documentation.html` - inspected public documentation hub before adding the API mention.
-- `README.md` - inspected existing setup, workflow, package-mode, and security notes.
-- `packager.py` - inspected workspace, upload, fetch, center CSV, package assembly, and ZIP helpers.
-- `tests/test_public_access.py` and `tests/test_packaging_modes.py` - inspected existing Flask and packaging test patterns.
-- `tests/` - inspected available test suite layout.
-- `docs/` - checked and confirmed it did not exist before this task.
+- `app.py` - checked public routes, context variables, repository/contact links, and existing API/workflow boundaries.
+- `templates/base.html` - checked shared metadata, scripts, and layout blocks.
+- `templates/partials/nav.html` - checked primary navigation and resource dropdown discoverability.
+- `templates/partials/footer.html` - checked footer links and public safety messaging.
+- `templates/home.html` - reviewed public landing page content and SEO.
+- `templates/about.html` - reviewed project positioning and scientific-safety language.
+- `templates/workflow.html` - reviewed browser/API workflow explanation and existing SVG section.
+- `templates/documentation.html` - reviewed docs hub structure.
+- `templates/docking_problems.html` - reviewed docking-preparation problem content.
+- `templates/open_source.html` - reviewed GitHub/developer/deployment content.
+- `templates/api.html` - reviewed headless API documentation and copy-code behavior.
+- `templates/troubleshooting.html` - reviewed common workflow failure checks.
+- `templates/contact.html` - reviewed support and data-safety guidance.
+- `templates/modules.html` - reviewed companion-tool ecosystem content.
+- `static/css/app.css` - reviewed existing visual system and responsive rules.
+- `tests/` - confirmed an existing unittest suite is present.
+- `Qodex.summary.md` - reviewed previous task summary before replacing it for this pass.
 
 ## Files Changed
-- `app.py` - added `center_resolver` imports and a versioned `/api/v1` JSON API layer for health, workspaces, receptors, centers, prep, ligands, build, artifacts, download, and a reserved headless package endpoint.
-- `README.md` - added a concise Headless API section and feature bullet.
-- `templates/documentation.html` - added a restrained documentation-card mention of the headless API.
+- `templates/base.html` - added conservative SEO/Open Graph metadata, WebApplication JSON-LD, and moved the copy-code script inside the HTML body.
+- `templates/home.html` - expanded landing-page depth, added SEO metadata, audience guidance, package visual, FAQ, and related links.
+- `templates/about.html` - added OG metadata, preparation-layer explanation, ecosystem visual, FAQ, and related links.
+- `templates/workflow.html` - strengthened title/description, replaced hard-coded `/api` links with `url_for`, and added FAQ/related links.
+- `templates/documentation.html` - expanded docs hub with audience paths, visual section, FAQ, and related links.
+- `templates/docking_problems.html` - expanded problem explanations, added troubleshooting visual, preparation guidance, FAQ, and related links.
+- `templates/open_source.html` - added developer/deployment context, visual section, FAQ, and related links.
+- `templates/api.html` - fixed a stray Markdown fence in the hero buttons, added OG metadata, FAQ, and related links.
+- `templates/troubleshooting.html` - expanded troubleshooting flow, added decision visual, FAQ, and related links.
+- `templates/contact.html` - added safer issue-reporting guidance, FAQ, and related links.
+- `templates/modules.html` - expanded ecosystem role explanation, visual section, FAQ, and related links.
+- `templates/partials/footer.html` - added footer links for API, troubleshooting, docking-prep problems, open source, and GitHub.
+- `static/css/app.css` - added reusable styles for related pages, FAQ sections, checklist cards, and lightweight inline SVG panels.
 - `Qodex.summary.md` - updated with this task summary.
 
 ## Files Created
-- `center_resolver.py` - reusable center-resolution utility with PDB/ENT/PDBQT parsing, centroid calculation, ambiguity handling, and structured errors.
-- `docs/HEADLESS_API.md` - route table, workflow, center modes, error shape, limitations, and security notes.
-- `docs/API_EXAMPLES.md` - curl and Python examples.
-- `docs/AGENT_WORKFLOW.md` - staged CLI/agent workflow, polling strategy, validation, and failure handling.
-- `docs/examples/headless_center_by_residue.py`
-- `docs/examples/headless_center_by_hetatm.py`
-- `docs/examples/headless_build_from_xyz.py`
-- `docs/examples/headless_create_package.py`
-- `tests/test_center_resolver.py`
-- `tests/test_headless_api_contract.py`
+- `templates/partials/faq.html` - reusable FAQ section with conservative FAQPage JSON-LD.
+- `templates/partials/related_pages.html` - reusable internal-link card section for SEO and navigation.
+- `templates/partials/page_visual.html` - reusable lightweight inline SVG panels for package, troubleshooting, and ecosystem concepts.
 
 ## Implementation Summary
-The app now exposes an additive `/api/v1` API for creating or reusing workspaces, uploading or fetching receptors, resolving and saving docking centers, preparing receptors, uploading ligands, building packages, listing artifacts, and downloading generated ZIPs. Center generation can be done headlessly from explicit XYZ coordinates, residue selectors, HETATM/ligand instance selectors, atom-level selectors, or a simple selection object. Saved centers write to the same canonical center CSV used by the browser workflow and package builder.
+The public site now has deeper educational content, stronger page-specific metadata, reusable FAQ and related-page patterns, lightweight SVG concept visuals, and improved footer navigation. The changes are focused on public templates and CSS, leaving build workflow JavaScript, API behavior, packaging logic, and route names intact.
 
 ## Key Decisions
-- The `/api/v1` routes use a consistent JSON shape with `ok`, `data`, and `warnings` on success and `ok`, `error`, `message`, and `details` on failure.
-- Center resolution lives in `center_resolver.py` so it can be tested without Flask.
-- HETATM aliases `het`, `hetatm`, `ligand`, and `resname` are accepted.
-- Ligand-instance ambiguity is explicit; the resolver returns `ambiguous_selection` with candidates instead of choosing the first match.
-- The browser workflow was preserved by leaving existing `/api/...` endpoints and `templates/build.html` JavaScript unchanged.
-- The staged `/api/v1` workflow is implemented; full one-call orchestration is deferred and documented through the reserved `/api/v1/headless/package` response.
-- Agent/CLI usage is documented as a staged workflow with polling and validation rather than as a complete autonomous platform.
+- Reused Jinja partials for FAQ, related links, and SVG visuals to avoid copying the same SEO/navigation patterns across pages.
+- Used careful scientific language around preparation, packaging, review, and reproducibility instead of implying automated accuracy or clinical validation.
+- Kept JSON-LD conservative: WebApplication in the base template and FAQPage only where visible FAQ content is rendered.
+- Fixed hard-coded workflow API links to use `url_for('api_docs')`.
+- Expanded footer navigation rather than crowding the primary mobile nav.
 
 ## Commands Run
-- `git status --short` - confirmed the repository already had uncommitted changes before this task.
-- `sed`, `find`, and `rg` inspections - reviewed routes, templates, API usage, docs, tests, and helper code.
-- `python -m flask --app app routes` - attempted before and after implementation; blocked by missing `flask_login` in the ambient Python environment.
+- `git status --short` - initial check showed no staged or unstaged source changes; later checks confirmed only intended source files changed.
+- `git diff --stat` and `git diff` - inspected current repository state before editing.
+- `git diff --cached --stat` and `git diff --cached` - checked for staged changes before editing; none were shown.
+- `rg "def (home|about|workflow|documentation|docking_problems|open_source|api_docs|troubleshooting|contact|modules|build)" app.py` - confirmed public route definitions.
+- `rg "nav_links|repository_url|contact_email|inject_site_links" app.py` - confirmed shared context variables.
+- `find templates -maxdepth 3 -type f | sort` - mapped template files.
+- `find tests -maxdepth 2 -type f | sort` - confirmed test files.
+- `sed` inspections of shared templates, public pages, CSS, app routes, and the existing summary - reviewed current content and structure.
 - `python -m py_compile app.py` - passed.
-- `python -m py_compile center_resolver.py` - passed.
-- `python -m unittest tests.test_center_resolver -v` - passed 7 resolver tests.
-- `python -m unittest tests.test_headless_api_contract -v` - skipped because Flask app dependencies are not installed.
-- `python -m unittest discover -s tests -v` - ran the broader suite; new resolver tests passed, API contract tests skipped, and unrelated existing app/PyMOL-builder tests failed.
-- Source route searches with `rg` - confirmed existing browser endpoints and new `/api/v1` route declarations are present.
-- Unsafe claim search - no new unsafe overclaims were introduced; existing safe “not a claim” text matched in informational templates.
+- `python -m flask --app app routes` - failed because `flask_login` is missing in the active Python environment.
+- `rg '```' templates` - passed; no stray Markdown fences remain in templates.
+- `rg "url_for\\(" templates` - reviewed template endpoint usage.
+- `rg "block title|block meta_description" templates` - confirmed public pages retain title and meta-description blocks.
+- `python - <<'PY' ... jinja2 Environment.parse ... PY` - parsed 20 templates successfully.
+- `python -m unittest discover -s tests -v` - ran the test suite; see validation results.
 - `git diff --check` - passed.
+- `git show HEAD:__pycache__/app.cpython-313.pyc > __pycache__/app.cpython-313.pyc` - restored a generated pyc artifact changed by syntax checking.
 
 ## Validation Results
-- Syntax checks passed for `app.py` and `center_resolver.py`.
-- New center resolver unit tests passed.
-- New Flask API contract tests are present but skipped locally because `flask_login` is missing.
-- Flask route listing could not run locally because `flask_login` is missing.
-- Full test discovery had unrelated failures:
-  - app-import tests fail due to missing `flask_login`;
-  - existing PyMOL-builder tests fail due to pre-existing function/CLI expectation mismatches.
-- Source checks confirmed the old browser endpoints remain declared in `app.py`.
-- Source checks confirmed all new `/api/v1` route declarations are present.
+- `python -m py_compile app.py` passed.
+- Jinja syntax parsing passed for 20 templates.
+- Static template scans found no remaining stray Markdown fences.
 - `git diff --check` passed.
+- `python -m flask --app app routes` could not run because `flask_login` is not installed in the active environment.
+- `python -m unittest discover -s tests -v` did not fully pass:
+  - App-import tests failed because `flask_login` is missing.
+  - Existing PyMOL-builder tests failed with missing attributes, CLI argument mismatch, and existing expectation mismatches unrelated to this template/CSS pass.
+  - Center resolver, ligand provenance, ligand upload normalization, parser workflow, and several docking-runner/summary tests passed before the unrelated failures.
 
 ## Known Issues
-- Headless selector-based center resolution supports PDB, ENT, and PDBQT-like fixed-column records, not CIF/mmCIF.
-- Receptor preparation still relies on local `obabel` availability.
-- The API uses the app's existing lightweight synchronous prep behavior and does not add a production queue.
-- `/api/v1/headless/package` is reserved and currently returns a staged-workflow response.
-- Authentication, rate limiting, quotas, cleanup, and abuse controls were intentionally not implemented.
-- Local dynamic Flask validation could not run until dependencies such as `flask_login` are installed in the active environment.
+- Dynamic Flask route rendering could not be verified locally until `flask_login` is installed in the active Python environment.
+- The broad unittest suite still has unrelated existing PyMOL-builder failures.
+- The API page still includes its own copy-code enhancement script in addition to the base copy-code helper; it is guarded by `data-copy-enhanced`, so duplicate buttons are avoided, but future cleanup could consolidate this.
+- No browser/manual visual verification was completed in this pass because the Flask app could not import in the current environment.
 
 ## Manual Verification
-1. Open `/build` and confirm the browser workflow still works.
-2. Call `/api/v1/health`.
-3. Create a workspace through `/api/v1/workspaces`.
-4. Fetch or upload a receptor through `/api/v1`.
-5. Resolve a center by residue.
-6. Resolve a center by HETATM ligand instance.
-7. Save a center.
-8. Start prep and poll status.
-9. Upload ligands.
-10. Build a portable package.
-11. Confirm generated download URL works.
-12. Review `docs/HEADLESS_API.md`, `docs/API_EXAMPLES.md`, and `docs/AGENT_WORKFLOW.md`.
+1. Install the app dependencies needed by the active Python environment, including `flask_login`.
+2. Run `python -m flask --app app routes` and confirm all public endpoints are listed.
+3. Start the Flask app locally and open Home, About, Workflow, Documentation, Docking Preparation Problems, Open Source, API, Troubleshooting, Contact, Modules, and Build.
+4. Confirm nav dropdowns, footer links, theme toggle, FAQ expand/collapse behavior, and code-copy buttons work.
+5. Confirm the Build page still loads and its workflow JavaScript behaves normally.
+6. Inspect mobile widths to confirm SVG panels, related cards, FAQs, and footer links stack cleanly.
 
 ## Suggested Next Prompt
-Add an OpenAPI schema and a tiny Python client package for the `/api/v1` staged workflow, including fixture-backed API smoke tests.
+Install or activate the project dependency environment, then run a browser-based smoke test of all public pages and the Build workflow, fixing any visual or console issues found.

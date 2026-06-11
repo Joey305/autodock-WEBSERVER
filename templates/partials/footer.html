@@ -35,6 +35,13 @@
           <a href="{{ url_for('workflow') }}">Workflow</a>
           <a href="{{ url_for('about') }}">About</a>
           <a href="{{ url_for('documentation') }}">Documentation</a>
+          <a href="{{ url_for('api_docs') }}">Headless API</a>
+          <a href="{{ url_for('troubleshooting') }}">Troubleshooting</a>
+          <a href="{{ url_for('docking_problems') }}">Docking Prep Problems</a>
+          <a href="{{ url_for('open_source') }}">Open Source</a>
+          {% if repository_url is defined %}
+            <a href="{{ repository_url }}" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+          {% endif %}
           <a href="{{ url_for('contact') }}">Contact</a>
         </nav>
       </section>

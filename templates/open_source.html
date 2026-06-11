@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}Open Source Docking Tool | AutoDock-Vina PrepServer GitHub{% endblock %}
 {% block meta_description %}AutoDock-Vina PrepServer is an open-source Flask web application for preparing reproducible AutoDock Vina docking job packages from receptor and ligand inputs.{% endblock %}
+{% block og_title %}Open-Source AutoDock Vina Docking Preparation Tool{% endblock %}
+{% block og_description %}Explore the Flask-based source code, deployment context, and extension points for the AutoDock-Vina PrepServer web application.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
   <span class="eyebrow">Open-source scientific tooling</span>
@@ -17,6 +19,24 @@
       <i class="bi bi-journal-text me-2"></i>Read documentation
     </a>
   </div>
+</section>
+
+<section class="split-section">
+  <div>
+    <span class="eyebrow">Project structure</span>
+    <h2>Built to keep preparation logic inspectable.</h2>
+    <p>
+      The public pages, browser workflow, API endpoints, packaging helpers, and tests live in a conventional Flask
+      repository so future contributors can add documentation pages, reusable SVG sections, route tests, or deployment
+      notes without turning the site into a monolith.
+    </p>
+    <p>
+      The project is best understood as research infrastructure: a focused tool for assembling docking-preparation
+      assets, not a guarantee of downstream docking accuracy or a substitute for scientific review.
+    </p>
+  </div>
+  {% set visual_type = "ecosystem" %}
+  {% include "partials/page_visual.html" %}
 </section>
 
 <section class="content-grid two-col">
@@ -38,6 +58,25 @@
   </article>
 </section>
 
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-diagram-3"></i> Extension areas</h2>
+    <p>Good contribution targets include template content, route-level tests, API examples, deployment notes, input validation, cleanup policies, and accessible SVG explanations.</p>
+  </article>
+  <article class="info-card">
+    <h2><i class="bi bi-shield-lock"></i> Deployment responsibilities</h2>
+    <p>Operators should review authentication, public/private data boundaries, temporary storage cleanup, conversion dependencies, logging, quotas, and user communication before opening an instance.</p>
+  </article>
+  <article class="info-card">
+    <h2><i class="bi bi-bug"></i> Useful issue reports</h2>
+    <p>Include the route or page, input type, package mode, concise error text, dependency versions where relevant, and whether the problem happens in browser or API workflows.</p>
+  </article>
+  <article class="info-card">
+    <h2><i class="bi bi-journal-code"></i> Documentation growth</h2>
+    <p>New public pages should be routed, linked from the documentation hub or related-page partials, given page-specific metadata, and written with careful scientific claims.</p>
+  </article>
+</section>
+
 <section class="notice-card">
   <i class="bi bi-shield-check"></i>
   <div>
@@ -48,4 +87,28 @@
     </p>
   </div>
 </section>
+
+{% set faqs = [
+  {
+    "question": "Can I fork the repository for a private lab deployment?",
+    "answer": "The source is available for inspection and adaptation. A private deployment still needs appropriate security, access control, cleanup, and data-governance decisions before handling sensitive structures or ligands."
+  },
+  {
+    "question": "What kinds of changes are safest for new contributors?",
+    "answer": "Documentation improvements, template refinements, route tests, API examples, accessible visuals, and clearer troubleshooting content are useful low-risk contributions when they preserve existing workflow behavior."
+  },
+  {
+    "question": "Does open source mean public uploads are safe for confidential data?",
+    "answer": "No. Public deployments should be treated as public tools unless the specific instance is configured and governed for confidential use."
+  }
+] %}
+{% set faq_title = "Open-source and deployment FAQ" %}
+{% include "partials/faq.html" %}
+
+{% set related_pages = [
+  {"title": "API docs", "description": "Review the staged headless API before integrating PrepServer with scripts or agents.", "endpoint": "api_docs", "icon": "bi-braces", "label": "View API"},
+  {"title": "Documentation", "description": "Use the docs hub to keep new public resources discoverable.", "endpoint": "documentation", "icon": "bi-journal-text", "label": "Open docs"},
+  {"title": "Contact", "description": "Send concise bug reports, deployment feedback, or collaboration questions.", "endpoint": "contact", "icon": "bi-envelope", "label": "Contact"}
+] %}
+{% include "partials/related_pages.html" %}
 {% endblock %}

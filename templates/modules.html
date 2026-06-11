@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}Molecular Design Modules & Ecosystem | AutoDock-Vina PrepServer{% endblock %}
 {% block meta_description %}Explore AutoDock-Vina PrepServer companion tools for docking preparation, warhead review, PROTAC design, E3 recruiter exploration, viral ligand triage, Pymacs workflows, and Schürer Lab context.{% endblock %}
+{% block og_title %}Molecular Design Modules and PrepServer Ecosystem{% endblock %}
+{% block og_description %}Explore companion molecular design and analysis entry points connected to AutoDock Vina docking preparation workflows.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
   <span class="eyebrow">Modules ecosystem</span>
@@ -9,6 +11,23 @@
     Together, these tools support a growing workflow for structure-guided molecular preparation, ligand analysis,
     warhead/exposure review, induced-proximity design, and docking package generation.
   </p>
+</section>
+
+<section class="split-section">
+  <div>
+    <span class="eyebrow">Ecosystem role</span>
+    <h2>PrepServer handles the docking package handoff point.</h2>
+    <p>
+      The companion links point to adjacent molecular design and analysis workflows. PrepServer itself stays focused
+      on the docking preparation checkpoint: receptor assets, docking centers, ligand intake, and generated package files.
+    </p>
+    <p>
+      Keeping these roles distinct helps users understand which tool prepares inputs, which tool reviews molecular
+      context, and which downstream environment is responsible for docking execution and scientific interpretation.
+    </p>
+  </div>
+  {% set visual_type = "ecosystem" %}
+  {% include "partials/page_visual.html" %}
 </section>
 
 <section class="module-grid">
@@ -43,4 +62,28 @@
     </p>
   </div>
 </section>
+
+{% set faqs = [
+  {
+    "question": "Are these modules one fully integrated discovery platform?",
+    "answer": "No. The page lists related tools and companion workflows. They should be treated as connected entry points rather than a single automated closed-loop discovery system."
+  },
+  {
+    "question": "Where does PrepServer fit among companion tools?",
+    "answer": "PrepServer focuses on receptor, ligand, docking box, and package preparation for downstream AutoDock Vina workflows."
+  },
+  {
+    "question": "Should module outputs be interpreted automatically?",
+    "answer": "No. Outputs from any companion workflow should be reviewed in context by scientists with appropriate controls, assumptions, and validation."
+  }
+] %}
+{% set faq_title = "Modules ecosystem FAQ" %}
+{% include "partials/faq.html" %}
+
+{% set related_pages = [
+  {"title": "Build workflow", "description": "Use PrepServer to assemble docking package assets from receptor and ligand inputs.", "endpoint": "build", "icon": "bi-box-seam", "label": "Start build"},
+  {"title": "About PrepServer", "description": "Learn why the app focuses on transparent preparation rather than black-box scientific claims.", "endpoint": "about", "icon": "bi-info-circle", "label": "Read about"},
+  {"title": "Open source", "description": "Review the repository and developer context for extending the Flask app.", "endpoint": "open_source", "icon": "bi-github", "label": "Open source page"}
+] %}
+{% include "partials/related_pages.html" %}
 {% endblock %}

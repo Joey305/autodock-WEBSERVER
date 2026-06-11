@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
-{% block title %}Troubleshooting Docking Prep | AutoDock-Vina PrepServer{% endblock %}
-{% block meta_description %}Troubleshoot AutoDock-Vina PrepServer workspace setup, receptor preparation, docking center selection, ligand CSV mapping, Open Babel conversion, and package generation issues.{% endblock %}
+{% block title %}Docking Troubleshooting Guide | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}Troubleshoot AutoDock-Vina PrepServer molecular docking preparation issues, including workspace setup, receptor preparation, docking center selection, ligand CSV mapping, Open Babel PDBQT conversion, package modes, and ZIP generation.{% endblock %}
+{% block og_title %}AutoDock-Vina PrepServer Troubleshooting Guide{% endblock %}
+{% block og_description %}Fix common molecular docking preparation issues before rebuilding receptor, ligand, center, and package assets.{% endblock %}
 {% block content %}
 <section class="page-hero compact">
   <span class="eyebrow">Troubleshooting</span>
@@ -9,6 +11,24 @@
     Most docking-preparation errors come from missing inputs, incomplete centers, unsupported file formats, external conversion tools,
     or package-mode settings. Use these checks before repeating a long workflow.
   </p>
+</section>
+
+<section class="split-section">
+  <div>
+    <span class="eyebrow">Decision path</span>
+    <h2>Check the earliest missing state before repeating later steps.</h2>
+    <p>
+      A failed package build is often the final symptom, not the first problem. Work backwards through the workflow:
+      workspace, receptor registration, center table, receptor preparation log, ligand upload state, package mode, and
+      generated artifact list.
+    </p>
+    <p>
+      This keeps debugging narrow and avoids re-uploading large files when the real issue is a missing center or a
+      deployment dependency such as Open Babel.
+    </p>
+  </div>
+  {% set visual_type = "troubleshooting" %}
+  {% include "partials/page_visual.html" %}
 </section>
 
 <section class="content-grid two-col">
@@ -38,6 +58,30 @@
   </article>
 </section>
 
+<section class="timeline">
+  <article class="timeline-item">
+    <span class="timeline-number">1</span>
+    <div>
+      <h2>Confirm state exists</h2>
+      <p>Reload the page or API state and confirm the workspace still contains receptors, centers, ligand status, and any generated artifacts you expect.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">2</span>
+    <div>
+      <h2>Read the first failing log</h2>
+      <p>If receptor conversion fails, inspect the preparation log before changing ligand files or package mode. Conversion failures usually happen earlier in the pipeline.</p>
+    </div>
+  </article>
+  <article class="timeline-item">
+    <span class="timeline-number">3</span>
+    <div>
+      <h2>Verify package assumptions</h2>
+      <p>Portable packages and scheduler-oriented packages have different expectations. Confirm which mode is enabled for the deployment and which downstream environment will run Vina.</p>
+    </div>
+  </article>
+</section>
+
 <section class="cta-band">
   <div>
     <h2>Still stuck?</h2>
@@ -45,4 +89,28 @@
   </div>
   <a class="btn btn-app-primary" href="{{ url_for('contact') }}">Contact</a>
 </section>
+
+{% set faqs = [
+  {
+    "question": "Why is my build button unavailable?",
+    "answer": "The build step depends on a valid workspace, centered and prepared receptors, uploaded ligand inputs, and any required CSV configuration. Check those states before attempting package generation."
+  },
+  {
+    "question": "What should I check when PDBQT conversion fails?",
+    "answer": "Inspect the prep log, confirm the receptor input is parseable, review cleanup choices, and verify that the deployment has the required conversion executable such as Open Babel."
+  },
+  {
+    "question": "What information helps with a bug report?",
+    "answer": "Include the workflow step, browser or API path, input type, package mode, concise error text, and whether the issue is reproducible with non-confidential example files."
+  }
+] %}
+{% set faq_title = "Troubleshooting FAQ" %}
+{% include "partials/faq.html" %}
+
+{% set related_pages = [
+  {"title": "Workflow guide", "description": "Locate the stage that produced the missing or failed state.", "endpoint": "workflow", "icon": "bi-map", "label": "Read workflow"},
+  {"title": "Docking prep problems", "description": "Understand the underlying preparation mistakes that commonly cause broken packages.", "endpoint": "docking_problems", "icon": "bi-exclamation-diamond", "label": "Read guide"},
+  {"title": "Contact", "description": "Send a concise issue report when local checks do not resolve the problem.", "endpoint": "contact", "icon": "bi-envelope", "label": "Contact"}
+] %}
+{% include "partials/related_pages.html" %}
 {% endblock %}
