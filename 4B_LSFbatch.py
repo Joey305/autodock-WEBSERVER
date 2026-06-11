@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import os
 import re
 import sys
@@ -30,7 +32,7 @@ mkdir -p logs
 source /nethome/jxs794/miniconda3/etc/profile.d/conda.sh
 conda activate vina_env
 
-python 4CMULTIVINA.py \\
+python 4_ParseScores.py \\
   --dir "{results_dir}" \\
   --workers {workers} \\
   --heartbeat {heartbeat} {fallback_flag}
@@ -163,7 +165,7 @@ def input_default(prompt: str, default: str) -> str:
     return s if s else str(default)
 
 def main():
-    print("\n=== Parse LSF Builder (Interactive) ===")
+    print("\n=== 4B_LSFbatch Parse LSF Builder (Interactive) ===")
 
     dirs = result_dirs()
     if not dirs:

@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import os, sys, re, csv, argparse, threading
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
+from ligand_manifest import (
+    CHEMICAL_METADATA_COLUMNS,
+    find_ligand_state_manifests,
+    load_ligand_state_manifest,
+    merge_ligand_metadata,
+)
+from ligand_naming import parse_ligand_variant
 
 # ==========================================================
 # Command-line argument parser
 # ==========================================================
 def parse_cli():
-    ap = argparse.ArgumentParser(description="Parse Vina results for one or more Docking_Results_* dirs.")
+    ap = argparse.ArgumentParser(description="4_ParseScores: parse Vina results for one or more Docking_Results_* dirs.")
     ap.add_argument("--dir", help="Single Docking_Results_* directory to process (non-interactive).")
     ap.add_argument("--workers", type=int, default=8, help="Worker threads per job (default: 8).")
     ap.add_argument("--heartbeat", type=int, default=1000, help="Files per progress update.")
@@ -105,10 +115,71 @@ def choose_multi(items: List[Path]) -> List[Path]:
 # ==========================================================
 # Core processing
 # ==========================================================
-def process_one_dir(results_dir: Path, workers: int, heartbeat: int, fallback_crawl: bool) -> List[Tuple[str, str, int, float, str]]:
+OUTPUT_COLUMNS = [
+    "Receptor",
+    "Ligand",
+    "LigandBase",
+    "LigandVariant",
+    "Pose",
+    "Binding_Affinity",
+    "OutFile",
+    "ProtomerTag",
+    "TautomerTag",
+    "ConformerTag",
+    "LegacyPoseTag",
+    "StateTag",
+    "ProtomerIndex",
+    "TautomerIndex",
+    "ConformerIndex",
+] + CHEMICAL_METADATA_COLUMNS
+
+
+def load_manifest_map(search_roots: List[Path]) -> Dict[str, Dict[str, str]]:
+    merged: Dict[str, Dict[str, str]] = {}
+    for manifest_path in find_ligand_state_manifests(search_roots):
+        merged.update(load_ligand_state_manifest(manifest_path))
+    return merged
+
+
+def build_score_rows(
+    receptor: str,
+    ligand_variant: str,
+    outfile_path: Path,
+    poses: List[Tuple[int, float]],
+    manifest_row: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, object]]:
+    parsed = parse_ligand_variant(ligand_variant)
+    metadata = merge_ligand_metadata(ligand_variant, manifest_row=manifest_row)
+    rows = []
+    for pose_idx, aff in poses:
+        row = {
+            "Receptor": receptor,
+            "Ligand": metadata["LigandBase"] or parsed["LigandBase"],
+            "LigandBase": metadata["LigandBase"] or parsed["LigandBase"],
+            "LigandVariant": metadata["LigandVariant"] or parsed["LigandVariant"],
+            "Pose": pose_idx,
+            "Binding_Affinity": float(aff),
+            "OutFile": str(outfile_path.resolve()),
+            "ProtomerTag": metadata["ProtomerTag"],
+            "TautomerTag": metadata["TautomerTag"],
+            "ConformerTag": metadata["ConformerTag"],
+            "LegacyPoseTag": metadata["LegacyPoseTag"],
+            "StateTag": metadata["StateTag"],
+            "ProtomerIndex": metadata["ProtomerIndex"],
+            "TautomerIndex": metadata["TautomerIndex"],
+            "ConformerIndex": metadata["ConformerIndex"],
+        }
+        for key in CHEMICAL_METADATA_COLUMNS:
+            row[key] = metadata.get(key, "")
+        rows.append(row)
+    return rows
+
+
+def process_one_dir(results_dir: Path, workers: int, heartbeat: int, fallback_crawl: bool) -> List[Dict[str, object]]:
     """Parse all out.pdbqt files for one Docking_Results_* directory."""
     log_path = match_run_log(results_dir)
     targets: List[Tuple[str, str, Path]] = []
+    manifest_map = load_manifest_map([results_dir.parent, results_dir, Path.cwd()])
 
     if log_path and log_path.is_file():
         print(f"✅ {results_dir.name} -> {log_path.name}")
@@ -142,12 +213,7 @@ def process_one_dir(results_dir: Path, workers: int, heartbeat: int, fallback_cr
         poses = parse_vina_pdbqt(p)
         if not poses:
             return []
-        # ligand name (strip __SMILE_POSE if present)
-        lig = ligand_dir.split("__", 1)[0] if "__" in ligand_dir else ligand_dir
-        out = []
-        for pose_idx, aff in poses:
-            out.append((receptor, lig, pose_idx, float(aff), str(Path(p).resolve())))
-        return out
+        return build_score_rows(receptor, ligand_dir, Path(p), poses, manifest_map.get(ligand_dir))
 
     print(f"🚀 {results_dir.name}: parsing {len(targets)} files with {workers} threads …")
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -190,11 +256,11 @@ def main():
             print(f"⚠️ No results parsed in {results_dir.name}")
             sys.exit(0)
 
-        rows.sort(key=lambda r: (r[0], float(r[3])))
+        rows.sort(key=lambda r: (str(r["Receptor"]), float(r["Binding_Affinity"])))
         per_dir_csv = results_dir.parent / f"{results_dir.name}_{ts}_vina_docking_scores_sorted.csv"
         with open(per_dir_csv, "w", newline="", encoding="utf-8") as fh:
-            w = csv.writer(fh)
-            w.writerow(["Receptor", "Ligand", "Pose", "Binding_Affinity", "OutFile"])
+            w = csv.DictWriter(fh, fieldnames=OUTPUT_COLUMNS)
+            w.writeheader()
             w.writerows(rows)
         print(f"📊 Per-dir CSV → {per_dir_csv}")
         sys.exit(0)
@@ -216,17 +282,17 @@ def main():
     heartbeat = max(50, args.heartbeat)
 
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    all_rows: List[Tuple[str, str, int, float, str]] = []
+    all_rows: List[Dict[str, object]] = []
 
     for results_dir in selected:
         rows = process_one_dir(results_dir, workers, heartbeat, args.fallback_crawl)
         if not rows:
             continue
-        rows.sort(key=lambda r: (r[0], float(r[3])))
+        rows.sort(key=lambda r: (str(r["Receptor"]), float(r["Binding_Affinity"])))
         per_dir_csv = results_dir.parent / f"{results_dir.name}_{ts}_vina_docking_scores_sorted.csv"
         with open(per_dir_csv, "w", newline="", encoding="utf-8") as fh:
-            w = csv.writer(fh)
-            w.writerow(["Receptor", "Ligand", "Pose", "Binding_Affinity", "OutFile"])
+            w = csv.DictWriter(fh, fieldnames=OUTPUT_COLUMNS)
+            w.writeheader()
             w.writerows(rows)
         print(f"📊 Per-dir CSV → {per_dir_csv}")
         all_rows.extend(rows)

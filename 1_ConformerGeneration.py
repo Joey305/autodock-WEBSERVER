@@ -1,5 +1,6 @@
 
 #!/usr/bin/env python3
+from __future__ import annotations
 import os, sys, csv, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
@@ -15,6 +16,7 @@ from rdkit.Chem import AllChem
 from rdkit import Chem
 from pathlib import Path
 from rdkit.Chem.MolStandardize import rdMolStandardize
+from ligand_manifest import build_ligand_state_metadata, write_ligand_state_manifest
 # =============================
 # 1) ADD THESE IMPORTS
 # =============================
@@ -95,6 +97,77 @@ def sanitize_id(name: str) -> str:
     safe = "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in (name or "ligand"))
     return safe.strip("_") or "ligand"
 
+
+def ligand_id_from_source_file(path: Path, record_index: int | None = None, total_records: int | None = None) -> str:
+    base = sanitize_id(path.stem)
+    if record_index is not None:
+        width = max(3, len(str(total_records or record_index)))
+        return f"{base}_rec{int(record_index):0{width}d}"
+    return base
+
+
+def ensure_unique_ligand_id(ligand_id: str, seen: dict[str, int], context: str = "") -> str:
+    ligand_id = sanitize_id(ligand_id)
+    count = seen.get(ligand_id, 0)
+    if count == 0:
+        seen[ligand_id] = 1
+        return ligand_id
+    seen[ligand_id] = count + 1
+    unique = f"{ligand_id}_{seen[ligand_id]:03d}"
+    where = f" from {context}" if context else ""
+    print(f"⚠️ Ligand ID collision for {ligand_id}{where}; using {unique}")
+    return unique
+
+
+def _ignore_ligand_entry(name: str) -> bool:
+    return (
+        not name
+        or name in {"__MACOSX", ".DS_Store"}
+        or name.startswith(".")
+        or name.startswith("._")
+    )
+
+
+def _ignore_ligand_dir(name: str) -> bool:
+    return (
+        _ignore_ligand_entry(name)
+        or name.startswith("Ligands_TMP_SDF_")
+        or (name.startswith("Ligands_") and "_PDBQT_" in name)
+    )
+
+
+def discover_ligand_input_files(folder: Path, suffixes: tuple[str, ...]) -> list[Path]:
+    folder = Path(folder)
+    found: list[Path] = []
+    seen: set[Path] = set()
+    nested_hits = 0
+
+    for root, dirnames, filenames in os.walk(folder):
+        root_path = Path(root)
+        dirnames[:] = [name for name in dirnames if not _ignore_ligand_dir(name)]
+        for filename in sorted(filenames):
+            if _ignore_ligand_entry(filename):
+                continue
+            path = root_path / filename
+            if path.suffix.lower() not in suffixes:
+                continue
+            try:
+                resolved = path.resolve()
+            except Exception:
+                resolved = path
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if root_path != folder:
+                nested_hits += 1
+            found.append(path)
+
+    found.sort()
+    if nested_hits:
+        print(f"🔎 Detected nested ligand files under {folder}; using recursive discovery.")
+    print(f"🔎 Discovered {len(found)} ligand input file(s) under {folder}")
+    return found
+
 def create_output_dirs(base_name: str, tag: str) -> tuple[Path, Path]:
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     pdbqt_dir = Path(f"{base_name}_Ligands_PDBQT_{tag}_{ts}")
@@ -104,83 +177,96 @@ def create_output_dirs(base_name: str, tag: str) -> tuple[Path, Path]:
     return pdbqt_dir, tmp_dir
 
 
+def write_manifest_for_outputs(pdbqt_dir: Path, rows: list[dict]) -> Path | None:
+    if not rows:
+        return None
+    manifest_path = Path(pdbqt_dir) / "ligand_state_manifest.csv"
+    write_ligand_state_manifest(manifest_path, rows)
+    print(f"🗒️  Wrote ligand state manifest: {manifest_path}")
+    return manifest_path
+
 
 
 
 def embed_and_optimize(mol: Chem.Mol, num_confs: int) -> tuple[Chem.Mol, list[int]]:
     """
-    Robust conformer generation:
-    - ETKDG embedding (1-by-1 for stability)
-    - UFF/MMFF optimization (best-effort)
-    - NO conformer object reuse (vector-safe)
-    - Multiprocessing safe
-    - Returns conformer IDs on the FINAL mol
+    Generate genuinely distinct RDKit conformers for one tautomer/protomer state.
+
+    Fixes the duplicate-conformer bug caused by repeatedly calling
+    EmbedMultipleConfs(..., numConfs=1) and then repacking stale conformer IDs.
     """
 
-    # --- Keep largest connected fragment only (THIS CREATES A NEW MOL) ---
+    # Keep largest connected fragment only
     frags = Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=True)
     mol = max(frags, key=lambda m: m.GetNumAtoms())
 
-    # --- Ensure hydrogens ---
+    # Ensure hydrogens
     mol = Chem.AddHs(mol, addCoords=True)
 
-    # --- ETKDG parameters ---
+    # ETKDG parameters
     try:
         params = AllChem.ETKDGv3()
     except Exception:
         params = AllChem.ETKDG()
 
     params.useRandomCoords = True
-    params.numThreads = 0  # multiprocessing-safe
+    params.numThreads = 0
+
+    # Optional but useful: avoid near-identical conformers.
+    # Lower value = keep more conformers; higher value = stricter pruning.
+    try:
+        params.pruneRmsThresh = 0.25
+    except Exception:
+        pass
+
+    # Generate all conformers in ONE call so conformer IDs remain valid.
+    conf_ids = list(AllChem.EmbedMultipleConfs(
+        mol,
+        numConfs=int(num_confs),
+        params=params
+    ))
 
     accepted_conf_ids = []
-    attempts = 0
-    max_attempts = num_confs * 5
 
-    while len(accepted_conf_ids) < num_confs and attempts < max_attempts:
-        attempts += 1
-
-        conf_ids = AllChem.EmbedMultipleConfs(mol, numConfs=1, params=params)
-
-        for cid in conf_ids:
-            # Optimize best-effort
+    for cid in conf_ids:
+        # Optimize best-effort
+        try:
             try:
-                try:
-                    AllChem.UFFOptimizeMolecule(mol, confId=cid)
-                except Exception:
-                    AllChem.MMFFOptimizeMolecule(mol, confId=cid)
+                AllChem.UFFOptimizeMolecule(mol, confId=int(cid))
             except Exception:
-                pass
+                AllChem.MMFFOptimizeMolecule(mol, confId=int(cid))
+        except Exception:
+            pass
 
-            # Geometry sanity check
-            conf = mol.GetConformer(cid)
-            coords = np.array([[conf.GetAtomPosition(i).x,
-                                conf.GetAtomPosition(i).y,
-                                conf.GetAtomPosition(i).z]
-                               for i in range(mol.GetNumAtoms())])
+        # Geometry sanity check
+        try:
+            conf = mol.GetConformer(int(cid))
+            coords = np.array([
+                [
+                    conf.GetAtomPosition(i).x,
+                    conf.GetAtomPosition(i).y,
+                    conf.GetAtomPosition(i).z,
+                ]
+                for i in range(mol.GetNumAtoms())
+            ])
+
             centroid = coords.mean(axis=0)
             dists = np.linalg.norm(coords - centroid, axis=1)
 
             if np.all(dists < 50.0):
-                accepted_conf_ids.append(cid)
-            else:
-                mol.RemoveConformer(cid)
+                accepted_conf_ids.append(int(cid))
+        except Exception:
+            continue
 
-            if len(accepted_conf_ids) >= num_confs:
-                break
-
-    # Repack conformers to clean sequential IDs
+    # Repack accepted conformers into a clean molecule with clean IDs
     clean = Chem.Mol(mol)
     clean.RemoveAllConformers()
 
     for cid in accepted_conf_ids[:num_confs]:
-        conf = mol.GetConformer(cid)
+        conf = mol.GetConformer(int(cid))
         clean.AddConformer(Chem.Conformer(conf), assignId=True)
 
     return clean, [c.GetId() for c in clean.GetConformers()]
-
-
-
 
 
 
@@ -501,16 +587,31 @@ def generate_poses(task):
       ligand_p01_t02_c001.pdbqt
       ...
     """
-    ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts = task
+    (
+        ligand_id,
+        molblock,
+        tmp_dir,
+        pdbqt_dir,
+        num_confs,
+        OBABEL,
+        state_opts,
+        source_input,
+        source_input_type,
+        source_ligand_id,
+        source_record_index,
+        source_record_name,
+        original_mol_name,
+    ) = task
 
     lig_tmp_dir = tmp_dir / ligand_id
     lig_tmp_dir.mkdir(exist_ok=True, parents=True)
+    manifest_rows = []
 
     # 1) Load molblock
     mol = Chem.MolFromMolBlock(molblock, sanitize=True, removeHs=False)
     if mol is None:
         print(f"❌ {ligand_id}: could not parse molblock")
-        return 0
+        return {"written": 0, "rows": manifest_rows}
 
     # 2) Rebuild via SMILES for consistency
     try:
@@ -518,10 +619,12 @@ def generate_poses(task):
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             print(f"❌ {ligand_id}: could not rebuild from SMILES")
-            return 0
+            return {"written": 0, "rows": manifest_rows}
     except Exception:
         print(f"❌ {ligand_id}: SMILES rebuild failed")
-        return 0
+        return {"written": 0, "rows": manifest_rows}
+
+    canonical_mol = Chem.Mol(mol)
 
     # 3) Enumerate protomers
     try:
@@ -535,11 +638,11 @@ def generate_poses(task):
         )
     except Exception as e:
         print(f"❌ {ligand_id}: protomer enumeration failed: {e}")
-        return 0
+        return {"written": 0, "rows": manifest_rows}
 
     if not protomers:
         print(f"❌ {ligand_id}: no protomers generated")
-        return 0
+        return {"written": 0, "rows": manifest_rows}
 
     written = 0
 
@@ -558,6 +661,7 @@ def generate_poses(task):
             # 5) Conformer generation per tautomer
             try:
                 conf_mol, conf_ids = embed_and_optimize(Chem.Mol(tmol), num_confs)
+                print(f"[STATE] {ligand_id} p{p_idx:02d} t{t_idx:02d}: {len(conf_ids)}/{num_confs} conformers generated")
             except Exception as e:
                 print(f"⚠️ {ligand_id} p{p_idx:02d} t{t_idx:02d}: embed/opt failed: {e}")
                 continue
@@ -570,15 +674,39 @@ def generate_poses(task):
             state_tmp_dir.mkdir(exist_ok=True, parents=True)
 
             for c_idx, cid in enumerate(conf_ids, start=1):
-                sdf_path = state_tmp_dir / f"{state_prefix}_c{c_idx:03d}.sdf"
-                mol2_path = state_tmp_dir / f"{state_prefix}_c{c_idx:03d}.mol2"
-                pdbqt_path = pdbqt_dir / f"{state_prefix}_c{c_idx:03d}.pdbqt"
+                ligand_variant = f"{state_prefix}_c{c_idx:03d}"
+                sdf_path = state_tmp_dir / f"{ligand_variant}.sdf"
+                mol2_path = state_tmp_dir / f"{ligand_variant}.mol2"
+                pdbqt_path = pdbqt_dir / f"{ligand_variant}.pdbqt"
+                manifest_kwargs = {
+                    "ligand_base": ligand_id,
+                    "ligand_variant": ligand_variant,
+                    "source_ligand_id": source_ligand_id or ligand_id,
+                    "source_input": source_input,
+                    "source_input_type": source_input_type,
+                    "source_record_index": source_record_index,
+                    "source_record_name": source_record_name,
+                    "sdf_title": source_record_name,
+                    "original_mol_name": original_mol_name,
+                    "canonical_mol": canonical_mol,
+                    "state_mol": tmol,
+                    "pdbqt_file": pdbqt_path.name,
+                    "sdf_file": sdf_path.name,
+                    "tmp_sdf_file": str(sdf_path.relative_to(tmp_dir)),
+                }
 
                 # Write SDF conformer
                 try:
                     Chem.MolToMolFile(conf_mol, str(sdf_path), confId=int(cid))
                 except Exception as e:
                     print(f"❌ {state_prefix}: failed writing conformer {c_idx}: {e}")
+                    manifest_rows.append(
+                        build_ligand_state_metadata(
+                            **manifest_kwargs,
+                            generation_status="failed_sdf",
+                            generation_warning=str(e),
+                        )
+                    )
                     continue
 
                 # Convert SDF -> MOL2 with Gasteiger charges
@@ -593,6 +721,13 @@ def generate_poses(task):
                     )
                 except subprocess.CalledProcessError:
                     print(f"❌ OpenBabel failed (SDF→MOL2) for {state_prefix} c{c_idx:03d}")
+                    manifest_rows.append(
+                        build_ligand_state_metadata(
+                            **manifest_kwargs,
+                            generation_status="failed_mol2",
+                            generation_warning="OpenBabel failed during SDF to MOL2 conversion",
+                        )
+                    )
                     continue
 
                 # Convert MOL2 -> PDBQT
@@ -605,8 +740,22 @@ def generate_poses(task):
                         stderr=subprocess.DEVNULL
                     )
                     written += 1
+                    manifest_rows.append(
+                        build_ligand_state_metadata(
+                            **manifest_kwargs,
+                            generation_status="ok",
+                            generation_warning="",
+                        )
+                    )
                 except subprocess.CalledProcessError:
                     print(f"❌ OpenBabel failed (MOL2→PDBQT) for {state_prefix} c{c_idx:03d}")
+                    manifest_rows.append(
+                        build_ligand_state_metadata(
+                            **manifest_kwargs,
+                            generation_status="failed_pdbqt",
+                            generation_warning="OpenBabel failed during MOL2 to PDBQT conversion",
+                        )
+                    )
                     continue
                 finally:
                     try:
@@ -616,7 +765,7 @@ def generate_poses(task):
                         pass
 
     print(f"[OK] {ligand_id}: {written} total structures written → {pdbqt_dir}")
-    return written
+    return {"written": written, "rows": manifest_rows}
 
 
 # def generate_poses(task):
@@ -777,6 +926,8 @@ def mol_from_sdf_as_smiles(sdf_path: Path):
 
     base = sdf_path.stem
     seen = {}
+    total_records = sum(1 for mol in supp if mol is not None)
+    supp = Chem.SDMolSupplier(str(sdf_path), sanitize=True, removeHs=True)
 
     for idx, mol in enumerate(supp, start=1):
         if mol is None:
@@ -791,19 +942,20 @@ def mol_from_sdf_as_smiles(sdf_path: Path):
             continue
         m2 = Chem.AddHs(m2)
 
-        # Decide ligand_id
-        raw_name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
-        if not raw_name:
-            raw_name = base if len(supp) == 1 else f"{base}_rec{idx}"
+        record_name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
+        raw_id = ligand_id_from_source_file(sdf_path, idx if total_records > 1 else None, total_records)
+        ligand_id = ensure_unique_ligand_id(raw_id, seen, context=f"{sdf_path.name} record {idx}")
 
-        ligand_id = "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in raw_name)
-        if ligand_id in seen:
-            seen[ligand_id] += 1
-            ligand_id = f"{ligand_id}_{seen[ligand_id]:02d}"
-        else:
-            seen[ligand_id] = 1
-
-        yield ligand_id, Chem.MolToMolBlock(m2)
+        yield {
+            "ligand_id": ligand_id,
+            "molblock": Chem.MolToMolBlock(m2),
+            "source_input": str(sdf_path),
+            "source_input_type": "sdf",
+            "source_ligand_id": ligand_id,
+            "source_record_index": idx,
+            "source_record_name": record_name,
+            "original_mol_name": record_name,
+        }
 
 
 def mol_from_smiles_text(smiles: str, ligand_id: str):
@@ -826,23 +978,36 @@ def iter_mols_from_sdf_file(sdf_path, obabel_bin="obabel"):
     3. OpenBabel repair
     4. SMILES roundtrip → regenerate SDF → retry RDKit
 
-    Each record tries to use the molecule title (mol.GetProp("_Name")),
-    falling back to file stem + index if missing.
-    Yields (ligand_id, molblock).
+    Each record uses the source filename as the primary ligand identity.
+    Internal SDF titles are preserved only as metadata.
     """
     sdf_path = Path(sdf_path)
-    base = sdf_path.stem
+    total_records_hint = 0
+    try:
+        raw_supp = Chem.SDMolSupplier(str(sdf_path), sanitize=False, removeHs=False)
+        total_records_hint = sum(1 for m in raw_supp if m is not None)
+    except Exception:
+        total_records_hint = 0
 
     def _yield_mols(mols):
+        seen = {}
         for idx, m in enumerate(mols, start=1):
             if m is None:
                 continue
-            # use title if present, otherwise fallback
-            if m.HasProp("_Name") and m.GetProp("_Name").strip():
-                ligand_id = sanitize_id(m.GetProp("_Name").strip())
-            else:
-                ligand_id = sanitize_id(f"{base}_{idx}")
-            yield ligand_id, Chem.MolToMolBlock(m)
+            record_name = m.GetProp("_Name").strip() if m.HasProp("_Name") else ""
+            use_record_index = idx if total_records_hint > 1 else None
+            raw_id = ligand_id_from_source_file(sdf_path, use_record_index, total_records_hint or None)
+            ligand_id = ensure_unique_ligand_id(raw_id, seen, context=f"{sdf_path.name} record {idx}")
+            yield {
+                "ligand_id": ligand_id,
+                "molblock": Chem.MolToMolBlock(m),
+                "source_input": str(sdf_path),
+                "source_input_type": "sdf",
+                "source_ligand_id": ligand_id,
+                "source_record_index": idx,
+                "source_record_name": record_name,
+                "original_mol_name": record_name,
+            }
 
     # --- Step 1: RDKit sanitize=True ---
     mols = try_rdkit_load(sdf_path, sanitize=True)
@@ -896,20 +1061,30 @@ def iter_mols_from_sdf_file(sdf_path, obabel_bin="obabel"):
 
 
 def iter_mols_from_sdf_folder(folder: Path):
-    for sdf in sorted(folder.glob("*.sdf")):
+    for sdf in discover_ligand_input_files(folder, (".sdf",)):
         yield from iter_mols_from_sdf_file(sdf)
 
 def iter_mols_from_smiles_folder(folder: Path):
-    for smi in sorted(folder.glob("*.smiles")):
+    seen = {}
+    for smi in discover_ligand_input_files(folder, (".smiles", ".smi")):
         try:
             smiles = smi.read_text().strip()
         except Exception:
             continue
         mol = Chem.MolFromSmiles(smiles)
         if mol:
-            ligand_id = sanitize_id(smi.stem)
+            ligand_id = ensure_unique_ligand_id(ligand_id_from_source_file(smi), seen, context=smi.name)
             mol = Chem.AddHs(mol)
-            yield ligand_id, Chem.MolToMolBlock(mol)
+            yield {
+                "ligand_id": ligand_id,
+                "molblock": Chem.MolToMolBlock(mol),
+                "source_input": str(smi),
+                "source_input_type": "smiles",
+                "source_ligand_id": ligand_id,
+                "source_record_index": 1,
+                "source_record_name": "",
+                "original_mol_name": "",
+            }
 
 # ----------------- interactive helpers -----------------
 def choose(prompt, options):
@@ -973,16 +1148,16 @@ def prompt_int(question, default):
 def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBABEL: str, remove_tmp: bool):
     print(f"\n=== Processing folder: {folder} (type={ft}) ===")
 
-    tasks: list[tuple[str, str]] = []
+    tasks: list[dict[str, str]] = []
     base_name = folder.name
 
     # Collect ligands from the folder
     if ft == "sdf":
-        for ligand_id, molblock in iter_mols_from_sdf_folder(folder):
-            tasks.append((ligand_id, molblock))
+        for task in iter_mols_from_sdf_folder(folder):
+            tasks.append(task)
     else:
-        for ligand_id, molblock in iter_mols_from_smiles_folder(folder):
-            tasks.append((ligand_id, molblock))
+        for task in iter_mols_from_smiles_folder(folder):
+            tasks.append(task)
 
     if not tasks:
         print(f"⚠️  No valid molecules found in {folder}. Skipping.")
@@ -1001,14 +1176,32 @@ def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBAB
     #     (ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL)
     #     for (ligand_id, molblock) in tasks
     # ]
-    work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts)
-              for (ligand_id, molblock) in tasks]
+    work_items = [
+        (
+            task["ligand_id"],
+            task["molblock"],
+            tmp_dir,
+            pdbqt_dir,
+            num_confs,
+            OBABEL,
+            state_opts,
+            task["source_input"],
+            task["source_input_type"],
+            task["source_ligand_id"],
+            task.get("source_record_index", ""),
+            task.get("source_record_name", ""),
+            task.get("original_mol_name", ""),
+        )
+        for task in tasks
+    ]
 
     written_total = 0
+    manifest_rows: list[dict] = []
     try:
         with Pool(processes=num_workers) as pool:
-            for n in pool.imap_unordered(generate_poses, work_items, chunksize=1):
-                written_total += int(n or 0)
+            for result in pool.imap_unordered(generate_poses, work_items, chunksize=1):
+                written_total += int((result or {}).get("written", 0))
+                manifest_rows.extend((result or {}).get("rows", []))
     finally:
         # 🧹 Only remove TMP if explicitly requested
         if remove_tmp:
@@ -1019,6 +1212,7 @@ def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBAB
                 print(f"⚠️ Could not remove TMP dir {tmp_dir}: {e}", file=sys.stderr)
 
     print(f"✅ Done! {written_total} poses written to: {pdbqt_dir}")
+    write_manifest_for_outputs(pdbqt_dir, manifest_rows)
     return written_total, pdbqt_dir, tmp_dir
 
 
@@ -1090,7 +1284,8 @@ if __name__ == "__main__":
 
         base_name = csv_path.stem
 
-        tasks: list[tuple[str, str]] = []
+        tasks: list[dict[str, str]] = []
+        seen_csv_ids: dict[str, int] = {}
         with open(csv_path, "r", newline="") as f:
             r = csv.DictReader(f)
             headers = r.fieldnames or []
@@ -1107,15 +1302,30 @@ if __name__ == "__main__":
                 smi_col = headers[prompt_int("Index of SMILES column?", 0)]
                 id_col  = headers[prompt_int("Index of ID column?", 1)]
 
-            for row in r:
+            for row_index, row in enumerate(r, start=1):
                 smiles = (row.get(smi_col) or "").strip()
-                ligand_id = sanitize_id((row.get(id_col) or "").strip())
+                ligand_id = ensure_unique_ligand_id(
+                    sanitize_id((row.get(id_col) or "").strip()),
+                    seen_csv_ids,
+                    context=f"{csv_path.name} row {row_index}",
+                )
                 if not smiles or not ligand_id:
                     continue
                 mol = Chem.MolFromSmiles(smiles)
                 if mol:
                     mol = Chem.AddHs(mol)
-                    tasks.append((ligand_id, Chem.MolToMolBlock(mol)))
+                    tasks.append(
+                        {
+                            "ligand_id": ligand_id,
+                            "molblock": Chem.MolToMolBlock(mol),
+                            "source_input": str(csv_path),
+                            "source_input_type": "csv",
+                            "source_ligand_id": ligand_id,
+                            "source_record_index": row_index,
+                            "source_record_name": "",
+                            "original_mol_name": "",
+                        }
+                    )
 
         if not tasks:
             print("⚠️ No valid molecules found."); sys.exit(2)
@@ -1128,14 +1338,32 @@ if __name__ == "__main__":
         print(f"🗂  TMP SDF:     {tmp_dir} (will {'NOT ' if args.remove_tmp else ''}be removed at end)")
 
         # work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL) for (ligand_id, molblock) in tasks]
-        work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts)
-              for (ligand_id, molblock) in tasks]
+        work_items = [
+            (
+                task["ligand_id"],
+                task["molblock"],
+                tmp_dir,
+                pdbqt_dir,
+                num_confs,
+                OBABEL,
+                state_opts,
+                task["source_input"],
+                task["source_input_type"],
+                task["source_ligand_id"],
+                task.get("source_record_index", ""),
+                task.get("source_record_name", ""),
+                task.get("original_mol_name", ""),
+            )
+            for task in tasks
+        ]
 
         written_total = 0
+        manifest_rows: list[dict] = []
         try:
             with Pool(processes=num_workers) as pool:
-                for n in pool.imap_unordered(generate_poses, work_items, chunksize=1):
-                    written_total += int(n or 0)
+                for result in pool.imap_unordered(generate_poses, work_items, chunksize=1):
+                    written_total += int((result or {}).get("written", 0))
+                    manifest_rows.extend((result or {}).get("rows", []))
         finally:
             print(f"🗂  TMP SDF:     {tmp_dir} (will {'be removed' if args.remove_tmp else 'be KEPT'})")
             if args.remove_tmp:
@@ -1148,6 +1376,7 @@ if __name__ == "__main__":
                     print(f"⚠️ Could not remove TMP dir {tmp_dir}: {e}", file=sys.stderr)
 
         print(f"\n✅ Done! {written_total} poses written to: {pdbqt_dir}")
+        write_manifest_for_outputs(pdbqt_dir, manifest_rows)
 
     # --- Mode 2: MULTIPLE folders (sdf OR smiles) ---
     elif mode == "2":
@@ -1217,9 +1446,9 @@ if __name__ == "__main__":
             sdf_path = next(p for p in sdf_files if p.name == pick)
         base_name = sdf_path.stem
 
-        tasks: list[tuple[str, str]] = []
-        for ligand_id, molblock in iter_mols_from_sdf_file(sdf_path):
-            tasks.append((ligand_id, molblock))
+        tasks: list[dict[str, str]] = []
+        for task in iter_mols_from_sdf_file(sdf_path):
+            tasks.append(task)
 
         if not tasks:
             print("⚠️ No valid molecules found."); sys.exit(2)
@@ -1233,14 +1462,32 @@ if __name__ == "__main__":
 
 
         # work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL) for (ligand_id, molblock) in tasks]
-        work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL, state_opts)
-              for (ligand_id, molblock) in tasks]
+        work_items = [
+            (
+                task["ligand_id"],
+                task["molblock"],
+                tmp_dir,
+                pdbqt_dir,
+                num_confs,
+                OBABEL,
+                state_opts,
+                task["source_input"],
+                task["source_input_type"],
+                task["source_ligand_id"],
+                task.get("source_record_index", ""),
+                task.get("source_record_name", ""),
+                task.get("original_mol_name", ""),
+            )
+            for task in tasks
+        ]
 
         written_total = 0
+        manifest_rows: list[dict] = []
         try:
             with Pool(processes=num_workers) as pool:
-                for n in pool.imap_unordered(generate_poses, work_items, chunksize=1):
-                    written_total += int(n or 0)
+                for result in pool.imap_unordered(generate_poses, work_items, chunksize=1):
+                    written_total += int((result or {}).get("written", 0))
+                    manifest_rows.extend((result or {}).get("rows", []))
         finally:
             print(f"🗂  TMP SDF:     {tmp_dir} (will {'be removed' if args.remove_tmp else 'be KEPT'})")
             if args.remove_tmp:
@@ -1253,6 +1500,7 @@ if __name__ == "__main__":
                     print(f"⚠️ Could not remove TMP dir {tmp_dir}: {e}", file=sys.stderr)
 
         print(f"\n✅ Done! {written_total} poses written to: {pdbqt_dir}")
+        write_manifest_for_outputs(pdbqt_dir, manifest_rows)
 
     else:
         print("❌ Invalid selection."); sys.exit(1)

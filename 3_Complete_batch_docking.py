@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import os
 import sys
 import csv
 import glob
 import subprocess
+import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import time
 import platform
@@ -11,6 +14,8 @@ from datetime import datetime
 import argparse
 import re
 from pathlib import Path
+
+from ligand_manifest import find_ligand_state_manifests, load_ligand_state_manifest, merge_ligand_metadata
 
 # ---------- UI helpers (only used if flags not provided) ----------
 def choose(prompt, items):
@@ -55,8 +60,7 @@ def _ligand_tag_from_dir(ligand_dir: str) -> str:
 
 # ---------- Docking worker ----------
 def run_docking(job):
-    # Prefer $VINA_EXE, else fall back to "vina" in PATH (your conda env provides it)
-    vina_exe = os.environ.get("VINA_EXE", "vina")
+    vina_exe = job["vina_exe"]
 
     # Write Vina config
     with open(job["config_path"], "w") as cfg:
@@ -97,6 +101,114 @@ def run_docking(job):
         err = result.stderr.decode(errors='ignore').strip()
         return False, f"❌ {job['ligand']} vs {job['pdbid']}: {err}"
 
+
+def resolve_vina_executable(cli_vina_exe: str | None = None) -> str:
+    candidates = []
+    if cli_vina_exe:
+        candidates.append(cli_vina_exe)
+    env_vina = os.environ.get("VINA_EXE", "").strip()
+    if env_vina:
+        candidates.append(env_vina)
+    path_vina = shutil.which("vina")
+    if path_vina:
+        candidates.append(path_vina)
+    conda_prefix = os.environ.get("CONDA_PREFIX", "").strip()
+    if conda_prefix:
+        candidates.append(os.path.join(conda_prefix, "bin", "vina"))
+
+    seen = set()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        candidate = os.path.abspath(candidate) if os.path.sep in candidate else candidate
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        probe = candidate
+        if probe == "vina":
+            resolved = shutil.which("vina")
+            probe = resolved if resolved else probe
+        if probe != "vina" and not os.path.exists(probe):
+            continue
+        try:
+            result = subprocess.run(
+                [probe, "--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                text=True,
+            )
+        except OSError:
+            continue
+        if result.returncode == 0:
+            return os.path.abspath(probe) if probe != "vina" else probe
+
+    raise SystemExit(
+        "Cannot find AutoDock Vina executable.\n"
+        "Install/download Vina so `vina --version` works, or set VINA_EXE=/path/to/vina, "
+        "or pass --vina-exe /path/to/vina.\n"
+        "Do not use `pip install vina` as the primary install path on systems where it "
+        "tries to build from source and fails on Boost."
+    )
+
+
+def build_jobs(results_dir, ligand_dir, receptor_dir, grid_rows, num_modes, vina_exe):
+    jobs = []
+    ligand_files = glob.glob(os.path.join(ligand_dir, "*.pdbqt"))
+    ligand_names = [os.path.splitext(os.path.basename(f))[0] for f in ligand_files]
+    manifest_map = {}
+    for manifest_path in find_ligand_state_manifests([Path(ligand_dir), Path(ligand_dir).parent]):
+        manifest_map.update(load_ligand_state_manifest(manifest_path))
+
+    if not ligand_names:
+        raise FileNotFoundError(f"No ligands (*.pdbqt) found in {ligand_dir}")
+
+    for row in grid_rows:
+        pdbid = row["PDB_ID"]
+        cx, cy, cz = row["X"], row["Y"], row["Z"]
+        receptor_file = os.path.join(receptor_dir, pdbid)
+
+        if not os.path.exists(receptor_file):
+            alt = None
+            for ext in (".pdbqt", ".pdb", ".mol2"):
+                cand = receptor_file + ext
+                if os.path.exists(cand):
+                    alt = cand
+                    break
+            if alt:
+                receptor_file = alt
+            else:
+                continue
+
+        for ligand in ligand_names:
+            ligand_file = os.path.join(ligand_dir, f"{ligand}.pdbqt")
+            if not os.path.exists(ligand_file):
+                continue
+
+            safe_pdbid = os.path.basename(receptor_file)
+            safe_pdbid = safe_pdbid.replace(".pdbqt", "").replace(".pdb", "").replace(".mol2", "")
+            output_subdir = os.path.join(results_dir, safe_pdbid, ligand)
+            os.makedirs(output_subdir, exist_ok=True)
+
+            jobs.append(
+                {
+                    "ligand": ligand,
+                    "ligand_file": ligand_file,
+                    "receptor_file": receptor_file,
+                    "output_pdbqt": os.path.join(output_subdir, "out.pdbqt"),
+                    "output_log": os.path.join(output_subdir, "log.txt"),
+                    "config_path": os.path.join(output_subdir, "config.txt"),
+                    "cx": cx,
+                    "cy": cy,
+                    "cz": cz,
+                    "pdbid": pdbid,
+                    "num_modes": num_modes,
+                    "vina_exe": vina_exe,
+                    "ligand_metadata": merge_ligand_metadata(ligand, manifest_row=manifest_map.get(ligand)),
+                }
+            )
+    return jobs
+
 def cpu_count_cgroup_aware():
     """Respect cgroup/LSF limits; fall back to os.cpu_count()."""
     try:
@@ -121,6 +233,7 @@ def parse_args():
     ap.add_argument("--ligands", help="Path to ligand folder with .pdbqt ligands")
     ap.add_argument("--centers_csv", help="Path to vina centers CSV with headers PDB_ID,X,Y,Z")
     ap.add_argument("--poses", type=int, help="num_modes per ligand (e.g., 9, 20, 64)")
+    ap.add_argument("--vina-exe", help="Path to AutoDock Vina executable")
     ap.add_argument("--reserve_cores", type=int, default=1,
                     help="How many cores to reserve for system/IO (default: 1)")
     return ap.parse_args()
@@ -132,6 +245,7 @@ def main():
     start_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     timestamp_tag = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     cwd = os.getcwd()
+    vina_exe = resolve_vina_executable(args.vina_exe)
 
     # Resolve inputs (flags preferred; else interactive)
     if args.receptors and args.ligands and args.centers_csv and args.poses:
@@ -180,64 +294,20 @@ def main():
     )
     run_log = open(run_log_path, "a", encoding="utf-8")
 
-    # Prepare jobs
-    jobs = []
-    ligand_files = glob.glob(os.path.join(ligand_dir, "*.pdbqt"))
-    ligand_names = [os.path.splitext(os.path.basename(f))[0] for f in ligand_files]
-
-    if not ligand_names:
-        raise FileNotFoundError(f"No ligands (*.pdbqt) found in {ligand_dir}")
-
+    jobs = build_jobs(results_dir, ligand_dir, receptor_dir, grid_rows, num_modes, vina_exe)
+    missing_receptor_msgs = []
     for row in grid_rows:
-        pdbid = row["PDB_ID"]
-        cx, cy, cz = row["X"], row["Y"], row["Z"]
-        receptor_file = os.path.join(receptor_dir, pdbid)
-
-        if not os.path.exists(receptor_file):
-            # try common extensions
-            alt = None
-            for ext in (".pdbqt", ".pdb", ".mol2"):
-                cand = receptor_file + ext
-                if os.path.exists(cand):
-                    alt = cand
-                    break
-            if alt:
-                receptor_file = alt
-            else:
-                msg = f"❌ Missing receptor: {receptor_file}(.pdbqt/.pdb/.mol2)"
-                run_log.write(msg + "\n"); run_log.flush()
-                continue
-
-        for ligand in ligand_names:
-            ligand_file = os.path.join(ligand_dir, f"{ligand}.pdbqt")
-            if not os.path.exists(ligand_file):
-                msg = f"❌ Missing ligand: {ligand_file}"
-                run_log.write(msg + "\n"); run_log.flush()
-                continue
-
-            safe_pdbid = os.path.basename(receptor_file)
-            safe_pdbid = safe_pdbid.replace(".pdbqt", "").replace(".pdb", "").replace(".mol2", "")
-
-            output_subdir = os.path.join(results_dir, safe_pdbid, ligand)
-            os.makedirs(output_subdir, exist_ok=True)
-
-            output_pdbqt = os.path.join(output_subdir, "out.pdbqt")
-            output_log   = os.path.join(output_subdir, "log.txt")
-            config_path  = os.path.join(output_subdir, "config.txt")
-
-            jobs.append({
-                "ligand": ligand,
-                "ligand_file": ligand_file,
-                "receptor_file": receptor_file,
-                "output_pdbqt": output_pdbqt,
-                "output_log": output_log,
-                "config_path": config_path,
-                "cx": cx,
-                "cy": cy,
-                "cz": cz,
-                "pdbid": pdbid,
-                "num_modes": num_modes
-            })
+        receptor_file = os.path.join(receptor_dir, row["PDB_ID"])
+        if not (
+            os.path.exists(receptor_file)
+            or any(os.path.exists(receptor_file + ext) for ext in (".pdbqt", ".pdb", ".mol2"))
+        ):
+            missing_receptor_msgs.append(
+                f"❌ Missing receptor: {receptor_file}(.pdbqt/.pdb/.mol2)"
+            )
+    for msg in missing_receptor_msgs:
+        run_log.write(msg + "\n")
+    run_log.flush()
 
     ncpus = cpu_count_cgroup_aware()
     reserve = max(0, int(args.reserve_cores))
@@ -247,6 +317,7 @@ def main():
           f"Running up to {max_workers} concurrent Vina jobs (reserve {reserve}).", flush=True)
     print(f"🗂  Results dir: {results_dir}", flush=True)
     print(f"⚙️  Configs dir:  {config_dir}\n", flush=True)
+    print(f"🧪 Vina executable: {vina_exe}", flush=True)
 
     successes, failures = 0, 0
     results_log = []

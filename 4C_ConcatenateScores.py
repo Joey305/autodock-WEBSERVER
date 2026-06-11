@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import os
 import sys
 import csv
@@ -10,6 +12,9 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Tuple
+
+from ligand_manifest import CHEMICAL_METADATA_COLUMNS, merge_ligand_metadata
+from ligand_naming import parse_ligand_variant
 
 REQUIRED = ["Receptor", "Ligand", "Pose", "Binding_Affinity", "OutFile"]
 
@@ -83,51 +88,72 @@ def ask_top_tier() -> int:
         print("Invalid choice. Try again.")
 
 
-def split_pose_suffix(name: str) -> Tuple[str, str]:
-    """
-    Split a ligand directory name into:
-      - ligand_base: everything except the trailing _pose#
-      - pose_tag: the trailing pose tag, e.g. 'pose38'
-
-    Examples:
-      rxn210____EMOL43216804____EMOL43478895_pose38
-        -> ('rxn210____EMOL43216804____EMOL43478895', 'pose38')
-
-      ligand123
-        -> ('ligand123', '')
-    """
-    m = re.match(r"^(.*?)(?:_pose(\d+))?$", name)
-    if not m:
-        return name, ""
-
-    ligand_base = m.group(1)
-    pose_num = m.group(2)
-    pose_tag = f"pose{pose_num}" if pose_num is not None else ""
-    return ligand_base, pose_tag
-
-
 def derive_provenance(outfile_path: str):
     """
     From:
       /.../Docking_Results_XYZ/<ReceptorDir>/<LigandDir>/out.pdbqt
 
     Return:
-      (results_root, receptor_dir, ligand_dir, ligand_base, pose_tag)
+      (results_root, receptor_dir, ligand_dir, parsed_metadata)
 
     IMPORTANT:
-      ligand_base is the FULL ligand folder name minus only the trailing _pose#.
-      We do NOT split on '__' or '____'.
+      ligand metadata is derived from the full ligand folder name using the shared parser.
+      We do NOT split on internal '__', '____', underscores, or hyphens.
     """
     try:
         p = Path(outfile_path)
         ligand_dir = p.parent.name
         receptor_dir = p.parent.parent.name
         results_root = p.parent.parent.parent.name
-
-        ligand_base, pose_tag = split_pose_suffix(ligand_dir)
-        return results_root, receptor_dir, ligand_dir, ligand_base, pose_tag
+        parsed = parse_ligand_variant(ligand_dir)
+        return results_root, receptor_dir, ligand_dir, parsed
     except Exception:
-        return "", "", "", "", ""
+        return "", "", "", parse_ligand_variant("")
+
+
+def pick_variant_name(row: dict, ligand_dir: str) -> str:
+    for key in ("LigandVariant", "LigandDir"):
+        value = (row.get(key) or "").strip()
+        if value:
+            return value
+    if ligand_dir:
+        return ligand_dir
+    value = (row.get("Ligand") or "").strip()
+    if value:
+        return value
+    return ligand_dir
+
+
+def enrich_row(row: dict) -> dict:
+    results_root, receptor_dir, ligand_dir, parsed_from_outfile = derive_provenance(row["OutFile"])
+    variant = pick_variant_name(row, ligand_dir)
+    merged = merge_ligand_metadata(variant, base_row=row)
+    ligand_base = (merged.get("LigandBase") or row.get("Ligand") or variant).strip()
+    ligand_variant = (merged.get("LigandVariant") or variant).strip()
+    receptor = (row.get("Receptor") or receptor_dir).strip()
+    enriched = {
+        "Receptor": receptor,
+        "Ligand": ligand_base,
+        "LigandBase": ligand_base,
+        "LigandVariant": ligand_variant,
+        "Pose": row.get("Pose", ""),
+        "Binding_Affinity": row.get("Binding_Affinity", ""),
+        "OutFile": row.get("OutFile", ""),
+        "ResultsRoot": results_root,
+        "ReceptorDir": receptor_dir or receptor,
+        "LigandDir": ligand_dir or ligand_variant,
+        "ProtomerTag": merged.get("ProtomerTag") or parsed_from_outfile["ProtomerTag"],
+        "TautomerTag": merged.get("TautomerTag") or parsed_from_outfile["TautomerTag"],
+        "ConformerTag": merged.get("ConformerTag") or parsed_from_outfile["ConformerTag"],
+        "LegacyPoseTag": merged.get("LegacyPoseTag") or parsed_from_outfile["LegacyPoseTag"],
+        "StateTag": merged.get("StateTag") or parsed_from_outfile["StateTag"],
+        "ProtomerIndex": merged.get("ProtomerIndex") or parsed_from_outfile["ProtomerIndex"],
+        "TautomerIndex": merged.get("TautomerIndex") or parsed_from_outfile["TautomerIndex"],
+        "ConformerIndex": merged.get("ConformerIndex") or parsed_from_outfile["ConformerIndex"],
+    }
+    for key in CHEMICAL_METADATA_COLUMNS:
+        enriched[key] = merged.get(key, "")
+    return enriched
 
 
 def external_sort_csv(in_path: Path, out_path: Path, header_cols: List[str]):
@@ -143,11 +169,11 @@ def external_sort_csv(in_path: Path, out_path: Path, header_cols: List[str]):
             for row in r:
                 rows.append(row)
 
-        # Sort by Receptor (col 1) then Binding_Affinity (col 4 numeric ascending)
+        # Sort by Receptor (col 1) then Binding_Affinity (col 6 numeric ascending)
         rows.sort(
             key=lambda r: (
                 r[0],
-                float(r[3]) if r[3] not in ("", None) else 1e9
+                float(r[5]) if r[5] not in ("", None) else 1e9
             )
         )
 
@@ -160,7 +186,7 @@ def external_sort_csv(in_path: Path, out_path: Path, header_cols: List[str]):
     tmp_sorted = in_path.with_suffix(".nosort.tmp")
     cmd = (
         f"tail -n +2 {shlex.quote(str(in_path))} | "
-        f"{sort_exe} -t, -k1,1 -k4,4n > {shlex.quote(str(tmp_sorted))}"
+        f"{sort_exe} -t, -k1,1 -k6,6n > {shlex.quote(str(tmp_sorted))}"
     )
     subprocess.run(["bash", "-lc", cmd], check=True)
 
@@ -179,7 +205,7 @@ def external_sort_csv(in_path: Path, out_path: Path, header_cols: List[str]):
 def main():
     ap = argparse.ArgumentParser(
         description=(
-            "Concatenate per-dir Vina CSVs with provenance columns, "
+            "4C_ConcatenateScores: concatenate per-dir Vina CSVs with provenance columns, "
             "with optional TOP-N-per-dir limiter."
         )
     )
@@ -247,14 +273,23 @@ def main():
     header = [
         "Receptor",
         "Ligand",
+        "LigandBase",
+        "LigandVariant",
         "Pose",
         "Binding_Affinity",
         "OutFile",
         "ResultsRoot",
         "ReceptorDir",
         "LigandDir",
-        "PoseTag (Unique RDKIT Conformation Generated During Setup)",
-    ]
+        "ProtomerTag",
+        "TautomerTag",
+        "ConformerTag",
+        "LegacyPoseTag",
+        "StateTag",
+        "ProtomerIndex",
+        "TautomerIndex",
+        "ConformerIndex",
+    ] + CHEMICAL_METADATA_COLUMNS
 
     tmp = base / f"ALL_Docking_Results_with_provenance_{top_tag}_{ts}_UNSORTED.tmp.csv"
     out = Path(args.outfile) if args.outfile else (
@@ -264,8 +299,8 @@ def main():
     total_rows = 0
 
     with open(tmp, "w", newline="", encoding="utf-8") as fh:
-        w = csv.writer(fh)
-        w.writerow(header)
+        w = csv.DictWriter(fh, fieldnames=header)
+        w.writeheader()
 
         for c in csvs:
             taken = 0
@@ -278,23 +313,7 @@ def main():
                         raise SystemExit(f"❌ {c.name} missing column {k}; has: {r.fieldnames}")
 
                 for row in r:
-                    results_root, receptor_dir, ligand_dir, ligand_base, pose_tag = derive_provenance(row["OutFile"])
-
-                    # IMPORTANT:
-                    # Rebuild Ligand from the folder name, stripping ONLY the trailing _pose#
-                    ligand_value = ligand_base if ligand_base else row["Ligand"]
-
-                    w.writerow([
-                        row["Receptor"],
-                        ligand_value,
-                        row["Pose"],
-                        row["Binding_Affinity"],
-                        row["OutFile"],
-                        results_root,
-                        receptor_dir,
-                        ligand_dir,
-                        pose_tag,
-                    ])
+                    w.writerow(enrich_row(row))
 
                     total_rows += 1
                     taken += 1
@@ -311,7 +330,7 @@ def main():
         )
         return
 
-    # External sort by Receptor (col1) then Binding_Affinity (col4 numeric)
+    # External sort by Receptor (col1) then Binding_Affinity (col6 numeric)
     external_sort_csv(tmp, out, header_cols=header)
 
     print(f"✅ Wrote combined (sorted) CSV with provenance → {out}")

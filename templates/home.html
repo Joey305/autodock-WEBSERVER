@@ -26,6 +26,13 @@
     transition:all .25s ease;
   }
   .floating-toast.show{opacity:1; transform:translateY(0)}
+  .mode-card{border:1px solid #dbe4ee;border-radius:14px;padding:1rem;background:#fff;cursor:pointer;transition:all .2s ease}
+  .mode-card.active{border-color:#0f172a;box-shadow:0 10px 24px rgba(15,23,42,.08)}
+  .mode-card.disabled{opacity:.55;cursor:not-allowed}
+  .mode-eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#64748b}
+  .lsf-panel{border:1px dashed #cbd5e1;border-radius:12px;padding:1rem;background:#f8fafc}
+  .mode-result{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .7rem;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:.85rem}
+  .csv-config{border:1px solid #dbe4ee;border-radius:12px;padding:.9rem;background:#f8fafc}
 </style>
 
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -179,9 +186,9 @@
   <div class="card-body">
     <div class="row g-3 align-items-end">
       <div class="col-lg-7">
-        <label class="form-label">Single ligand (.sdf / .smiles / .csv)</label>
+        <label class="form-label">Single ligand (.sdf / .smiles / .smi / .csv)</label>
         <div class="input-group">
-          <input id="ligSingle" type="file" class="form-control" accept=".sdf,.smiles,.csv" disabled>
+          <input id="ligSingle" type="file" class="form-control" accept=".sdf,.smiles,.smi,.csv" disabled>
           <button id="btnLigSingle" class="btn btn-success" disabled>Upload</button>
         </div>
       </div>
@@ -193,34 +200,90 @@
         </div>
       </div>
     </div>
+    <div class="row g-3 align-items-end mt-1">
+      <div class="col-lg-7">
+        <label class="form-label">Folder of Ligands/</label>
+        <div class="input-group">
+          <input id="ligFolder" type="file" class="form-control" webkitdirectory directory multiple disabled>
+          <button id="btnLigFolder" class="btn btn-success" disabled>Upload Folder</button>
+        </div>
+      </div>
+    </div>
     <div class="row g-3 mt-2">
       <div class="col-md-3"><label class="form-label"># conformations</label><input id="posesConf" class="form-control" value="64"></div>
       <div class="col-md-3"><label class="form-label"># docking poses</label><input id="posesVina" class="form-control" value="9"></div>
-      <div class="col-md-3"><label class="form-label">CSV SMILES column</label><input id="csvSmilesCol" class="form-control" disabled></div>
-      <div class="col-md-3"><label class="form-label">CSV ID column</label><input id="csvIdCol" class="form-control" disabled></div>
+    </div>
+    <div id="ligUploadStatus" class="small text-muted mt-2"></div>
+    <div id="csvColumnPanel" class="csv-config mt-3 d-none">
+      <div class="fw-semibold mb-2">CSV column mapping</div>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">SMILES column</label>
+          <select id="csvSmilesCol" class="form-select" disabled></select>
+          <div class="form-text">Required for CSV ligand input.</div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Custom SMILES</label>
+          <input id="csvSmilesCustom" class="form-control" placeholder="optional" disabled>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Ligand ID column</label>
+          <select id="csvIdCol" class="form-select" disabled></select>
+          <div class="form-text">Optional if your CSV has no identifier column.</div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Custom ID</label>
+          <input id="csvIdCustom" class="form-control" placeholder="optional" disabled>
+        </div>
+      </div>
+      <div id="csvColumnStatus" class="small text-muted mt-2"></div>
     </div>
   </div>
 </div>
 
 <!-- STEP 3 -->
 <div id="buildStep" class="step-card mb-4 d-none">
-  <div class="step-header"><strong>3) Build LSF + Zip</strong></div>
+  <div class="step-header"><strong>3) Build Job Package</strong></div>
   <div class="card-body">
-    <div class="row g-2">
-      <div class="col-md-2"><input id="queue"   class="form-control" value="hihg"   placeholder="Queue"></div>
-      <div class="col-md-2"><input id="project" class="form-control" value="brd"    placeholder="Project"></div>
-      <div class="col-md-2"><input id="walltime"class="form-control" value="96:00"  placeholder="Walltime"></div>
-      <div class="col-md-2"><input id="workers" class="form-control" value="16"     placeholder="Workers"></div>
-      <div class="col-md-2"><input id="mem"     class="form-control" value="2000"   placeholder="mem/core (MB)"></div>
-      <div class="col-md-2"><input id="vinaPath"class="form-control" placeholder="Optional VINA_EXE"></div>
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <label class="mode-card d-block" id="portableModeCard">
+          <input type="radio" class="form-check-input me-2" name="packageMode" value="portable" id="packageModePortable" checked>
+          <span class="mode-eyebrow d-block mb-1">Default</span>
+          <span class="fw-semibold d-block">Portable ZIP for public/local use</span>
+          <span class="text-muted small">Builds a generic package with local runner scripts and no LSF, `bsub`, or lab-specific paths.</span>
+        </label>
+      </div>
+      <div class="col-lg-6">
+        <label class="mode-card d-block" id="lsfModeCard">
+          <input type="radio" class="form-check-input me-2" name="packageMode" value="lsf" id="packageModeLsf">
+          <span class="mode-eyebrow d-block mb-1">Optional</span>
+          <span class="fw-semibold d-block">Joey's Docking Server Mode / Include LSF-HPC scripts</span>
+          <span class="text-muted small" id="lsfModeHelp">Includes the extra LSF/batch files and preserves the lab HPC workflow.</span>
+        </label>
+      </div>
     </div>
-    <div class="row g-2 mt-2">
-      <div class="col-md-12"><input id="envLine" class="form-control" placeholder="Env line (conda activate ...)—optional"></div>
+
+    <div id="lsfPanel" class="lsf-panel mt-3">
+      <div class="small text-muted mb-2">This mode is for LSF/HPC cluster use. These settings only apply when Joey's Docking Server Mode is enabled.</div>
+      <div class="row g-2">
+        <div class="col-md-2"><input id="queue"   class="form-control" value="hihg"   placeholder="Queue"></div>
+        <div class="col-md-2"><input id="project" class="form-control" value="brd"    placeholder="Project"></div>
+        <div class="col-md-2"><input id="walltime"class="form-control" value="96:00"  placeholder="Walltime"></div>
+        <div class="col-md-2"><input id="workers" class="form-control" value="16"     placeholder="Workers"></div>
+        <div class="col-md-2"><input id="mem"     class="form-control" value="2000"   placeholder="mem/core (MB)"></div>
+        <div class="col-md-2"><input id="vinaPath"class="form-control" placeholder="Optional VINA_EXE"></div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-12"><input id="envLine" class="form-control" placeholder="Env line (conda activate ...)—optional"></div>
+      </div>
     </div>
+
     <div class="d-flex align-items-center gap-3 mt-3">
-      <button id="btnBuild" class="btn btn-success" disabled>Build Zip</button>
+      <button id="btnBuild" class="btn btn-success" disabled>Build ZIP</button>
       <a id="downloadLink" target="_blank"></a>
       <span id="buildStatus" class="small text-muted"></span>
+      <span id="buildModeResult" class="mode-result d-none"></span>
     </div>
   </div>
 </div>
@@ -234,6 +297,8 @@ const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const enable = (el,on=true)=>{ el.disabled=!on; };
 const toast = (msg, ms=1400)=>{ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), ms); };
+const ENABLE_LSF_PACKAGE = {{ enable_lsf_package|tojson }};
+const DEFAULT_PACKAGE_MODE = {{ default_package_mode|tojson }};
 
 /* ---------- state ---------- */
 let jobname=null, state=null, isMulti=false;
@@ -243,6 +308,39 @@ let slideByRel  = new Map();
 let carousel=null;
 let pickedAtoms=[];
 let prepPoll=null;
+let ligandUploadState = { kind:null, headers:[], selectedSmiles:'', selectedId:'' };
+
+function getSelectedPackageMode(){
+  const selected = document.querySelector('input[name="packageMode"]:checked');
+  return selected ? selected.value : 'portable';
+}
+function setPackageMode(mode){
+  const normalized = (mode === 'lsf' && ENABLE_LSF_PACKAGE) ? 'lsf' : 'portable';
+  $('#packageModePortable').checked = normalized === 'portable';
+  $('#packageModeLsf').checked = normalized === 'lsf';
+  syncPackageModeUI();
+}
+function syncPackageModeUI(){
+  const mode = getSelectedPackageMode();
+  const lsfAllowed = ENABLE_LSF_PACKAGE;
+  $('#packageModeLsf').disabled = !lsfAllowed;
+  $('#lsfModeCard').classList.toggle('disabled', !lsfAllowed);
+  $('#portableModeCard').classList.toggle('active', mode === 'portable');
+  $('#lsfModeCard').classList.toggle('active', mode === 'lsf');
+  $('#lsfModeHelp').textContent = lsfAllowed
+    ? 'Includes the extra LSF/batch files and preserves the lab HPC workflow.'
+    : 'LSF packaging is disabled by server configuration.';
+
+  const showLsf = mode === 'lsf' && lsfAllowed;
+  $('#lsfPanel').classList.toggle('d-none', !showLsf);
+  ['queue','project','walltime','workers','mem','vinaPath','envLine'].forEach(id => enable($('#'+id), showLsf));
+  $('#btnBuild').textContent = showLsf ? "Build Joey's ZIP" : "Build ZIP";
+}
+['packageModePortable','packageModeLsf'].forEach(id=>{
+  document.addEventListener('DOMContentLoaded', ()=>{
+    $('#'+id).addEventListener('change', syncPackageModeUI);
+  });
+});
 
 /* ---------- carousel ---------- */
 function ensureCarousel(){ if(!carousel){ carousel=new bootstrap.Carousel($('#viewerCarousel'),{interval:false,ride:false,touch:false,keyboard:false,wrap:false}); } }
@@ -355,6 +453,124 @@ function drawReceptorList(){
 
 /* ---------- uploads ---------- */
 async function postForm(url, fd){ const r=await fetch(url,{method:'POST', body:fd}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+function likelyHeader(headers, candidates){
+  const normalized = headers.map(h => ({ raw:h, norm:h.trim().toLowerCase() }));
+  for(const candidate of candidates){
+    const match = normalized.find(h => h.norm === candidate.toLowerCase());
+    if(match) return match.raw;
+  }
+  return '';
+}
+function parseCsvHeaderLine(text){
+  const firstLine = text.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] || '';
+  if(!firstLine.trim()) return [];
+  const out = [];
+  let current = '';
+  let inQuotes = false;
+  for(let i=0;i<firstLine.length;i++){
+    const ch = firstLine[i];
+    if(ch === '"'){
+      if(inQuotes && firstLine[i+1] === '"'){
+        current += '"';
+        i += 1;
+      }else{
+        inQuotes = !inQuotes;
+      }
+    }else if(ch === ',' && !inQuotes){
+      out.push(current.trim());
+      current = '';
+    }else{
+      current += ch;
+    }
+  }
+  out.push(current.trim());
+  return out.map(h => h.replace(/^\uFEFF/, '')).filter(Boolean);
+}
+async function detectCsvHeaders(file){
+  const chunk = await file.slice(0, 65536).text();
+  return parseCsvHeaderLine(chunk);
+}
+function populateCsvSelect(selectEl, headers, selectedValue, allowBlank=true){
+  selectEl.innerHTML = '';
+  if(allowBlank){
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Select column';
+    selectEl.appendChild(blank);
+  }
+  headers.forEach(header=>{
+    const opt = document.createElement('option');
+    opt.value = header;
+    opt.textContent = header;
+    selectEl.appendChild(opt);
+  });
+  const custom = document.createElement('option');
+  custom.value = '__custom__';
+  custom.textContent = 'Custom column...';
+  selectEl.appendChild(custom);
+  selectEl.value = headers.includes(selectedValue) ? selectedValue : (selectedValue ? '__custom__' : '');
+}
+function syncCsvColumnInputs(){
+  const smilesCustom = $('#csvSmilesCol').value === '__custom__';
+  const idCustom = $('#csvIdCol').value === '__custom__';
+  enable($('#csvSmilesCustom'), smilesCustom);
+  enable($('#csvIdCustom'), idCustom);
+}
+function getCsvColumnValue(selectId, customId){
+  const selected = $('#'+selectId).value;
+  if(selected === '__custom__'){
+    return $('#'+customId).value.trim();
+  }
+  return selected.trim();
+}
+function resetCsvColumnUI(message=''){
+  ligandUploadState = { kind:null, headers:[], selectedSmiles:'', selectedId:'' };
+  $('#csvColumnPanel').classList.add('d-none');
+  ['csvSmilesCol','csvIdCol','csvSmilesCustom','csvIdCustom'].forEach(id=>{
+    const el = $('#'+id);
+    if(el.tagName === 'SELECT') el.innerHTML = '';
+    else el.value = '';
+    enable(el, false);
+  });
+  $('#csvColumnStatus').textContent = message;
+}
+async function setupCsvColumnUI(file){
+  try{
+    const headers = await detectCsvHeaders(file);
+    if(!headers.length){
+      $('#csvColumnPanel').classList.remove('d-none');
+      ['csvSmilesCol','csvIdCol','csvSmilesCustom','csvIdCustom'].forEach(id=> enable($('#'+id), true));
+      populateCsvSelect($('#csvSmilesCol'), [], '', false);
+      populateCsvSelect($('#csvIdCol'), [], '', true);
+      $('#csvSmilesCol').value='__custom__';
+      $('#csvIdCol').value='__custom__';
+      syncCsvColumnInputs();
+      $('#csvColumnStatus').textContent = 'No CSV headers were detected. Enter custom column names if needed.';
+      ligandUploadState = { kind:'csv', headers:[], selectedSmiles:'', selectedId:'' };
+      return;
+    }
+    const smilesGuess = likelyHeader(headers, ['SMILES','smiles','Smile','canonical_smiles','isomeric_smiles','Ligand SMILES']);
+    const idGuess = likelyHeader(headers, ['ID','id','Name','name','Ligand','ligand_id','compound_id','CompoundID','Title']);
+    ligandUploadState = { kind:'csv', headers, selectedSmiles:smilesGuess, selectedId:idGuess };
+    $('#csvColumnPanel').classList.remove('d-none');
+    populateCsvSelect($('#csvSmilesCol'), headers, smilesGuess, true);
+    populateCsvSelect($('#csvIdCol'), headers, idGuess, true);
+    ['csvSmilesCol','csvIdCol'].forEach(id=> enable($('#'+id), true));
+    enable($('#csvSmilesCustom'), $('#csvSmilesCol').value === '__custom__');
+    enable($('#csvIdCustom'), $('#csvIdCol').value === '__custom__');
+    $('#csvColumnStatus').textContent = `Detected ${headers.length} column${headers.length===1?'':'s'} from ${file.name}.`;
+    syncCsvColumnInputs();
+  }catch(err){
+    resetCsvColumnUI('Could not parse CSV headers. You can still enter custom column names.');
+    $('#csvColumnPanel').classList.remove('d-none');
+    ['csvSmilesCol','csvIdCol','csvSmilesCustom','csvIdCustom'].forEach(id=> enable($('#'+id), true));
+    populateCsvSelect($('#csvSmilesCol'), [], '', false);
+    populateCsvSelect($('#csvIdCol'), [], '', true);
+    $('#csvSmilesCol').value='__custom__';
+    $('#csvIdCol').value='__custom__';
+    syncCsvColumnInputs();
+  }
+}
 $('#btnRecSingle').onclick=async()=>{
   const f=$('#receptorSingle').files[0]; if(!f) return alert('Choose a file');
   const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
@@ -383,7 +599,12 @@ $('#btnFetchPDB').onclick=async()=>{
 
 /* ---------- open receptor ---------- */
 async function parsePdbForOptions(rel){
-  const txt = await (await fetch(`/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`)).text();
+  const fileUrl = `/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`;
+  const res = await fetch(fileUrl);
+  if(!res.ok){
+    throw new Error(`Could not load receptor file (${res.status})`);
+  }
+  const txt = await res.text();
   const hets=new Set(), chains=new Set();
   txt.split(/\r?\n/).forEach(line=>{
     if(line.startsWith('ATOM')||line.startsWith('HETATM')){
@@ -393,7 +614,7 @@ async function parsePdbForOptions(rel){
       if(ch && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
     }
   });
-  return {hets, chains, raw:txt};
+  return {hets, chains, raw:txt, fileUrl};
 }
 function chips(set, cls, checked=false){
   const arr=[...set].sort();
@@ -415,15 +636,23 @@ async function openReceptor(rel){
   carousel.to(idx);
 
   pickedAtoms=[];
-  const {hets, chains, raw} = await parsePdbForOptions(rel);
+  let parsed;
+  try{
+    parsed = await parsePdbForOptions(rel);
+  }catch(err){
+    alert(err.message || 'Failed to open receptor');
+    state.receptors.forEach(r=>{ if(r.rel===rel && r.status==='centering') r.status='new'; });
+    drawReceptorList();
+    return;
+  }
+  const {hets, chains, fileUrl} = parsed;
   renderMiniOptions({hets, chains});
 
   let stage=getStage(rel, vpId);
   try{ stage.removeAllComponents(); }catch{}
   const low=rel.toLowerCase();
   const ext=(low.endsWith('.cif')||low.endsWith('.mmcif'))?'cif':'pdb';
-  const blob=new Blob([raw],{type:'text/plain'});
-  const comp=await stage.loadFile(blob,{ext});
+  const comp=await stage.loadFile(fileUrl,{ext});
   comp.addRepresentation('cartoon',{pickable:true,opacity:.92,colorScheme:'chainname'});
   comp.addRepresentation('licorice',{sele:'hetero OR not protein',pickable:true});
   comp.addRepresentation('ball+stick',{sele:'hetero',pickable:true});
@@ -599,16 +828,47 @@ function pollPrep(isBatch){
 }
 
 /* ---------- ligands ---------- */
-$('#ligSingle').onchange=()=>{ const f=$('#ligSingle').files[0]; const isCSV=!!(f&&/\.csv$/i.test(f.name)); enable($('#csvSmilesCol'),isCSV); enable($('#csvIdCol'),isCSV); };
+['csvSmilesCol','csvIdCol'].forEach(id=> document.addEventListener('DOMContentLoaded', ()=>$('#'+id).addEventListener('change', syncCsvColumnInputs)));
+$('#ligSingle').onchange=async()=>{
+  const f=$('#ligSingle').files[0];
+  const isCSV=!!(f&&/\.csv$/i.test(f.name));
+  if(isCSV){
+    await setupCsvColumnUI(f);
+  }else{
+    resetCsvColumnUI('');
+  }
+};
+$('#ligZip').onchange=()=>resetCsvColumnUI('');
+$('#ligFolder').onchange=()=>resetCsvColumnUI('');
+function summarizeLigandUpload(payload, fallbackLabel){
+  const accepted = payload.accepted_files || [];
+  const warnings = payload.warnings || [];
+  const prefix = accepted.length
+    ? `Uploaded ${accepted.length} ligand file${accepted.length===1?'':'s'}: ${accepted.join(', ')}`
+    : (fallbackLabel || 'Ligands uploaded');
+  const detail = warnings.length ? `${prefix} Warnings: ${warnings.join(' | ')}` : prefix;
+  $('#ligUploadStatus').textContent = detail;
+  toast(prefix);
+}
 $('#btnLigSingle').onclick=async()=>{
   const f=$('#ligSingle').files[0]; if(!f) return alert('Pick a file');
   const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','single'); fd.append('file',f);
-  await postForm('/api/ligands/upload', fd); toast(`Ligand uploaded: ${f.name}`); await reloadAll(); await gateLigandsAndBuild();
+  const payload = await postForm('/api/ligands/upload', fd); summarizeLigandUpload(payload, `Ligand uploaded: ${f.name}`); await reloadAll(); await gateLigandsAndBuild();
 };
 $('#btnLigZip').onclick=async()=>{
   const f=$('#ligZip').files[0]; if(!f) return alert('Pick a ZIP');
+  resetCsvColumnUI('');
   const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','zip'); fd.append('file',f);
-  await postForm('/api/ligands/upload', fd); toast('Ligand ZIP uploaded'); await reloadAll(); await gateLigandsAndBuild();
+  const payload = await postForm('/api/ligands/upload', fd); summarizeLigandUpload(payload, 'Ligand ZIP uploaded'); await reloadAll(); await gateLigandsAndBuild();
+};
+$('#btnLigFolder').onclick=async()=>{
+  const files = Array.from($('#ligFolder').files||[]); if(!files.length) return alert('Pick a folder');
+  resetCsvColumnUI('');
+  const fd=new FormData(); fd.append('jobname',jobname); fd.append('mode','folder');
+  const firstRel = files[0].webkitRelativePath || files[0].name || 'Ligands';
+  fd.append('folder_name', firstRel.split('/')[0] || 'Ligands');
+  files.forEach(f=> fd.append('files', f, f.webkitRelativePath || f.name));
+  const payload = await postForm('/api/ligands/upload', fd); summarizeLigandUpload(payload, 'Ligand folder uploaded'); await reloadAll(); await gateLigandsAndBuild();
 };
 
 /* ---------- gating for steps 2 & 3 ---------- */
@@ -619,7 +879,7 @@ async function gateLigandsAndBuild(started=false, s=null){
   const conversionDone = expected>0 && converted>=expected;
 
   $('#ligandStep').classList.toggle('d-none', !conversionStarted);
-  [$('#ligSingle'),$('#ligZip'),$('#btnLigSingle'),$('#btnLigZip')].forEach(el=> enable(el, conversionStarted));
+  [$('#ligSingle'),$('#ligZip'),$('#ligFolder'),$('#btnLigSingle'),$('#btnLigZip'),$('#btnLigFolder')].forEach(el=> enable(el, conversionStarted));
 
   const canBuild = conversionDone && (s.ligands_uploaded || state?.ligands_uploaded);
   $('#buildStep').classList.toggle('d-none', !conversionStarted);
@@ -628,22 +888,43 @@ async function gateLigandsAndBuild(started=false, s=null){
 
 /* ---------- build ---------- */
 $('#btnBuild').onclick=async()=>{
+  const packageMode = getSelectedPackageMode();
+  const csvSmilesCol = getCsvColumnValue('csvSmilesCol','csvSmilesCustom');
+  const csvIdCol = getCsvColumnValue('csvIdCol','csvIdCustom');
+  const singleLig = $('#ligSingle').files[0];
+  if(singleLig && /\.csv$/i.test(singleLig.name) && !csvSmilesCol){
+    $('#buildStatus').textContent='Failed: select a CSV SMILES column first';
+    return;
+  }
   const fd=new FormData();
   fd.append('jobname',jobname);
-  fd.append('queue',$('#queue').value); fd.append('project',$('#project').value);
-  fd.append('walltime',$('#walltime').value); fd.append('workers',$('#workers').value);
-  fd.append('mem_per_core',$('#mem').value); fd.append('env_line',$('#envLine').value);
-  fd.append('vina_path',$('#vinaPath').value);
+  fd.append('package_mode', packageMode);
+  fd.append('include_lsf', packageMode === 'lsf' ? '1' : '0');
+  if(packageMode === 'lsf'){
+    fd.append('queue',$('#queue').value); fd.append('project',$('#project').value);
+    fd.append('walltime',$('#walltime').value); fd.append('workers',$('#workers').value);
+    fd.append('mem_per_core',$('#mem').value); fd.append('env_line',$('#envLine').value);
+    fd.append('vina_path',$('#vinaPath').value);
+  }
   fd.append('poses_conf',$('#posesConf').value); fd.append('poses_vina',$('#posesVina').value);
-  fd.append('csv_smiles_col',$('#csvSmilesCol').value); fd.append('csv_id_col',$('#csvIdCol').value);
+  fd.append('csv_smiles_col', csvSmilesCol); fd.append('csv_id_col', csvIdCol);
   $('#buildStatus').textContent='Building…';
+  $('#buildModeResult').classList.add('d-none');
   const r=await fetch('/api/build',{method:'POST', body:fd});
   if(!r.ok){ $('#buildStatus').textContent='Failed: '+await r.text(); return; }
-  const j=await r.json(); const dl=$('#downloadLink'); dl.href='/download?path='+encodeURIComponent(j.zip); dl.textContent='Download '+j.zip.split('/').pop(); $('#buildStatus').textContent='Ready';
+  const j=await r.json();
+  const dl=$('#downloadLink');
+  dl.href=j.download_url || ('/download?path='+encodeURIComponent(j.zip));
+  dl.textContent='Download '+j.zip.split('/').pop();
+  const warnings = (j.warnings || []).length ? ` Warnings: ${(j.warnings || []).join(' | ')}` : '';
+  $('#buildStatus').textContent=`Ready (${j.package_mode})${warnings}`;
+  $('#buildModeResult').textContent = j.package_mode === 'lsf' ? "Packaged: Joey's Docking Server Mode" : 'Packaged: Portable ZIP';
+  $('#buildModeResult').classList.remove('d-none');
 };
 
 /* ---------- init ---------- */
 document.addEventListener('DOMContentLoaded', ()=>{
+  setPackageMode(DEFAULT_PACKAGE_MODE);
   // Auto-create a workspace so uploads are enabled immediately.
   newWS();
 });

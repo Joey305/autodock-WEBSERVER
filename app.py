@@ -8,17 +8,65 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
 from flask import (
-    Flask, render_template, request, redirect, url_for, send_file, jsonify, current_app
+    Flask, render_template, request, send_file, jsonify, current_app, url_for
 )
-from flask_login import LoginManager, login_required, current_user
+from flask_login import LoginManager, login_required
 
 from models import db, User
 from auth import auth_bp
 from lsf_templates import build_confgen_lsfs, build_vina_lsfs
 from packager import (
     make_workspace, ensure_subdir, save_uploaded_zip,
-    assemble_job_tree, zip_job_tree, fetch_pdb_and_prep, rename_centers_with_tags
+    assemble_job_tree, zip_job_tree, fetch_pdb_and_prep, rename_centers_with_tags,
+    save_uploaded_ligand_zip, save_uploaded_ligand_folder,
 )
+from runner_templates import build_portable_runners
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def normalize_package_mode(values, default_mode: str = "portable", lsf_enabled: bool = True) -> str:
+    requested = (values.get("package_mode") or "").strip().lower()
+    include_lsf = (values.get("include_lsf") or "").strip().lower()
+
+    if requested in {"lsf", "joey_lsf"}:
+        mode = "lsf"
+    elif requested == "portable":
+        mode = "portable"
+    elif include_lsf in {"1", "true", "yes", "on"}:
+        mode = "lsf"
+    elif include_lsf in {"0", "false", "no", "off"}:
+        mode = "portable"
+    else:
+        mode = default_mode if default_mode in {"portable", "lsf"} else "portable"
+
+    if mode == "lsf" and not lsf_enabled:
+        return "portable"
+    return mode
+
+
+def infer_ligand_workflow(ligand_info: Dict[str, Any]) -> tuple[str, str, Optional[str]]:
+    upload_mode = ligand_info.get("upload_mode")
+    filename = (ligand_info.get("filename") or "").strip()
+    ext = Path(filename).suffix.lower()
+    filetypes = ligand_info.get("filetypes") or []
+    if upload_mode in {"zip", "folder"} and set(filetypes) == {".csv"} and ligand_info.get("accepted_count") == 1:
+        accepted = ligand_info.get("accepted_files") or []
+        csv_name = accepted[0] if accepted else filename
+        return "1", "csv", None
+
+    if upload_mode == "single" and ext == ".csv":
+        return "1", "csv", None
+    if upload_mode == "single" and ext == ".sdf":
+        return "3", "sdf", f"Ligands/{Path(filename).name}"
+    if upload_mode == "single" and ext in {".smiles", ".smi"}:
+        return "2", "smiles", None
+    return "2", "sdf", None
 
 # ---------- Config ----------
 class Config:
@@ -28,9 +76,31 @@ class Config:
     TMP_ROOT = os.getenv("PORTAL_TMP", "/tmp/autodock_prep")
     MAX_RECEPTORS = int(os.getenv("PORTAL_MAX_RECEPTORS", "5"))
     DEFAULT_ENV_LINE = os.getenv("PORTAL_ENV_LINE", "")
+    PUBLIC_EMAIL = os.getenv("PORTAL_PUBLIC_EMAIL", "public@autodock.local")
+    PUBLIC_MODE = _env_bool("PUBLIC_MODE", True)
+    ENABLE_AUTH = _env_bool("ENABLE_AUTH", False)
+    ENABLE_LSF_PACKAGE = _env_bool("ENABLE_LSF_PACKAGE", True)
+    DEFAULT_PACKAGE_MODE = os.getenv("DEFAULT_PACKAGE_MODE", "portable").strip().lower() or "portable"
+
+
+class PublicUser:
+    """Minimal compatibility user used when the app runs without login."""
+
+    is_authenticated = True
+    is_active = True
+    is_anonymous = False
+    is_public = True
+    role = "public"
+
+    def __init__(self):
+        self.email = os.getenv("PORTAL_PUBLIC_EMAIL", "public@autodock.local")
+        self.id = None
+
+    def get_id(self):
+        return None
 
 login_manager = LoginManager()
-login_manager.login_view = "auth.login"
+login_manager.anonymous_user = PublicUser
 
 APP_ROOT = Path(__file__).resolve().parent
 
@@ -51,12 +121,71 @@ def create_app() -> Flask:
 
     app.register_blueprint(auth_bp)
 
+    def _public_email() -> str:
+        return current_app.config["PUBLIC_EMAIL"]
+
+    def _public_name() -> str:
+        return _public_email().split("@")[0] or "public"
+
+    def _resolve_casefold_path(base_dir: Path, relative_path: Path) -> Optional[Path]:
+        current = base_dir
+        if not current.exists():
+            return None
+        for part in relative_path.parts:
+            exact = current / part
+            if exact.exists():
+                current = exact
+                continue
+            try:
+                children = {child.name.lower(): child for child in current.iterdir()}
+            except Exception:
+                return None
+            match = children.get(part.lower())
+            if match is None:
+                return None
+            current = match
+        return current.resolve()
+
+    def _resolve_workspace_file(ws: Path, rel: str) -> Optional[Path]:
+        rel_path = Path(rel)
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            return None
+
+        first = rel_path.parts[0] if rel_path.parts else ""
+        remainder = Path(*rel_path.parts[1:]) if len(rel_path.parts) > 1 else Path()
+        candidate_dirs: List[Path] = []
+
+        if first == "Receptors":
+            for name in ("Receptors", "Receptors_PDB", "Receptors_PDBQT", "Receptors_PDBQT_Converted"):
+                candidate_dirs.append(ws / name)
+        elif first:
+            candidate_dirs.append(ws / first)
+        else:
+            candidate_dirs.append(ws)
+
+        for base_dir in candidate_dirs:
+            resolved = _resolve_casefold_path(base_dir, remainder)
+            if resolved and str(resolved).startswith(str(ws.resolve())) and resolved.exists():
+                return resolved
+
+        resolved = _resolve_casefold_path(ws, rel_path)
+        if resolved and str(resolved).startswith(str(ws.resolve())) and resolved.exists():
+            return resolved
+        return None
+
     # ---------- PAGES ----------
     @app.get("/")
     def home():
-        if not current_user.is_authenticated:
-            return redirect(url_for("auth.login"))
-        return render_template("home.html", max_receptors=app.config["MAX_RECEPTORS"])
+        return render_template(
+            "home.html",
+            max_receptors=app.config["MAX_RECEPTORS"],
+            enable_lsf_package=app.config["ENABLE_LSF_PACKAGE"],
+            default_package_mode=normalize_package_mode(
+                {},
+                default_mode=app.config["DEFAULT_PACKAGE_MODE"],
+                lsf_enabled=app.config["ENABLE_LSF_PACKAGE"],
+            ),
+        )
     
 
     # ---------- STATE HELPERS ----------
@@ -67,7 +196,7 @@ def create_app() -> Flask:
         s = ws / "_state.json"
         if not s.exists():
             return {"receptors": [], "centers_csv": "vina_centers.csv",
-                    "ligands_uploaded": False, "prep_job": None}
+                    "ligands_uploaded": False, "ligand_info": {}, "prep_job": None}
         return json.loads(s.read_text())
 
     def _save_state(ws: Path, obj: Dict[str, Any]):
@@ -263,11 +392,11 @@ def create_app() -> Flask:
     @login_required
     def api_workspace():
         stamp = time.strftime("%m-%d-%Y-%H-%M-%S")
-        uname = current_user.email.split("@")[0]
+        uname = _public_name()
         jobname = f"{stamp}-{uname}"
         ws = make_workspace(_ws(jobname))
         _save_state(ws, {"receptors": [], "centers_csv": "vina_centers.csv",
-                         "ligands_uploaded": False, "prep_job": None})
+                         "ligands_uploaded": False, "ligand_info": {}, "prep_job": None})
         return jsonify({"jobname": jobname, "workspace": str(ws)})
 
     # ---------- RECEPTOR INGEST ----------
@@ -324,7 +453,8 @@ def create_app() -> Flask:
         rel = str(Path("Receptors") / Path(out["pdb_path"]).name)
 
         st = _load_state(ws)
-        if len(st["receptors"]) < current_app.config["MAX_RECEPTORS"]:
+        have = {r["rel"] for r in st["receptors"]}
+        if rel not in have and len(st["receptors"]) < current_app.config["MAX_RECEPTORS"]:
             st["receptors"].append({"rel": rel, "display": Path(rel).name, "status": "new"})
         _save_state(ws, st)
         return jsonify({"rel": rel, "count": len(st["receptors"])})
@@ -347,8 +477,8 @@ def create_app() -> Flask:
         ws = _ws(jobname)
         if not jobname or not rel or not ws.exists():
             return ("missing", 400)
-        p = (ws / rel).resolve()
-        if not str(p).startswith(str(ws)) or not p.exists():
+        p = _resolve_workspace_file(ws, rel)
+        if p is None:
             return ("not found", 404)
         return send_file(p)
 
@@ -389,8 +519,8 @@ def create_app() -> Flask:
         size = float(data.get("size") or 20.0)
         method = (data.get("method") or "").lower()
         ws = _ws(jobname)
-        src = (ws / rel).resolve()
-        if not src.exists():
+        src = _resolve_workspace_file(ws, rel or "")
+        if src is None:
             return ("not found", 404)
 
         def _avg(pts: List[Tuple[float, float, float]]):
@@ -718,23 +848,52 @@ def create_app() -> Flask:
         if not ws.exists():
             return ("workspace missing", 400)
         lig_dir = ensure_subdir(ws, "Ligands")
-        f = request.files.get("file")
-        if not f:
-            return ("no file", 400)
+        result: Dict[str, Any]
 
         if mode == "single":
-            out = lig_dir / Path(f.filename).name
-            out.parent.mkdir(parents=True, exist_ok=True)
-            f.save(out)
+            f = request.files.get("file")
+            if not f:
+                return ("no file", 400)
+            result = save_uploaded_ligand_folder([f], lig_dir)
+            upload_name = Path(f.filename).name
         elif mode == "zip":
-            save_uploaded_zip(f, lig_dir)
+            f = request.files.get("file")
+            if not f:
+                return ("no file", 400)
+            result = save_uploaded_ligand_zip(f, lig_dir)
+            upload_name = Path(f.filename).name
+        elif mode == "folder":
+            files = request.files.getlist("files")
+            if not files:
+                return ("no files", 400)
+            result = save_uploaded_ligand_folder(files, lig_dir)
+            raw_folder = request.form.get("folder_name", "").strip()
+            upload_name = raw_folder or Path((files[0].filename or "").split("/", 1)[0]).name or "Ligands"
         else:
             return ("bad mode", 400)
 
+        if not result["accepted_count"]:
+            return jsonify({
+                "ok": False,
+                "error": "No supported ligand files were found. Upload .sdf, .smiles, .smi, or .csv files.",
+                **result,
+            }), 400
+
         st = _load_state(ws)
         st["ligands_uploaded"] = True
+        st["ligand_info"] = {
+            "upload_mode": mode,
+            "filename": upload_name,
+            "accepted_files": result["accepted_files"],
+            "accepted_count": result["accepted_count"],
+            "ignored_files": result["ignored_files"],
+            "warnings": result["warnings"],
+            "is_csv": result["is_csv"],
+            "filetypes": result["filetypes"],
+            "ligands_root": result["ligands_root"],
+        }
         _save_state(ws, st)
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, **st["ligand_info"]})
 
     # ---------- BUILD ----------
     @app.post("/api/build")
@@ -745,6 +904,14 @@ def create_app() -> Flask:
         ws = _ws(jobname)
         if not ws.exists():
             return ("workspace missing", 400)
+
+        package_mode = normalize_package_mode(
+            f,
+            default_mode=current_app.config["DEFAULT_PACKAGE_MODE"],
+            lsf_enabled=current_app.config["ENABLE_LSF_PACKAGE"],
+        )
+        if package_mode == "lsf" and not current_app.config["ENABLE_LSF_PACKAGE"]:
+            return ("lsf packaging is disabled", 400)
 
         st = _load_state(ws)
         if not st["receptors"]:
@@ -766,8 +933,10 @@ def create_app() -> Flask:
         if not st.get("ligands_uploaded"):
             return ("upload ligands first", 400)
 
+        ligand_info = st.get("ligand_info") or {}
+
         # Build the job tree (copies real scripts, receptors, ligands, etc.)
-        jobroot = assemble_job_tree(ws, ws / "Receptors", ws / "Ligands")
+        jobroot, warnings = assemble_job_tree(ws, ws / "Receptors", ws / "Ligands", package_mode=package_mode)
         lsf_dir = jobroot  # write .lsf files directly into jobroot
 
         # ---------- Normalize inputs from the form (no frontend changes required) ----------
@@ -793,46 +962,59 @@ def create_app() -> Flask:
         queue        = _get_str("queue", default="hihg")
         project      = _get_str("project", default="brd")
         mem_per_core = _get_int("mem_per_core", "mem", default=2000)
-        email        = current_user.email
+        email        = _public_email()
         env_line     = _get_str("env_line", default=current_app.config["DEFAULT_ENV_LINE"])
 
         # ConfGen parameters
         poses_conf        = _get_int("confgen_poses", "poses_conf", "poses", default=64)
         confgen_walltime  = _get_str("confgen_walltime", "walltime_confgen", default="48:00")
-        lig_mode          = _get_str("lig_mode", default="2")  # "1" CSV, "2" folder, "3" single SDF
-        lig_filetype      = _get_str("lig_filetype", "filetype", default="sdf")  # default to sdf
+        inferred_lig_mode, inferred_lig_filetype, inferred_single_sdf = infer_ligand_workflow(ligand_info)
+        lig_mode          = _get_str("lig_mode", default=inferred_lig_mode)  # "1" CSV, "2" folder, "3" single SDF
+        lig_filetype      = _get_str("lig_filetype", "filetype", default=inferred_lig_filetype)
         csv_smiles_col    = _get_str("csv_smiles_col", "smiles_col", default="")
         csv_id_col        = _get_str("csv_id_col", "id_col", default="")
-        single_sdf_rel    = _get_str("single_sdf_rel", "single_sdf", default="")
+        single_sdf_rel    = _get_str("single_sdf_rel", "single_sdf", default=inferred_single_sdf or "")
+
+        if lig_mode == "1" and not csv_smiles_col:
+            return ("select a CSV SMILES column before building", 400)
 
         # Vina parameters
         poses_vina        = _get_int("vina_poses", "poses_vina", default=20)
         vina_walltime     = _get_str("vina_walltime", "walltime_vina", "walltime", default="96:00")
         vina_path         = _get_str("vina_path", "vina_exe", default="") or None
 
-        # ---------- Emit LSFs ----------
-        build_confgen_lsfs(
-            jobroot, lsf_dir, poses=poses_conf,
-            workers=workers, queue=queue, project=project, walltime=confgen_walltime,
-            mem_per_core=mem_per_core, email=email, env_line=env_line,
-            lig_mode=lig_mode, lig_filetype=lig_filetype,
-            csv_smiles_col=csv_smiles_col, csv_id_col=csv_id_col,
-            single_sdf_rel=(single_sdf_rel or None)
-        )
+        if package_mode == "lsf":
+            build_confgen_lsfs(
+                jobroot, lsf_dir, poses=poses_conf,
+                workers=workers, queue=queue, project=project, walltime=confgen_walltime,
+                mem_per_core=mem_per_core, email=email, env_line=env_line,
+                lig_mode=lig_mode, lig_filetype=lig_filetype,
+                csv_smiles_col=csv_smiles_col, csv_id_col=csv_id_col,
+                single_sdf_rel=(single_sdf_rel or None)
+            )
 
-        build_vina_lsfs(
-            jobroot, lsf_dir, poses=poses_vina,
-            workers=workers, queue=queue, project=project, walltime=vina_walltime,
-            mem_per_core=mem_per_core, email=email, env_line=env_line,
-            vina_path=vina_path
-        )
+            build_vina_lsfs(
+                jobroot, lsf_dir, poses=poses_vina,
+                workers=workers, queue=queue, project=project, walltime=vina_walltime,
+                mem_per_core=mem_per_core, email=email, env_line=env_line,
+                vina_path=vina_path
+            )
+        else:
+            build_portable_runners(jobroot)
 
         # Optional tag-based rename (no-op unless TAG column exists)
         rename_centers_with_tags(jobroot)
 
         # Zip the job folder
         z = zip_job_tree(jobroot)
-        return jsonify({"zip": str(z)})
+        return jsonify(
+            {
+                "zip": str(z),
+                "download_url": url_for("download", path=str(z)),
+                "package_mode": package_mode,
+                "warnings": warnings,
+            }
+        )
 
 
     # ---------- DOWNLOAD ----------

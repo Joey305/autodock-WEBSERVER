@@ -19,10 +19,7 @@
       <div class="container">
         <a class="navbar-brand fw-semibold text-white" href="/">AutoDock-Vina PrepServer</a>
         <div class="ms-auto">
-          {% if current_user.is_authenticated %}
-            <span class="me-3 text-white-50 small">{{ current_user.email }}</span>
-            <a class="btn btn-sm btn-outline-light" href="{{ url_for('auth.logout') }}">Logout</a>
-          {% endif %}
+          <span class="badge rounded-pill text-bg-light">Public Access</span>
         </div>
       </div>
     </nav>
