@@ -34,9 +34,13 @@ Naming and provenance:
 - `7_Graphs.py --write-state-summaries` writes ligand, tautomer, protomer, state, and variant summary CSVs
 - `7_Graphs.py` also supports richer docking analytics such as best-score, median-score, top-k mean, hit-rate, outlier-gap, and consensus-rank summaries
 - Use `7_Graphs.py --write-ranking-plots --write-hit-rate-plots --write-state-heatmaps --write-pdf-report` to generate ranking charts, heatmaps, summary tables, a run manifest JSON, and an optional PDF review report
-- `5C_BuildPymolSesh.py` now looks up the exact generated SDF for each `LigandVariant`, uses PDBQT only for the selected docked coordinates, and writes corrected docked SDF exports plus an audit CSV
+- `5C_BuildPymolSesh.py` now requires an exact generated SDF for each `LigandVariant` by default, prefers `Ligands_TMP_SDF_*` sources, excludes previous `11_AA_*` outputs from reference lookup, and writes corrected docked SDF exports plus an audit CSV
 - `5C_BuildPymolSesh.py` applies a hydrogen policy before PyMOL/export; the default is `--hydrogen-mode nonpolar`
 - Use `--hydrogen-mode none` for fully dehydrogenated display/export molecules, or `--hydrogen-mode all` to keep all hydrogens
+- Base/source SDF fallback is disabled unless you pass `--allow-reference-fallback`
+- Partial MCS coordinate transfer is disabled unless you pass `--allow-partial-mcs`
+- Recommended PyMOL preflight: `python 5C_BuildPymolSesh.py --audit-reference-resolution --strict-reference-sdf`
+- Recommended full export: `python 5C_BuildPymolSesh.py --strict-reference-sdf --write-atom-map-audit --hydrogen-mode nonpolar`
 - Complex PDB exports are coordinate views only; preserved ligand chemistry lives in `11_AA_Ligands/*_corrected_docked.sdf`
 - `Pose` means the Vina output pose number, not the RDKit conformer index
 

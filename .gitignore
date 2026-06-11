@@ -1,0 +1,47 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Flask / local runtime
+instance/*.db
+logs/
+*.log
+
+# Scientific workflow outputs
+*.zip
+Receptors_PDBQT/
+Receptors_PDBQT_Converted/
+Ligands_TMP_SDF_*/
+Ligands_*_PDBQT_*/
+Docking_Results*/
+11_AA_Ligands/
+11_AA_PDBOUTPUT/
+11_AA_PDBQT/
+
+# Node / frontend build artifacts
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

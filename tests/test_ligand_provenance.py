@@ -315,7 +315,7 @@ class DockingRunnerTests(unittest.TestCase):
 
 class GraphSummaryTests(unittest.TestCase):
     def test_build_summary_includes_richer_metrics_and_consensus_rank(self):
-        module = load_script_module("7_Graph.py", "graph_summary_module")
+        module = load_script_module("7_Graphs.py", "graph_summary_module")
         df = pd.DataFrame(
             [
                 {
@@ -407,7 +407,7 @@ class GraphSummaryTests(unittest.TestCase):
         self.assertGreater(lig_b["consensus_rank"], lig_a["consensus_rank"])
 
     def test_write_state_summary_tables(self):
-        module = load_script_module("7_Graph.py", "graph_module")
+        module = load_script_module("7_Graphs.py", "graph_module")
         with tempfile.TemporaryDirectory() as tmpdir:
             outdir = Path(tmpdir)
             df = pd.DataFrame(
@@ -459,7 +459,7 @@ class GraphSummaryTests(unittest.TestCase):
             self.assertIn("hit_rate_below_-9", tautomer_df.columns)
 
     def test_generate_outputs_writes_manifest_and_summary_tables_without_plot_dependencies(self):
-        module = load_script_module("7_Graph.py", "graph_outputs_module")
+        module = load_script_module("7_Graphs.py", "graph_outputs_module")
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "scores.csv"
             outdir = Path(tmpdir) / "Plots"
