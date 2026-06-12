@@ -42,6 +42,11 @@
   .builder-page .receptor-name{min-width:0;overflow-wrap:anywhere;word-break:break-word}
   .builder-page .chip-wrap{display:flex;flex-wrap:wrap;gap:.35rem .4rem}
   .builder-page .chip-check{min-height:34px;margin:0}
+  .builder-page .ligand-picker{border:1px solid var(--app-border);border-radius:10px;background:var(--app-surface-2);padding:.75rem}
+  .builder-page .ligand-choice-list{display:flex;flex-wrap:wrap;gap:.45rem}
+  .builder-page .ligand-choice{display:inline-flex;align-items:center;gap:.35rem;text-align:left;white-space:normal;min-height:38px}
+  .builder-page .ligand-choice .bi{opacity:0}
+  .builder-page .ligand-choice.active .bi{opacity:1}
   .builder-page pre{max-width:100%;min-width:0;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere;word-break:break-word}
   .builder-page .input-group > .form-control,
   .builder-page .input-group > .form-select{min-width:0}
@@ -80,6 +85,8 @@
     .builder-page .receptor-main .btn-open{width:100%;min-height:44px}
     .builder-page .receptor-name{font-size:.95rem!important;line-height:1.25}
     .builder-page .badge-pipe{white-space:normal;text-align:center}
+    .builder-page .ligand-picker{padding:.65rem}
+    .builder-page .ligand-choice{width:100%;justify-content:flex-start;min-height:44px}
     .builder-page .prep-action-row,
     .builder-page .build-actions{align-items:stretch!important;gap:.65rem!important}
     .builder-page .prep-action-row > .btn,
@@ -184,6 +191,12 @@
         <div class="col-md-2 d-grid"><button id="btnUseXYZ" class="btn btn-outline-secondary">Use XYZ</button></div>
         <div class="col-md-2 d-grid"><button id="btnClearClicks" class="btn btn-outline-secondary">Clear atoms</button></div>
         <div class="col-md-2"><div class="input-group"><span class="input-group-text">Å</span><input id="boxSize" class="form-control" value="20"></div></div>
+        <div id="ligandPicker" class="col-12 d-none">
+          <div class="ligand-picker">
+            <div class="fw-semibold small mb-2">Detected HETATM ligands</div>
+            <div id="ligandChoices" class="ligand-choice-list"></div>
+          </div>
+        </div>
         <div class="col-12 d-grid"><button id="btnSaveCenter" class="btn btn-warning"><i class="bi bi-bullseye"></i> Save center</button></div>
       </div>
     </div>
@@ -378,6 +391,7 @@ let carousel=null;
 let pickedAtoms=[];
 let prepPoll=null;
 let ligandUploadState = { kind:null, headers:[], selectedSmiles:'', selectedId:'' };
+let selectedLigandKey=null;
 
 function resizeVisibleStages(){
   Object.values(stagesByRel).forEach(stage=>{
@@ -441,11 +455,8 @@ function ensureSlide(rel){
 function getStage(rel, vpId){
   if(stagesByRel[rel]) return stagesByRel[rel];
   const stage=new NGL.Stage(vpId,{backgroundColor:'white'});
-  stage.signals.clicked.add(p=>{
-    if(!p || !p.atom) return;
-    pickedAtoms.push([p.atom.x, p.atom.y, p.atom.z]);
-    drawPickMarkersOn(stage);
-  });
+  stage.signals.clicked.add(p=>addPickedAtom(p, stage));
+  enableTouchAtomPicking(stage, document.getElementById(vpId));
   stagesByRel[rel]=stage;
   return stage;
 }
@@ -460,6 +471,54 @@ function drawPickMarkersOn(stage){
   const shape=new NGL.Shape('picks');
   pickedAtoms.forEach(p=> shape.addSphere(p,[1,0.8,0],0.9));
   const c=stage.addComponentFromObject(shape); c.addRepresentation('buffer'); c.name='picks';
+}
+function addPickedAtom(pickingProxy, stage){
+  if(!pickingProxy || !pickingProxy.atom) return false;
+  ['ligCode','ligResi','ligChain','resName','resId','resChain','xyzPaste'].forEach(id=> $('#'+id).value='');
+  clearDetectedLigandSelection();
+  pickedAtoms.push([pickingProxy.atom.x, pickingProxy.atom.y, pickingProxy.atom.z]);
+  drawPickMarkersOn(stage);
+  return true;
+}
+function enableTouchAtomPicking(stage, viewportEl){
+  if(!viewportEl || viewportEl.dataset.touchPickEnabled === 'true') return;
+  viewportEl.dataset.touchPickEnabled = 'true';
+
+  let touchStart = null;
+  viewportEl.addEventListener('pointerdown', event=>{
+    if(event.pointerType !== 'touch' || !event.isPrimary) return;
+    touchStart = {x:event.clientX, y:event.clientY, t:Date.now(), moved:false};
+  }, {capture:true, passive:true});
+
+  viewportEl.addEventListener('pointermove', event=>{
+    if(!touchStart || event.pointerType !== 'touch' || !event.isPrimary) return;
+    const dx = event.clientX - touchStart.x;
+    const dy = event.clientY - touchStart.y;
+    if(Math.hypot(dx, dy) > 10) touchStart.moved = true;
+  }, {capture:true, passive:true});
+
+  viewportEl.addEventListener('pointercancel', ()=>{
+    touchStart = null;
+  }, {capture:true, passive:true});
+
+  viewportEl.addEventListener('pointerup', event=>{
+    if(!touchStart || event.pointerType !== 'touch' || !event.isPrimary) return;
+    const start = touchStart;
+    touchStart = null;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    const isTap = !start.moved && Math.hypot(dx, dy) <= 10 && Date.now() - start.t < 450;
+    const pickAt = typeof stage.pick === 'function'
+      ? stage.pick.bind(stage)
+      : (stage.viewer && typeof stage.viewer.pick === 'function' ? stage.viewer.pick.bind(stage.viewer) : null);
+    if(!isTap || !pickAt) return;
+
+    const rect = viewportEl.getBoundingClientRect();
+    const pickingProxy = pickAt(event.clientX - rect.left, event.clientY - rect.top);
+    if(addPickedAtom(pickingProxy, stage)){
+      event.preventDefault();
+    }
+  }, {capture:true, passive:false});
 }
 
 /* --- Add once at top --- */
@@ -485,6 +544,8 @@ async function newWS(){
   $('#carouselWrap').classList.add('d-none'); $('#stagingMini').classList.add('d-none'); $('#prepPanel').classList.add('d-none');
   $('#ligandStep').classList.add('d-none'); $('#buildStep').classList.add('d-none');
   $('#miniHet').innerHTML='Open a receptor to populate…'; $('#miniChains').innerHTML='Open a receptor to populate…';
+  $('#ligandPicker').classList.add('d-none'); $('#ligandChoices').innerHTML='';
+  resetCenterSelectionInputs();
   currentRel=null; state=null; isMulti=false; pickedAtoms=[]; if(prepPoll) clearInterval(prepPoll);
 
   const r=await fetch('/api/workspace',{method:'POST'}); const j=await r.json();
@@ -685,16 +746,26 @@ async function parsePdbForOptions(rel){
     throw new Error(`Could not load receptor file (${res.status})`);
   }
   const txt = await res.text();
-  const hets=new Set(), chains=new Set();
+  const hets=new Set(), chains=new Set(), ligandMap=new Map();
   txt.split(/\r?\n/).forEach(line=>{
     if(line.startsWith('ATOM')||line.startsWith('HETATM')){
       const rn=line.slice(17,20).trim().toUpperCase();
       const ch=line[21]?.toUpperCase();
+      const resi=line.slice(22,26).trim();
+      const icode=(line[26]||'').trim().toUpperCase();
       if(line.startsWith('HETATM')) hets.add(rn);
       if(ch && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
+      if(line.startsWith('HETATM') && rn){
+        const key=[rn, ch || '', resi || '', icode || ''].join('|');
+        const current=ligandMap.get(key) || {resname:rn, chain:ch || '', resi:resi || '', icode:icode || '', atomCount:0};
+        current.atomCount += 1;
+        ligandMap.set(key, current);
+      }
     }
   });
-  return {hets, chains, raw:txt, fileUrl};
+  const ligands=[...ligandMap.entries()].map(([key, ligand])=>({key, ...ligand}))
+    .sort((a,b)=> a.resname.localeCompare(b.resname) || a.chain.localeCompare(b.chain) || a.resi.localeCompare(b.resi));
+  return {hets, chains, ligands, raw:txt, fileUrl};
 }
 function chips(set, cls, checked=false){
   const arr=[...set].sort();
@@ -704,6 +775,67 @@ function chips(set, cls, checked=false){
 function renderMiniOptions({hets, chains}){
   $('#miniHet').innerHTML   = `<div class="chip-wrap">${chips(hets,'het-mini',true)}</div>`;
   $('#miniChains').innerHTML= `<div class="chip-wrap">${chips(chains,'chain-mini',false)}</div>`;
+}
+function ligandLabel(ligand){
+  const loc = [ligand.chain || 'chain -', ligand.resi || 'resi -'].join(':');
+  const atoms = ligand.atomCount ? ` (${ligand.atomCount})` : '';
+  return `${ligand.resname} ${loc}${atoms}`;
+}
+function renderLigandChoices(ligands){
+  const wrap=$('#ligandPicker'), list=$('#ligandChoices');
+  selectedLigandKey=null;
+  list.innerHTML='';
+  if(!ligands || !ligands.length){
+    wrap.classList.add('d-none');
+    return;
+  }
+  wrap.classList.remove('d-none');
+  ligands.slice(0, 80).forEach(ligand=>{
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='ligand-choice btn btn-outline-secondary btn-sm';
+    btn.dataset.key=ligand.key;
+    btn.innerHTML=`<i class="bi bi-check2"></i><span>${ligandLabel(ligand)}</span>`;
+    btn.onclick=()=>selectDetectedLigand(ligand);
+    list.appendChild(btn);
+  });
+}
+function selectDetectedLigand(ligand){
+  selectedLigandKey=ligand.key;
+  $('#ligCode').value=ligand.resname;
+  $('#ligResi').value=ligand.resi || '';
+  $('#ligChain').value=ligand.chain || '';
+  ['resName','resId','resChain','xyzPaste'].forEach(id=> $('#'+id).value='');
+  pickedAtoms=[];
+  const st=stagesByRel[currentRel];
+  if(st) drawPickMarkersOn(st);
+  $$('#ligandChoices .ligand-choice').forEach(btn=> btn.classList.toggle('active', btn.dataset.key===ligand.key));
+}
+function clearDetectedLigandSelection(){
+  selectedLigandKey=null;
+  $$('#ligandChoices .ligand-choice').forEach(btn=>btn.classList.remove('active'));
+}
+function resetCenterSelectionInputs(){
+  ['ligCode','ligResi','ligChain','resName','resId','resChain','xyzPaste'].forEach(id=> $('#'+id).value='');
+  pickedAtoms=[];
+  clearDetectedLigandSelection();
+}
+function syncCenterMode(mode){
+  if(mode === 'ligand'){
+    ['resName','resId','resChain','xyzPaste'].forEach(id=> $('#'+id).value='');
+    pickedAtoms=[];
+    clearDetectedLigandSelection();
+  }else if(mode === 'residue'){
+    ['ligCode','ligResi','ligChain','xyzPaste'].forEach(id=> $('#'+id).value='');
+    pickedAtoms=[];
+    clearDetectedLigandSelection();
+  }else if(mode === 'xyz'){
+    ['ligCode','ligResi','ligChain','resName','resId','resChain'].forEach(id=> $('#'+id).value='');
+    pickedAtoms=[];
+    clearDetectedLigandSelection();
+  }
+  const st=stagesByRel[currentRel];
+  if(st) drawPickMarkersOn(st);
 }
 async function openReceptor(rel){
   currentRel=rel;
@@ -716,7 +848,7 @@ async function openReceptor(rel){
   carousel.to(idx);
   scheduleStageResize();
 
-  pickedAtoms=[];
+  resetCenterSelectionInputs();
   let parsed;
   try{
     parsed = await parsePdbForOptions(rel);
@@ -726,8 +858,9 @@ async function openReceptor(rel){
     drawReceptorList();
     return;
   }
-  const {hets, chains, fileUrl} = parsed;
+  const {hets, chains, ligands, fileUrl} = parsed;
   renderMiniOptions({hets, chains});
+  renderLigandChoices(ligands);
 
   let stage=getStage(rel, vpId);
   try{ stage.removeAllComponents(); }catch{}
@@ -748,9 +881,11 @@ async function openReceptor(rel){
 $('#btnClearClicks').onclick = ()=>{ pickedAtoms=[]; const st=stagesByRel[currentRel]; if(st) drawPickMarkersOn(st); };
 $('#btnUseXYZ').onclick = ()=>{
   if(!$('#xyzPaste').value.trim()) return alert('Paste x,y,z first');
-  ['ligCode','ligResi','ligChain','resName','resId','resChain'].forEach(id=> $('#'+id).value='');
-  pickedAtoms=[]; const st=stagesByRel[currentRel]; if(st) drawPickMarkersOn(st);
+  syncCenterMode('xyz');
 };
+['ligCode','ligResi','ligChain'].forEach(id=> $('#'+id).addEventListener('input', ()=>syncCenterMode('ligand')));
+['resName','resId','resChain'].forEach(id=> $('#'+id).addEventListener('input', ()=>syncCenterMode('residue')));
+$('#xyzPaste').addEventListener('input', ()=>syncCenterMode('xyz'));
 $('#btnSaveCenter').onclick=async()=>{
   if(!jobname||!currentRel) return alert('Open a receptor first');
   const lig=$('#ligCode').value.trim(), lresi=$('#ligResi').value.trim(), lch=$('#ligChain').value.trim();
