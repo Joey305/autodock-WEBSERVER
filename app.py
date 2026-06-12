@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
 from flask import (
-    Flask, render_template, request, send_file, jsonify, current_app, url_for
+    Flask, render_template, request, send_file, send_from_directory, jsonify, current_app, url_for
 )
 from flask_login import LoginManager, login_required
 
@@ -243,6 +243,22 @@ def create_app() -> Flask:
         return None
 
     # ---------- PAGES ----------
+    @app.get("/robots.txt")
+    def robots_txt():
+        return send_from_directory(app.static_folder, "robots.txt", mimetype="text/plain")
+
+    @app.get("/sitemap.xml")
+    def sitemap_xml():
+        return send_from_directory(app.static_folder, "sitemap.xml", mimetype="application/xml")
+
+    @app.get("/llms.txt")
+    def llms_txt():
+        return send_from_directory(app.static_folder, "llms.txt", mimetype="text/markdown")
+
+    @app.get("/llms-full.txt")
+    def llms_full_txt():
+        return send_from_directory(app.static_folder, "llms-full.txt", mimetype="text/markdown")
+
     @app.get("/")
     def home():
         return render_template("home.html")

@@ -204,6 +204,7 @@ a:hover {
 .split-section,
 .cta-band,
 .notice-card,
+.ai-summary-card,
 .feature-card,
 .info-card,
 .module-card,
@@ -439,8 +440,26 @@ a:hover {
 }
 
 .related-pages,
-.faq-section {
+.faq-section,
+.ai-summary-card {
   margin-top: 1.25rem;
+}
+
+.ai-summary-card {
+  border-radius: 1.35rem;
+  padding: 1.25rem;
+}
+
+.ai-summary-card h2 {
+  color: var(--app-text);
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.ai-summary-card p {
+  max-width: 980px;
+  color: var(--app-muted);
+  margin-bottom: 0;
 }
 
 .related-card,

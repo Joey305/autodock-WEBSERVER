@@ -205,6 +205,10 @@
   </nav>
 </section>
 
+{% set ai_summary_title = "What the headless API does" %}
+{% set ai_summary = "The headless API exposes staged `/api/v1` endpoints for scripted docking package preparation: create a workspace, add receptors, save docking centers, prepare receptor PDBQT files, upload ligands, build a package, list artifacts, and download the generated ZIP." %}
+{% include "partials/ai_summary.html" %}
+
 <section class="notice-card">
   <i class="bi bi-info-circle"></i>
   <div>
@@ -460,28 +464,28 @@ echo ""
 echo ""
 
 echo "2) Create workspace"
-curl -sS -X POST "$BASE/api/v1/workspaces" 
--H "Content-Type: application/json" 
--d "{"workspace_name":"$JOB"}"
+curl -sS -X POST "$BASE/api/v1/workspaces" \
+  -H "Content-Type: application/json" \
+  -d "{\"workspace_name\":\"$JOB\"}"
 echo ""
 echo ""
 
 echo "3) Fetch receptor 3EKY chain A"
-curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" 
--H "Content-Type: application/json" 
--d '{"pdb_id":"3EKY","chains":"A"}'
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/receptors/fetch" \
+  -H "Content-Type: application/json" \
+  -d '{"pdb_id":"3EKY","chains":"A"}'
 echo ""
 echo ""
 
 echo "4) Save example docking center"
-curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" 
--H "Content-Type: application/json" 
--d '{
-"method":"xyz",
-"receptor":"Receptors/3eky.pdb",
-"center":[10.5, 22.1, -3.4],
-"size":20
-}'
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/centers/save" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method":"xyz",
+    "receptor":"Receptors/3eky.pdb",
+    "center":[10.5, 22.1, -3.4],
+    "size":20
+  }'
 echo ""
 echo ""
 
@@ -491,13 +495,13 @@ echo ""
 echo ""
 
 echo "6) Prepare receptor"
-curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" 
--H "Content-Type: application/json" 
--d '{
-"remove_hets":"all",
-"remove_chains":"",
-"altloc":"collapse"
-}'
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/prep/start" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "remove_hets":"all",
+    "remove_chains":"",
+    "altloc":"collapse"
+  }'
 echo ""
 echo ""
 
@@ -512,9 +516,9 @@ echo ""
 echo ""
 
 echo "9) Upload DR7 ligand"
-curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" 
--F "mode=single" 
--F "file=@$LIGAND"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@$LIGAND"
 echo ""
 echo ""
 
@@ -524,13 +528,13 @@ echo ""
 echo ""
 
 echo "11) Build portable docking package"
-curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" 
--H "Content-Type: application/json" 
--d '{
-"package_mode":"portable",
-"vina_poses":20,
-"confgen_poses":64
-}'
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"portable",
+    "vina_poses":20,
+    "confgen_poses":64
+  }'
 echo ""
 echo ""
 
@@ -540,8 +544,8 @@ echo ""
 echo ""
 
 echo "13) Download final ZIP"
-curl -L -o "${JOB}_docking_package.zip" 
-"$BASE/api/v1/workspaces/$JOB/download"
+curl -L -o "${JOB}_docking_package.zip" \
+  "$BASE/api/v1/workspaces/$JOB/download"
 echo ""
 echo ""
 
@@ -580,9 +584,9 @@ echo ""</code></pre>
     <h2><i class="bi bi-folder-plus"></i> 2. Create workspace</h2>
     <pre><code>JOB="dr7-example-$(date +%s)"
 
-curl -sS -X POST "$BASE/api/v1/workspaces" 
--H "Content-Type: application/json" 
--d "{"workspace_name":"$JOB"}"
+curl -sS -X POST "$BASE/api/v1/workspaces" \
+  -H "Content-Type: application/json" \
+  -d "{\"workspace_name\":\"$JOB\"}"
 echo ""</code></pre>
 
   </article>
@@ -637,9 +641,9 @@ echo ""</code></pre>
     <pre><code>curl -L -o DR7.sdf \
   https://raw.githubusercontent.com/Joey305/autodock-WEBSERVER/main/Example/Ligand_SDF/DR7.sdf
 
-curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" 
--F "mode=single" 
--F "file=@DR7.sdf"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@DR7.sdf"
 echo ""</code></pre>
 
   </article>
@@ -700,9 +704,9 @@ ls -lh "${JOB}_docking_package.zip"</code></pre>
 CC(=O)Oc1ccccc1C(=O)O aspirin_example
 EOF
 
-curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" 
--F "mode=single" 
--F "file=@example_ligand.smi"
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/ligands/upload" \
+  -F "mode=single" \
+  -F "file=@example_ligand.smi"
 echo ""
 
 curl -sS "$BASE/api/v1/workspaces/$JOB/ligands"

@@ -115,6 +115,10 @@
   </div>
 </section>
 
+{% set ai_summary_title = "How the docking-preparation workflow works" %}
+{% set ai_summary = "The workflow moves from workspace creation to receptor intake, docking-box coordinate selection, receptor PDBQT preparation, ligand upload, package generation, and downstream AutoDock Vina execution. Each stage creates state that can be inspected before building the final ZIP package." %}
+{% include "partials/ai_summary.html" %}
+
 <section class="workflow-map-section">
   <div class="workflow-map-heading">
     <span class="eyebrow">Pipeline map</span>

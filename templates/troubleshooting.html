@@ -13,6 +13,10 @@
   </p>
 </section>
 
+{% set ai_summary_title = "How to debug failed docking package preparation" %}
+{% set ai_summary = "Troubleshooting should start with the earliest missing workflow state: workspace creation, receptor registration, saved docking center, receptor preparation log, ligand upload state, package mode, and generated artifacts. This narrows failures before users repeat long upload or conversion steps." %}
+{% include "partials/ai_summary.html" %}
+
 <section class="split-section">
   <div>
     <span class="eyebrow">Decision path</span>

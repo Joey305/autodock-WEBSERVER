@@ -6,12 +6,14 @@
     <title>{% block title %}AutoDock-Vina PrepServer{% endblock %}</title>
     <meta name="description" content="{% block meta_description %}Browser-guided AutoDock Vina docking package preparation for receptor and ligand workflows.{% endblock %}">
     <meta name="robots" content="index,follow">
-    <link rel="canonical" href="{{ request.url }}">
+    <link rel="canonical" href="{{ request.base_url }}">
+    <link rel="sitemap" type="application/xml" href="{{ url_for('sitemap_xml', _external=True) }}">
+    <link rel="alternate" type="text/markdown" title="LLMs summary" href="{{ url_for('llms_txt', _external=True) }}">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="AutoDock-Vina PrepServer">
     <meta property="og:title" content="{% block og_title %}AutoDock-Vina PrepServer{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Browser-guided AutoDock Vina docking package preparation for receptor and ligand workflows.{% endblock %}">
-    <meta property="og:url" content="{{ request.url }}">
+    <meta property="og:url" content="{{ request.base_url }}">
     <script>
       (() => {
         const key = "autodock-prepserver-theme";
@@ -38,9 +40,17 @@
         "applicationCategory": "ScientificApplication",
         "operatingSystem": "Web",
         "description": "Browser-guided AutoDock Vina docking package preparation for receptor and ligand workflows.",
-        "url": {{ request.url_root.rstrip('/')|tojson }},
+        "url": {{ request.host_url.rstrip('/')|tojson }},
         "softwareHelp": {{ url_for('documentation', _external=True)|tojson }},
-        "codeRepository": {{ repository_url|tojson }}
+        "codeRepository": {{ repository_url|tojson }},
+        "creator": {
+          "@type": "Person",
+          "name": "Joseph-Michael Schulz"
+        },
+        "sameAs": [
+          {{ repository_url|tojson }},
+          {{ lab_link.url|tojson }}
+        ]
       }
     </script>
     {% block extra_head %}{% endblock %}

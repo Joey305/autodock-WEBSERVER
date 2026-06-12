@@ -1,0 +1,7 @@
+{% if ai_summary %}
+<section class="ai-summary-card" aria-labelledby="{{ ai_summary_id|default('page-summary-title') }}">
+  <span class="eyebrow">Page summary</span>
+  <h2 id="{{ ai_summary_id|default('page-summary-title') }}">{{ ai_summary_title|default('What this page explains') }}</h2>
+  <p>{{ ai_summary }}</p>
+</section>
+{% endif %}

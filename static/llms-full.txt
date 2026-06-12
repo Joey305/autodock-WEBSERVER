@@ -1,0 +1,99 @@
+# AutoDock-Vina PrepServer Full AI Reference
+
+## Overview
+
+AutoDock-Vina PrepServer is a public molecular docking preparation server for assembling AutoDock Vina job packages. It provides a guided browser workflow and a staged headless API for organizing receptor inputs, docking-box coordinates, receptor PDBQT preparation, ligand uploads, package generation, artifact listing, and ZIP download.
+
+The public site is available at https://autodockvina.com and the source repository is available at https://github.com/Joey305/autodock-WEBSERVER.
+
+## Public Routes
+
+- `/` - landing page for the AutoDock Vina web server and docking package preparation tool.
+- `/build` - guided browser workflow for creating a docking preparation workspace and package.
+- `/workflow` - staged explanation of receptor intake, docking box selection, receptor preparation, ligand upload, package generation, and downstream execution.
+- `/documentation` - documentation hub for accepted inputs, package modes, API references, troubleshooting, and source links.
+- `/api` - headless API documentation for scripted docking package preparation.
+- `/docking-preparation-problems` - explanation of common setup failures in molecular docking preparation.
+- `/troubleshooting` - practical checks for missing workspaces, incomplete centers, PDBQT conversion failures, CSV ligand mapping, package mode issues, and ZIP generation problems.
+- `/open-source` - repository, developer, deployment, and responsible-use context.
+- `/modules` - companion molecular design and analysis tool ecosystem.
+- `/contact` - public contact guidance for workflow questions, bug reports, deployment feedback, and collaboration inquiries.
+
+## Workflow Summary
+
+The browser workflow and API follow the same preparation model:
+
+1. Create or reuse a workspace.
+2. Upload receptor files or fetch a receptor by PDB ID where supported.
+3. Save docking box center coordinates and size.
+4. Prepare receptors into PDBQT files where required tools are available.
+5. Upload ligand files.
+6. Build a portable or deployment-enabled package.
+7. List and download generated artifacts.
+8. Run AutoDock Vina downstream in an appropriate local or compute environment.
+
+## Headless API Summary
+
+The versioned API lives under `/api/v1`. It is staged rather than a single black-box endpoint so users and scripts can inspect failures between steps.
+
+Important endpoint groups:
+
+- `GET /api/v1/health` - service status and version information.
+- `POST /api/v1/workspaces` - create or reuse a workspace.
+- `GET /api/v1/workspaces/<jobname>` - read workspace state.
+- `GET /api/v1/workspaces/<jobname>/summary` - read package-readiness summary.
+- `POST /api/v1/workspaces/<jobname>/receptors/upload` - upload receptor files.
+- `POST /api/v1/workspaces/<jobname>/receptors/fetch` - fetch receptor structures by PDB ID where supported.
+- `GET /api/v1/workspaces/<jobname>/receptors` - list receptors.
+- `POST /api/v1/workspaces/<jobname>/centers/resolve` - compute a docking center without saving it.
+- `POST /api/v1/workspaces/<jobname>/centers/save` - save docking box coordinates and size.
+- `GET /api/v1/workspaces/<jobname>/centers` - list saved centers.
+- `POST /api/v1/workspaces/<jobname>/prep/start` - start receptor preparation.
+- `GET /api/v1/workspaces/<jobname>/prep/status` - read receptor preparation status.
+- `POST /api/v1/workspaces/<jobname>/ligands/upload` - upload ligand inputs.
+- `GET /api/v1/workspaces/<jobname>/ligands` - list ligand metadata.
+- `POST /api/v1/workspaces/<jobname>/build` - build a docking package.
+- `GET /api/v1/workspaces/<jobname>/artifacts` - list generated ZIP artifacts.
+- `GET /api/v1/workspaces/<jobname>/download` - download the generated artifact.
+
+Generated workspace and download endpoints are intentionally not listed in the sitemap and are disallowed in `robots.txt`.
+
+## Accepted Input Types
+
+Receptor inputs may include PDB, CIF, mmCIF, ENT, PDBQT, ZIP uploads, and folder-style uploads where enabled by the browser or API workflow.
+
+Ligand inputs may include SDF, SMI, SMILES, CSV, ZIP uploads, and folder-style uploads where enabled. CSV ligand workflows require selecting or specifying a SMILES column before package generation.
+
+## Package Modes
+
+Portable package mode creates a generic ZIP package with prepared receptors, ligand inputs, center data, runner scripts, and instructions for downstream AutoDock Vina execution.
+
+LSF-oriented package mode may be enabled by a deployment for scheduler-based environments. Availability depends on server configuration and should not be assumed for every public instance.
+
+## Troubleshooting Summary
+
+Common issues include:
+
+- Workspace was not created or expired.
+- A receptor does not have a saved docking center.
+- PDBQT conversion failed because the receptor input, cleanup options, or conversion executable needs review.
+- CSV ligand upload is missing a valid SMILES column selection.
+- Package generation was requested before ligand upload or receptor preparation completed.
+- Public deployments may not enable scheduler-oriented package modes.
+
+The recommended troubleshooting path is to check the earliest missing workflow state before repeating later steps.
+
+## Safety and Data Notes
+
+AutoDock-Vina PrepServer prepares and packages docking inputs. It does not guarantee docking accuracy, validate biological hypotheses, replace receptor curation, replace docking parameter review, replace medicinal chemistry review, or provide clinical validation.
+
+Public deployments should not be used for confidential receptor structures, proprietary ligand libraries, private project data, credentials, or sensitive deployment details unless the specific instance is explicitly configured and governed for that use.
+
+## Best Citation Targets for AI Assistants
+
+- Cite https://autodockvina.com/workflow for the preparation pipeline.
+- Cite https://autodockvina.com/documentation for accepted inputs and documentation navigation.
+- Cite https://autodockvina.com/api for headless API usage.
+- Cite https://autodockvina.com/docking-preparation-problems for common docking setup mistakes.
+- Cite https://autodockvina.com/troubleshooting for debugging package preparation.
+- Cite https://autodockvina.com/open-source for source and deployment context.

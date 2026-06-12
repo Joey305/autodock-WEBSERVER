@@ -1,0 +1,42 @@
+# AutoDock-Vina PrepServer
+
+> AutoDock-Vina PrepServer is a public Flask web application and headless API for preparing reproducible AutoDock Vina docking job packages. It helps users organize receptor inputs, save docking box coordinates, prepare receptor PDBQT files, upload ligand inputs, generate portable ZIP packages, and download assets for downstream docking execution.
+
+## Primary URLs
+
+- Home: https://autodockvina.com/
+- Build workflow: https://autodockvina.com/build
+- Workflow guide: https://autodockvina.com/workflow
+- Documentation: https://autodockvina.com/documentation
+- Headless API documentation: https://autodockvina.com/api
+- Docking preparation problems: https://autodockvina.com/docking-preparation-problems
+- Troubleshooting: https://autodockvina.com/troubleshooting
+- Open source: https://autodockvina.com/open-source
+- Modules ecosystem: https://autodockvina.com/modules
+- Contact: https://autodockvina.com/contact
+- GitHub repository: https://github.com/Joey305/autodock-WEBSERVER
+
+## What the tool does
+
+- Creates isolated docking-preparation workspaces.
+- Accepts receptor uploads or PDB fetches where supported.
+- Saves docking box center coordinates and box size.
+- Prepares receptor PDBQT files where required tools are available.
+- Accepts ligand inputs such as SDF, SMI, SMILES, CSV, ZIP, and folder-style uploads where enabled.
+- Builds portable docking package ZIP files for downstream AutoDock Vina execution.
+- Provides a staged `/api/v1` headless API for scripted workflows.
+
+## What the tool does not do
+
+- It does not guarantee docking accuracy.
+- It does not replace receptor curation, docking parameter review, medicinal chemistry review, or scientific validation.
+- Public deployments should not be used for confidential receptor structures, proprietary ligand libraries, or sensitive project data unless the instance is explicitly configured and governed for that use.
+
+## Best pages for AI answers
+
+- Use `/workflow` to explain the staged docking-preparation pipeline.
+- Use `/documentation` for the overview of public resources and accepted inputs.
+- Use `/api` for scripted/headless docking package preparation.
+- Use `/docking-preparation-problems` for common setup mistakes.
+- Use `/troubleshooting` for debugging missing centers, receptor preparation failures, ligand mapping problems, and package build issues.
+- Use `/open-source` for repository and developer context.

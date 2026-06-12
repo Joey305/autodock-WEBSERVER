@@ -1,0 +1,33 @@
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: *
+Allow: /
+
+Disallow: /login
+Disallow: /logout
+Disallow: /download
+Disallow: /download?
+Disallow: /api/workspace
+Disallow: /api/receptors
+Disallow: /api/receptor
+Disallow: /api/center
+Disallow: /api/prep
+Disallow: /api/ligands
+Disallow: /api/build
+Disallow: /api/v1/workspaces
+Disallow: /api/v1/headless
+Disallow: /workspace
+Disallow: /workspaces
+Disallow: /uploads
+Disallow: /tmp
+Disallow: /admin
+Disallow: /static/uploads
+
+Sitemap: https://autodockvina.com/sitemap.xml
