@@ -223,7 +223,7 @@ def main():
         print("❌ Nothing left after filtering.")
         sys.exit(2)
 
-    queue = input_default("Queue", "hihg")
+    queue = input_default("Queue", "general")
     project = input_default("Project", "brd")
     walltime = input_default("Walltime", "200:00")
     workers = int(input_default("Workers", "16"))

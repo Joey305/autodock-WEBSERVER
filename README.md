@@ -1368,7 +1368,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
   -d '{
     "package_mode":"lsf",
     "workers":16,
-    "queue":"hihg",
+    "queue":"general",
     "project":"brd",
     "mem_per_core":2000,
     "vina_poses":20,

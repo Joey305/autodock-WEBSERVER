@@ -8,7 +8,7 @@ import re
 import os
 
 DEFAULT_EMAIL = "jxs794@miami.edu"
-DEFAULT_QUEUE = "hihg"
+DEFAULT_QUEUE = "general"
 DEFAULT_PROJECT = "brd"
 DEFAULT_WORKERS = 16
 DEFAULT_MEM_PER_CORE = 2000

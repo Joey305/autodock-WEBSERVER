@@ -235,7 +235,7 @@ def main():
     poses = int(input_default("\nDocking poses per ligand", 9))
 
     # Defaults for LSF
-    queue = "hihg"
+    queue = "general"
     project = "brd"
     walltime = "500:00"
     workers = 16

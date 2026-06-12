@@ -60,7 +60,7 @@ def parse_args():
     # Common knobs
     p.add_argument("--poses", type=int, default=64, help="Poses per molecule (default: 64)")
     p.add_argument("--workers", type=int, default=16, help="CPU cores per job (default: 16)")
-    p.add_argument("--queue", default="hihg", help="LSF queue (default: hihg)")
+    p.add_argument("--queue", default="general", help="LSF queue (default: general)")
     p.add_argument("--project", default="brd", help="LSF project (default: brd)")
     p.add_argument("--walltime", default="48:00", help="Walltime (default: 48:00)")
     p.add_argument("--mem-per-core", default="2000", help="MB per core for rusage[mem=...] (default: 2000)")

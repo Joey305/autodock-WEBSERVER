@@ -1326,7 +1326,7 @@ def create_app() -> Flask:
 
         # Shared parameters
         workers      = _get_int("workers", "ncores", default=16)
-        queue        = _get_str("queue", default="hihg")
+        queue        = _get_str("queue", default="general")
         project      = _get_str("project", default="brd")
         mem_per_core = _get_int("mem_per_core", "mem", default=2000)
         email        = _public_email()
@@ -1843,7 +1843,7 @@ def create_app() -> Flask:
             build_confgen_lsfs(
                 jobroot, jobroot, poses=poses_conf,
                 workers=_int_value("workers", "ncores", default=16),
-                queue=_str_value("queue", default="hihg"),
+                queue=_str_value("queue", default="general"),
                 project=_str_value("project", default="brd"),
                 walltime=_str_value("confgen_walltime", "walltime_confgen", default="48:00"),
                 mem_per_core=_int_value("mem_per_core", "mem", default=2000),
@@ -1858,7 +1858,7 @@ def create_app() -> Flask:
             build_vina_lsfs(
                 jobroot, jobroot, poses=poses_vina,
                 workers=_int_value("workers", "ncores", default=16),
-                queue=_str_value("queue", default="hihg"),
+                queue=_str_value("queue", default="general"),
                 project=_str_value("project", default="brd"),
                 walltime=_str_value("vina_walltime", "walltime_vina", "walltime", default="96:00"),
                 mem_per_core=_int_value("mem_per_core", "mem", default=2000),
