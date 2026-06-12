@@ -159,6 +159,15 @@ a:hover {
   margin-left: 0.75rem;
 }
 
+.app-navbar .navbar-collapse {
+  min-width: 0;
+}
+
+.app-navbar .navbar-nav {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .public-badge {
   background: color-mix(in srgb, var(--app-success) 16%, var(--app-surface));
   color: color-mix(in srgb, var(--app-success) 70%, var(--app-text));

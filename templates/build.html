@@ -33,13 +33,81 @@
   .lsf-panel{border:1px dashed var(--app-border);border-radius:12px;padding:1rem;background:var(--app-surface-2)}
   .mode-result{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .7rem;border-radius:999px;background:var(--app-surface-2);color:var(--app-brand);font-size:.85rem}
   .csv-config{border:1px solid var(--app-border);border-radius:12px;padding:.9rem;background:var(--app-surface-2)}
+  .builder-page{max-width:100%;overflow-x:clip}
+  .builder-page .builder-toolbar{gap:.75rem}
+  .builder-page .builder-job-controls{min-width:0}
+  .builder-page .builder-job-label{min-width:0;overflow-wrap:anywhere}
+  .builder-page .row-receptor{gap:.75rem;min-width:0}
+  .builder-page .receptor-main{min-width:0;flex:1}
+  .builder-page .receptor-name{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+  .builder-page .chip-wrap{display:flex;flex-wrap:wrap;gap:.35rem .4rem}
+  .builder-page .chip-check{min-height:34px;margin:0}
+  .builder-page pre{max-width:100%;min-width:0;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere;word-break:break-word}
+  .builder-page .input-group > .form-control,
+  .builder-page .input-group > .form-select{min-width:0}
+  .builder-page .build-actions{flex-wrap:wrap}
+  .builder-page .build-actions > *{max-width:100%}
+  .builder-page #downloadLink,
+  .builder-page #buildStatus{overflow-wrap:anywhere}
+  .builder-page .viewer-shell{min-width:0}
+  .builder-page .box-controls .input-group,
+  .builder-page .prep-controls .input-group{min-width:0}
+  .builder-page .mode-card{min-height:100%}
+  @media (max-width: 767.98px){
+    .builder-page{margin-left:-.25rem;margin-right:-.25rem}
+    .builder-page .builder-toolbar{align-items:flex-start!important}
+    .builder-page .builder-job-controls{width:100%;justify-content:space-between;flex-wrap:wrap}
+    .builder-page .step-header{display:flex;align-items:flex-start;gap:.45rem;flex-wrap:wrap}
+    .builder-page .step-header .pill{margin-left:0!important}
+    .builder-page .card-body{padding:1rem .85rem}
+    .builder-page .input-group.responsive-stack{display:grid;grid-template-columns:1fr;gap:.5rem}
+    .builder-page .input-group.responsive-stack > .form-control,
+    .builder-page .input-group.responsive-stack > .form-select,
+    .builder-page .input-group.responsive-stack > .btn,
+    .builder-page .input-group.responsive-stack > .input-group-text{
+      width:100%;max-width:none!important;border-radius:.5rem!important
+    }
+    .builder-page .input-group.responsive-stack > .input-group-text{justify-content:center}
+    .builder-page .box-controls .input-group{display:grid;grid-template-columns:auto minmax(0,1fr);width:100%}
+    .builder-page .box-controls .input-group > .form-control,
+    .builder-page .box-controls .input-group > .form-select{max-width:none!important;min-width:0}
+    .builder-page .box-controls .input-group.multi-field{grid-template-columns:auto minmax(0,1fr);gap:.45rem}
+    .builder-page .box-controls .input-group.multi-field > *{border-radius:.5rem!important}
+    .builder-page .box-controls .input-group.multi-field > .form-control{width:100%}
+    .builder-page .viewport{height:330px;border-radius:8px}
+    .builder-page .row-receptor{align-items:stretch!important}
+    .builder-page .receptor-main{align-items:flex-start!important;gap:.55rem!important;flex-wrap:wrap}
+    .builder-page .receptor-main .btn-open{width:100%;min-height:44px}
+    .builder-page .receptor-name{font-size:.95rem!important;line-height:1.25}
+    .builder-page .badge-pipe{white-space:normal;text-align:center}
+    .builder-page .prep-action-row,
+    .builder-page .build-actions{align-items:stretch!important;gap:.65rem!important}
+    .builder-page .prep-action-row > .btn,
+    .builder-page .build-actions > .btn,
+    .builder-page .build-actions > a{width:100%;min-height:44px}
+    .builder-page .lsf-panel{padding:.85rem}
+    .builder-page .floating-toast{
+      left:12px;right:12px;bottom:12px;text-align:center;pointer-events:none
+    }
+  }
+  @media (max-width: 430px){
+    .builder-page .viewport{height:290px}
+    .builder-page h3{font-size:1.25rem}
+    .builder-page .btn{min-height:42px}
+  }
+  @media (min-width: 768px) and (max-width: 991.98px){
+    .builder-page .viewport{height:400px}
+    .builder-page .builder-toolbar{align-items:flex-start!important}
+    .builder-page .builder-job-controls{flex-wrap:wrap;justify-content:flex-end}
+  }
 </style>
 
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="builder-page">
+<div class="builder-toolbar d-flex align-items-center justify-content-between flex-wrap mb-3">
   <h3 class="m-0">Build a Docking Job</h3>
-  <div class="d-flex align-items-center gap-2">
-    <span class="text-muted">Job: <span id="jobname" class="fw-semibold">—</span></span>
-    <button id="btnNewWS" class="btn btn-outline-primary"><i class="bi bi-asterisk"></i> New Workspace</button>
+  <div class="builder-job-controls d-flex align-items-center gap-2">
+    <span class="builder-job-label text-muted">Job: <span id="jobname" class="fw-semibold">—</span></span>
+    <button id="btnNewWS" class="btn btn-outline-primary flex-shrink-0"><i class="bi bi-asterisk"></i> New Workspace</button>
   </div>
 </div>
 
@@ -55,21 +123,21 @@
     <div class="row g-3 align-items-end">
       <div class="col-lg-6">
         <label class="form-label">Upload SINGLE receptor (.pdb / .cif / .pdbqt / .ent)</label>
-        <div class="input-group">
+        <div class="input-group responsive-stack">
           <input id="receptorSingle" type="file" class="form-control" accept=".pdb,.cif,.pdbqt,.mmcif,.ent" disabled>
           <button id="btnRecSingle" class="btn btn-success" disabled>Upload</button>
         </div>
       </div>
       <div class="col-lg-6">
         <label class="form-label">OR upload ZIP of Receptors/</label>
-        <div class="input-group">
+        <div class="input-group responsive-stack">
           <input id="receptorZip" type="file" class="form-control" accept=".zip" disabled>
           <button id="btnRecZip" class="btn btn-success" disabled>Upload ZIP</button>
         </div>
       </div>
       <div class="col-lg-6">
         <label class="form-label">Upload FOLDER of Receptors</label>
-        <div class="input-group">
+        <div class="input-group responsive-stack">
           <input id="receptorFolder" type="file" class="form-control" webkitdirectory multiple disabled>
           <button id="btnRecFolder" class="btn btn-success" disabled>Upload Folder</button>
         </div>
@@ -77,7 +145,7 @@
       </div>
       <div class="col-lg-6">
         <label class="form-label">Fetch by PDB ID</label>
-        <div class="input-group">
+        <div class="input-group responsive-stack">
           <input id="pdbFetch" class="form-control" placeholder="e.g., 3EKY" disabled>
           <input id="pdbChains" class="form-control" placeholder="Chains (optional)" style="max-width:180px" disabled>
           <button id="btnFetchPDB" class="btn btn-success" disabled>Fetch</button>
@@ -91,21 +159,21 @@
     <!-- 1a: viewer (carousel) -->
     <div id="carouselWrap" class="mt-4 d-none">
       <h6 class="mb-2">1a) Box Generation</h6>
-      <div id="viewerCarousel" class="carousel slide" data-bs-interval="false">
+      <div id="viewerCarousel" class="carousel slide viewer-shell" data-bs-interval="false">
         <div class="carousel-inner" id="carouselInner"></div>
       </div>
 
       <!-- box inputs -->
-      <div class="row g-2 align-items-center mt-2">
+      <div class="box-controls row g-2 align-items-center mt-2">
         <div class="col-md-3"><div class="input-group"><span class="input-group-text">Lig</span><input id="ligCode" class="form-control" placeholder="ADP"></div></div>
         <div class="col-md-4">
-          <div class="input-group">
+          <div class="input-group multi-field">
             <span class="input-group-text">Resi</span><input id="ligResi" class="form-control" placeholder="(opt)" style="max-width:90px">
             <span class="input-group-text">Chain</span><input id="ligChain" class="form-control" placeholder="(opt)" style="max-width:90px">
           </div>
         </div>
         <div class="col-md-5">
-          <div class="input-group">
+          <div class="input-group multi-field">
             <span class="input-group-text">Residue</span>
             <input id="resName" class="form-control" placeholder="GLU" style="max-width:110px">
             <input id="resId" class="form-control" placeholder="82" style="max-width:110px">
@@ -131,9 +199,9 @@
         <div class="fw-semibold mb-1">Chains to remove</div>
         <div id="miniChains" class="mb-2 small text-muted">Open a receptor to populate…</div>
 
-        <div class="row g-2">
+        <div class="prep-controls row g-2">
           <div class="col-md-6">
-            <div class="input-group">
+            <div class="input-group responsive-stack">
               <span class="input-group-text">Backend</span>
               <select id="backend" class="form-select">
                 <option value="auto" selected>auto</option>
@@ -150,7 +218,7 @@
           </div>
         </div>
 
-        <div class="d-flex align-items-center gap-2 mt-3">
+        <div class="prep-action-row d-flex align-items-center gap-2 mt-3 flex-wrap">
           <button id="btnPrepCurrent" class="btn btn-primary"><i class="bi bi-gear"></i> Prepare Protein</button>
           <span id="runStatusSingle" class="badge text-bg-secondary d-none">queued…</span>
         </div>
@@ -167,7 +235,7 @@
         <div class="card-body">
           <div class="mb-2">Select HETATMs and chains to remove for each receptor:</div>
           <div id="prepList"></div>
-          <div class="d-flex align-items-center gap-2 mt-2">
+          <div class="prep-action-row d-flex align-items-center gap-2 mt-2 flex-wrap">
             <button id="btnPrepAll" class="btn btn-outline-primary"><i class="bi bi-collection"></i> Prepare All Receptors</button>
             <span id="runStatusBatch" class="badge text-bg-secondary d-none">queued…</span>
           </div>
@@ -187,14 +255,14 @@
     <div class="row g-3 align-items-end">
       <div class="col-lg-7">
         <label class="form-label">Single ligand (.sdf / .smiles / .smi / .csv)</label>
-        <div class="input-group">
+        <div class="input-group responsive-stack">
           <input id="ligSingle" type="file" class="form-control" accept=".sdf,.smiles,.smi,.csv" disabled>
           <button id="btnLigSingle" class="btn btn-success" disabled>Upload</button>
         </div>
       </div>
       <div class="col-lg-5">
         <label class="form-label">ZIP of Ligands/</label>
-        <div class="input-group">
+        <div class="input-group responsive-stack">
           <input id="ligZip" type="file" class="form-control" accept=".zip" disabled>
           <button id="btnLigZip" class="btn btn-success" disabled>Upload ZIP</button>
         </div>
@@ -203,7 +271,7 @@
     <div class="row g-3 align-items-end mt-1">
       <div class="col-lg-7">
         <label class="form-label">Folder of Ligands/</label>
-        <div class="input-group">
+        <div class="input-group responsive-stack">
           <input id="ligFolder" type="file" class="form-control" webkitdirectory directory multiple disabled>
           <button id="btnLigFolder" class="btn btn-success" disabled>Upload Folder</button>
         </div>
@@ -279,7 +347,7 @@
       </div>
     </div>
 
-    <div class="d-flex align-items-center gap-3 mt-3">
+    <div class="build-actions d-flex align-items-center gap-3 mt-3">
       <button id="btnBuild" class="btn btn-success" disabled>Build ZIP</button>
       <a id="downloadLink" target="_blank"></a>
       <span id="buildStatus" class="small text-muted"></span>
@@ -289,6 +357,7 @@
 </div>
 
 <div id="toast" class="floating-toast">Saved!</div>
+</div>
 
 <script src="https://unpkg.com/ngl@latest/dist/ngl.js"></script>
 <script>
@@ -309,6 +378,18 @@ let carousel=null;
 let pickedAtoms=[];
 let prepPoll=null;
 let ligandUploadState = { kind:null, headers:[], selectedSmiles:'', selectedId:'' };
+
+function resizeVisibleStages(){
+  Object.values(stagesByRel).forEach(stage=>{
+    try{ stage.handleResize(); }catch{}
+  });
+}
+function scheduleStageResize(){
+  window.requestAnimationFrame(()=>{
+    resizeVisibleStages();
+    window.setTimeout(resizeVisibleStages, 180);
+  });
+}
 
 function getSelectedPackageMode(){
   const selected = document.querySelector('input[name="packageMode"]:checked');
@@ -360,7 +441,6 @@ function ensureSlide(rel){
 function getStage(rel, vpId){
   if(stagesByRel[rel]) return stagesByRel[rel];
   const stage=new NGL.Stage(vpId,{backgroundColor:'white'});
-  window.addEventListener('resize', ()=>stage.handleResize());
   stage.signals.clicked.add(p=>{
     if(!p || !p.atom) return;
     pickedAtoms.push([p.atom.x, p.atom.y, p.atom.z]);
@@ -441,9 +521,9 @@ function drawReceptorList(){
   recs.forEach(r=>{
     const row=document.createElement('div'); row.className='d-flex align-items-center justify-content-between row-receptor border-bottom';
     row.innerHTML=`
-      <div class="d-flex align-items-center gap-3">
+      <div class="receptor-main d-flex align-items-center gap-3">
         <button class="btn btn-sm btn-outline-primary btn-open"><i class="bi bi-box-arrow-in-right"></i> Open</button>
-        <span class="fw-semibold fs-6">${r.display}</span>
+        <span class="receptor-name fw-semibold fs-6">${r.display}</span>
         ${badgeFor(r)}
       </div>`;
     row.querySelector('.btn-open').onclick=()=>openReceptor(r.rel);
@@ -622,8 +702,8 @@ function chips(set, cls, checked=false){
   return arr.map(v=>`<label class="chip-check"><input type="checkbox" class="${cls}" value="${v}" ${checked?'checked':''}> ${v}</label>`).join('');
 }
 function renderMiniOptions({hets, chains}){
-  $('#miniHet').innerHTML   = chips(hets,'het-mini',true);
-  $('#miniChains').innerHTML= chips(chains,'chain-mini',false);
+  $('#miniHet').innerHTML   = `<div class="chip-wrap">${chips(hets,'het-mini',true)}</div>`;
+  $('#miniChains').innerHTML= `<div class="chip-wrap">${chips(chains,'chain-mini',false)}</div>`;
 }
 async function openReceptor(rel){
   currentRel=rel;
@@ -634,6 +714,7 @@ async function openReceptor(rel){
   ensureCarousel();
   const {idx, vpId}=ensureSlide(rel);
   carousel.to(idx);
+  scheduleStageResize();
 
   pickedAtoms=[];
   let parsed;
@@ -657,6 +738,7 @@ async function openReceptor(rel){
   comp.addRepresentation('licorice',{sele:'hetero OR not protein',pickable:true});
   comp.addRepresentation('ball+stick',{sele:'hetero',pickable:true});
   comp.autoView();
+  scheduleStageResize();
 
   // show 1b only after a receptor is OPENED in single flow
   await gatePanels(true);
@@ -698,6 +780,8 @@ $('#btnSaveCenter').onclick=async()=>{
     disposeStage(currentRel);
     $('#carouselWrap').classList.add('d-none');
     currentRel=null;
+  }else{
+    scheduleStageResize();
   }
   await gatePanels();
 };
@@ -738,14 +822,14 @@ async function buildPrepPanel(){
     const {hets, chains}=await parsePdbForOptions(r.rel);
     const card=document.createElement('div'); card.className='border rounded-4 p-3 mb-3';
     card.innerHTML=`
-      <div class="d-flex align-items-center justify-content-between mb-2">
-        <div class="fw-bold fs-5">${r.display}</div>
+      <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
+        <div class="receptor-name fw-bold fs-5">${r.display}</div>
         <span class="badge-pipe b-centered">CENTERED</span>
       </div>
       <div class="fw-semibold mb-1">HETATM to remove</div>
-      <div class="mb-2">${chips(hets,'het',true).replaceAll('class="het"', `class="het" data-rel="${r.rel}"`)}</div>
+      <div class="chip-wrap mb-2">${chips(hets,'het',true).replaceAll('class="het"', `class="het" data-rel="${r.rel}"`)}</div>
       <div class="fw-semibold mb-1">Chains to remove</div>
-      <div>${chips(chains,'chain',false).replaceAll('class="chain"', `class="chain" data-rel="${r.rel}"`)}</div>
+      <div class="chip-wrap">${chips(chains,'chain',false).replaceAll('class="chain"', `class="chain" data-rel="${r.rel}"`)}</div>
     `;
     list.appendChild(card);
   }
@@ -924,6 +1008,9 @@ $('#btnBuild').onclick=async()=>{
 
 /* ---------- init ---------- */
 document.addEventListener('DOMContentLoaded', ()=>{
+  window.addEventListener('resize', scheduleStageResize);
+  window.addEventListener('orientationchange', scheduleStageResize);
+  $('#viewerCarousel').addEventListener('slid.bs.carousel', scheduleStageResize);
   setPackageMode(DEFAULT_PACKAGE_MODE);
   // Auto-create a workspace so uploads are enabled immediately.
   newWS();
