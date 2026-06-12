@@ -747,6 +747,7 @@ async function parsePdbForOptions(rel){
   }
   const txt = await res.text();
   const hets=new Set(), chains=new Set(), ligandMap=new Map();
+  const waterNames=new Set(['HOH','WAT','H2O','DOD','TIP','TIP3','TIP3P','SOL']);
   txt.split(/\r?\n/).forEach(line=>{
     if(line.startsWith('ATOM')||line.startsWith('HETATM')){
       const rn=line.slice(17,20).trim().toUpperCase();
@@ -755,7 +756,7 @@ async function parsePdbForOptions(rel){
       const icode=(line[26]||'').trim().toUpperCase();
       if(line.startsWith('HETATM')) hets.add(rn);
       if(ch && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
-      if(line.startsWith('HETATM') && rn){
+      if(line.startsWith('HETATM') && rn && !waterNames.has(rn)){
         const key=[rn, ch || '', resi || '', icode || ''].join('|');
         const current=ligandMap.get(key) || {resname:rn, chain:ch || '', resi:resi || '', icode:icode || '', atomCount:0};
         current.atomCount += 1;
