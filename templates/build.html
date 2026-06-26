@@ -258,6 +258,26 @@
       </div>
     </div>
 
+    <div id="preparedReviewWrap" class="mt-4 d-none">
+      <div class="step-card">
+        <div class="step-header"><strong>1d) Review Prepared Receptor(s)</strong></div>
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
+            <div>
+              <div id="preparedReviewTitle" class="fw-semibold">Prepared receptor preview</div>
+              <div class="small text-muted">Inspect the generated PDBQT output before moving on to ligands.</div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <button id="btnPreparedPrev" class="btn btn-outline-secondary btn-sm" type="button">Previous</button>
+              <span id="preparedReviewCounter" class="small text-muted">1 / 1</span>
+              <button id="btnPreparedNext" class="btn btn-outline-secondary btn-sm" type="button">Next</button>
+            </div>
+          </div>
+          <div id="preparedViewport" class="viewport"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -392,6 +412,9 @@ let pickedAtoms=[];
 let prepPoll=null;
 let ligandUploadState = { kind:null, headers:[], selectedSmiles:'', selectedId:'' };
 let selectedLigandKey=null;
+let preparedStage=null;
+let preparedReviewList=[];
+let preparedReviewIndex=0;
 
 function resizeVisibleStages(){
   Object.values(stagesByRel).forEach(stage=>{
@@ -401,7 +424,9 @@ function resizeVisibleStages(){
 function scheduleStageResize(){
   window.requestAnimationFrame(()=>{
     resizeVisibleStages();
+    try{ preparedStage?.handleResize(); }catch{}
     window.setTimeout(resizeVisibleStages, 180);
+    window.setTimeout(()=>{ try{ preparedStage?.handleResize(); }catch{} }, 180);
   });
 }
 
@@ -464,6 +489,72 @@ function disposeStage(rel){
   const st=stagesByRel[rel];
   if(st){ try{ st.removeAllComponents(); st.dispose(); }catch{} }
   delete stagesByRel[rel];
+}
+function receptorPreparedRel(rel){
+  const name=(rel.split('/').pop()||rel).replace(/\.(pdb|cif|mmcif|ent)$/i,'.pdbqt');
+  return `Receptors_PDBQT/${name}`;
+}
+function ensurePreparedStage(){
+  if(preparedStage) return preparedStage;
+  preparedStage = new NGL.Stage('preparedViewport',{backgroundColor:'white'});
+  return preparedStage;
+}
+function resetPreparedReview(){
+  preparedReviewList=[];
+  preparedReviewIndex=0;
+  $('#preparedReviewWrap').classList.add('d-none');
+  $('#preparedReviewTitle').textContent='Prepared receptor preview';
+  $('#preparedReviewCounter').textContent='1 / 1';
+  enable($('#btnPreparedPrev'), false);
+  enable($('#btnPreparedNext'), false);
+  if(preparedStage){
+    try{ preparedStage.removeAllComponents(); }catch{}
+  }
+}
+function updatePreparedReviewControls(){
+  const total=preparedReviewList.length;
+  const current=preparedReviewList[preparedReviewIndex];
+  $('#preparedReviewCounter').textContent = total ? `${preparedReviewIndex+1} / ${total}` : '0 / 0';
+  $('#preparedReviewTitle').textContent = current ? current.display : 'Prepared receptor preview';
+  enable($('#btnPreparedPrev'), total > 1 && preparedReviewIndex > 0);
+  enable($('#btnPreparedNext'), total > 1 && preparedReviewIndex < total - 1);
+}
+async function loadPreparedReviewAt(index){
+  if(!preparedReviewList.length) return;
+  preparedReviewIndex = Math.max(0, Math.min(index, preparedReviewList.length - 1));
+  const current = preparedReviewList[preparedReviewIndex];
+  const stage = ensurePreparedStage();
+  const fileUrl = `/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(current.preparedRel)}`;
+  try{ stage.removeAllComponents(); }catch{}
+  const comp = await stage.loadFile(fileUrl,{ext:'pdb'});
+  comp.addRepresentation('cartoon',{opacity:.92,colorScheme:'chainname'});
+  comp.addRepresentation('licorice',{sele:'hetero OR not protein'});
+  comp.addRepresentation('ball+stick',{sele:'hetero'});
+  comp.autoView();
+  $('#preparedReviewWrap').classList.remove('d-none');
+  updatePreparedReviewControls();
+  scheduleStageResize();
+}
+async function syncPreparedReview(preferredRel=null){
+  const prepped = (state?.receptors||[])
+    .filter(r=>r.status === 'prepped')
+    .map(r=>({rel:r.rel, display:r.display, preparedRel:receptorPreparedRel(r.rel)}));
+  if(!prepped.length){
+    resetPreparedReview();
+    return;
+  }
+  preparedReviewList = prepped;
+  let nextIndex = 0;
+  if(preferredRel){
+    const preferredPrepared = receptorPreparedRel(preferredRel);
+    const match = prepped.findIndex(r=>r.preparedRel === preferredPrepared);
+    if(match >= 0) nextIndex = match;
+  }else if(preparedReviewList[preparedReviewIndex]){
+    const existing = preparedReviewList[preparedReviewIndex].preparedRel;
+    const match = prepped.findIndex(r=>r.preparedRel === existing);
+    if(match >= 0) nextIndex = match;
+  }
+  await loadPreparedReviewAt(nextIndex);
 }
 function drawPickMarkersOn(stage){
   stage.getComponentsByName('picks').list.forEach(c=> stage.removeComponent(c));
@@ -545,6 +636,7 @@ async function newWS(){
   $('#ligandStep').classList.add('d-none'); $('#buildStep').classList.add('d-none');
   $('#miniHet').innerHTML='Open a receptor to populate…'; $('#miniChains').innerHTML='Open a receptor to populate…';
   $('#ligandPicker').classList.add('d-none'); $('#ligandChoices').innerHTML='';
+  resetPreparedReview();
   resetCenterSelectionInputs();
   currentRel=null; state=null; isMulti=false; pickedAtoms=[]; if(prepPoll) clearInterval(prepPoll);
 
@@ -563,7 +655,7 @@ async function fetchState(){
   $('#flowPill span').textContent = isMulti ? 'Multi receptor workflow' : 'Single receptor workflow';
 }
 async function fetchSummary(){ const r=await fetch(`/api/summary?jobname=${encodeURIComponent(jobname)}`); return r.json(); }
-async function reloadAll(){ if(!jobname) return; await fetchState(); drawReceptorList(); await gatePanels(); }
+async function reloadAll(){ if(!jobname) return; await fetchState(); drawReceptorList(); await gatePanels(); await syncPreparedReview(currentRel); }
 
 /* ---------- receptor list ---------- */
 function badgeFor(r){
@@ -1041,11 +1133,15 @@ function pollPrep(isBatch){
       doneLog(isBatch);
       await reloadAll();
       await gateLigandsAndBuild(true);
+      await syncPreparedReview(currentRel);
     }else{
       await gateLigandsAndBuild(true);
     }
   }, 2000);
 }
+
+$('#btnPreparedPrev').onclick=()=>loadPreparedReviewAt(preparedReviewIndex - 1);
+$('#btnPreparedNext').onclick=()=>loadPreparedReviewAt(preparedReviewIndex + 1);
 
 /* ---------- ligands ---------- */
 ['csvSmilesCol','csvIdCol'].forEach(id=> document.addEventListener('DOMContentLoaded', ()=>$('#'+id).addEventListener('change', syncCsvColumnInputs)));

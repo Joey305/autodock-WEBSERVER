@@ -35,8 +35,8 @@ def build_args():
         description="Generate conformers → PDBQT with RDKit + OpenBabel. Interactive by default; flags enable headless."
     )
     # Mode selection
-    p.add_argument("--mode", choices=["1","2","3"],
-                   help="1=CSV (SMILES+ID), 2=Folder(s) of SDF/SMILES, 3=Single multi-record SDF")
+    p.add_argument("--mode", choices=["1","2","3","4"],
+                   help="1=CSV (SMILES+ID), 2=Folder(s) of SDF/SMILES, 3=Single multi-record SDF, 4=Folder containing a CSV")
 
     # Common knobs
     p.add_argument("--num-confs", type=int, help="Poses per molecule (default 64)")
@@ -1131,18 +1131,163 @@ def parse_index_list(s: str, n: int) -> list[int]:
                 if 0 <= k < n: picks.add(k)
     return sorted(picks)
 
-def prompt_int(question, default):
+def prompt_int(question, default, *, min_value=1):
     while True:
         s = input(f"{question} [{default}]: ").strip()
         if s == "":
             return default
         try:
             v = int(s)
-            if v > 0:
+            if v >= min_value:
                 return v
         except Exception:
             pass
-        print("Please enter a positive integer.")
+        print(f"Please enter an integer greater than or equal to {min_value}.")
+
+
+def choose_csv_column(headers: list[str], question: str, default_index: int) -> str:
+    return headers[prompt_int(question, default_index, min_value=0)]
+
+
+def resolve_csv_path(args) -> Path:
+    if args.csv:
+        csv_path = Path(args.csv)
+        if not csv_path.is_file():
+            print(f"❌ CSV not found: {csv_path}")
+            sys.exit(1)
+        return csv_path
+
+    csv_files = sorted(Path(".").glob("*.csv"), key=lambda p: p.name.lower())
+    if not csv_files:
+        print("❌ No CSV files found here.")
+        sys.exit(1)
+    pick = choose("📄 Select a CSV:", [p.name for p in csv_files])
+    return next(p for p in csv_files if p.name == pick)
+
+
+def resolve_csv_path_from_folder(args) -> Path:
+    if args.folder:
+        raw = []
+        for tok in args.folder:
+            raw.extend([t for t in re.split(r"\s*,\s*", tok) if t])
+        folder = Path(raw[0]) if raw else Path(".")
+        if not folder.is_dir():
+            print(f"❌ Folder not found: {folder}")
+            sys.exit(1)
+    else:
+        subdirs = sorted([p for p in Path(".").iterdir() if p.is_dir()],
+                         key=lambda p: p.name.lower())
+        if not subdirs:
+            print("❌ No subdirectories here.")
+            sys.exit(1)
+        pick = choose("📁 Select the folder containing your CSV:", [p.name for p in subdirs])
+        folder = next(p for p in subdirs if p.name == pick)
+
+    csv_files = sorted(folder.glob("*.csv"), key=lambda p: p.name.lower())
+    if not csv_files:
+        print(f"❌ No CSV files found in {folder}.")
+        sys.exit(1)
+    if len(csv_files) == 1:
+        return csv_files[0]
+
+    pick = choose(f"📄 Select a CSV from {folder}:", [p.name for p in csv_files])
+    return next(p for p in csv_files if p.name == pick)
+
+
+def run_csv_mode(csv_path: Path, args, num_confs: int, num_workers: int, OBABEL: str, state_opts: dict):
+    base_name = csv_path.stem
+
+    tasks: list[dict[str, str]] = []
+    seen_csv_ids: dict[str, int] = {}
+    with open(csv_path, "r", newline="") as f:
+        r = csv.DictReader(f)
+        headers = r.fieldnames or []
+        if not headers:
+            print("❌ CSV has no header.")
+            sys.exit(1)
+
+        if args.smiles_col and args.id_col:
+            smi_col = args.smiles_col
+            id_col = args.id_col
+        else:
+            print("\n📊 CSV Columns:")
+            for i, h in enumerate(headers):
+                print(f" [{i}] {h}")
+            smi_col = choose_csv_column(headers, "Index of SMILES column?", 0)
+            id_col = choose_csv_column(headers, "Index of ID column?", 1 if len(headers) > 1 else 0)
+
+        for row_index, row in enumerate(r, start=1):
+            smiles = (row.get(smi_col) or "").strip()
+            ligand_id = ensure_unique_ligand_id(
+                sanitize_id((row.get(id_col) or "").strip()),
+                seen_csv_ids,
+                context=f"{csv_path.name} row {row_index}",
+            )
+            if not smiles or not ligand_id:
+                continue
+            mol = Chem.MolFromSmiles(smiles)
+            if mol:
+                mol = Chem.AddHs(mol)
+                tasks.append(
+                    {
+                        "ligand_id": ligand_id,
+                        "molblock": Chem.MolToMolBlock(mol),
+                        "source_input": str(csv_path),
+                        "source_input_type": "csv",
+                        "source_ligand_id": ligand_id,
+                        "source_record_index": row_index,
+                        "source_record_name": "",
+                        "original_mol_name": "",
+                    }
+                )
+
+    if not tasks:
+        print("⚠️ No valid molecules found.")
+        sys.exit(2)
+
+    tag = f"{num_confs}Poses"
+    pdbqt_dir, tmp_dir = create_output_dirs(base_name, tag)
+
+    print(f"\n🚀 Generating {num_confs} poses for {len(tasks)} molecules using {num_workers} cores…")
+    print(f"📦 Output PDBQT: {pdbqt_dir}")
+    print(f"🗂  TMP SDF:     {tmp_dir} (will {'NOT ' if args.remove_tmp else ''}be removed at end)")
+
+    work_items = [
+        (
+            task["ligand_id"],
+            task["molblock"],
+            tmp_dir,
+            pdbqt_dir,
+            num_confs,
+            OBABEL,
+            state_opts,
+            task["source_input"],
+            task["source_input_type"],
+            task["source_ligand_id"],
+            task.get("source_record_index", ""),
+            task.get("source_record_name", ""),
+            task.get("original_mol_name", ""),
+        )
+        for task in tasks
+    ]
+
+    written_total = 0
+    manifest_rows: list[dict] = []
+    try:
+        with Pool(processes=num_workers) as pool:
+            for result in pool.imap_unordered(generate_poses, work_items, chunksize=1):
+                written_total += int((result or {}).get("written", 0))
+                manifest_rows.extend((result or {}).get("rows", []))
+    finally:
+        if args.remove_tmp:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                print(f"🧹 TMP removed: {tmp_dir}")
+            except Exception as e:
+                print(f"⚠️ Could not remove TMP dir {tmp_dir}: {e}", file=sys.stderr)
+
+    print(f"\n✅ Done! {written_total} poses written to: {pdbqt_dir}")
+    write_manifest_for_outputs(pdbqt_dir, manifest_rows)
 
 # ----------------- per-folder runner -----------------
 def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBABEL: str, remove_tmp: bool):
@@ -1266,117 +1411,16 @@ if __name__ == "__main__":
         print(" [1] CSV file (SMILES + ID columns)")
         print(" [2] Folder of ligands (.sdf or .smiles)  ← supports MULTIPLE folders")
         print(" [3] Single .sdf file (multi-record)")
-        mode = input("Enter 1, 2, or 3: ").strip()
+        print(" [4] Folder containing a CSV file")
+        mode = input("Enter 1, 2, 3, or 4: ").strip()
 
     # --- Mode 1: CSV ---
     if mode == "1":
-        # CSV path
-        if args.csv:
-            csv_path = Path(args.csv)
-            if not csv_path.is_file():
-                print(f"❌ CSV not found: {csv_path}"); sys.exit(1)
-        else:
-            csv_files = sorted(Path(".").glob("*.csv"), key=lambda p: p.name.lower())
-            if not csv_files:
-                print("❌ No CSV files found here."); sys.exit(1)
-            pick = choose("📄 Select a CSV:", [p.name for p in csv_files])
-            csv_path = next(p for p in csv_files if p.name == pick)
+        run_csv_mode(resolve_csv_path(args), args, num_confs, num_workers, OBABEL, state_opts)
 
-        base_name = csv_path.stem
-
-        tasks: list[dict[str, str]] = []
-        seen_csv_ids: dict[str, int] = {}
-        with open(csv_path, "r", newline="") as f:
-            r = csv.DictReader(f)
-            headers = r.fieldnames or []
-            if not headers:
-                print("❌ CSV has no header."); sys.exit(1)
-
-            if args.smiles_col and args.id_col:
-                smi_col = args.smiles_col
-                id_col  = args.id_col
-            else:
-                print("\n📊 CSV Columns:")
-                for i, h in enumerate(headers):
-                    print(f" [{i}] {h}")
-                smi_col = headers[prompt_int("Index of SMILES column?", 0)]
-                id_col  = headers[prompt_int("Index of ID column?", 1)]
-
-            for row_index, row in enumerate(r, start=1):
-                smiles = (row.get(smi_col) or "").strip()
-                ligand_id = ensure_unique_ligand_id(
-                    sanitize_id((row.get(id_col) or "").strip()),
-                    seen_csv_ids,
-                    context=f"{csv_path.name} row {row_index}",
-                )
-                if not smiles or not ligand_id:
-                    continue
-                mol = Chem.MolFromSmiles(smiles)
-                if mol:
-                    mol = Chem.AddHs(mol)
-                    tasks.append(
-                        {
-                            "ligand_id": ligand_id,
-                            "molblock": Chem.MolToMolBlock(mol),
-                            "source_input": str(csv_path),
-                            "source_input_type": "csv",
-                            "source_ligand_id": ligand_id,
-                            "source_record_index": row_index,
-                            "source_record_name": "",
-                            "original_mol_name": "",
-                        }
-                    )
-
-        if not tasks:
-            print("⚠️ No valid molecules found."); sys.exit(2)
-
-        tag = f"{num_confs}Poses"
-        pdbqt_dir, tmp_dir = create_output_dirs(base_name, tag)
-
-        print(f"\n🚀 Generating {num_confs} poses for {len(tasks)} molecules using {num_workers} cores…")
-        print(f"📦 Output PDBQT: {pdbqt_dir}")
-        print(f"🗂  TMP SDF:     {tmp_dir} (will {'NOT ' if args.remove_tmp else ''}be removed at end)")
-
-        # work_items = [(ligand_id, molblock, tmp_dir, pdbqt_dir, num_confs, OBABEL) for (ligand_id, molblock) in tasks]
-        work_items = [
-            (
-                task["ligand_id"],
-                task["molblock"],
-                tmp_dir,
-                pdbqt_dir,
-                num_confs,
-                OBABEL,
-                state_opts,
-                task["source_input"],
-                task["source_input_type"],
-                task["source_ligand_id"],
-                task.get("source_record_index", ""),
-                task.get("source_record_name", ""),
-                task.get("original_mol_name", ""),
-            )
-            for task in tasks
-        ]
-
-        written_total = 0
-        manifest_rows: list[dict] = []
-        try:
-            with Pool(processes=num_workers) as pool:
-                for result in pool.imap_unordered(generate_poses, work_items, chunksize=1):
-                    written_total += int((result or {}).get("written", 0))
-                    manifest_rows.extend((result or {}).get("rows", []))
-        finally:
-            print(f"🗂  TMP SDF:     {tmp_dir} (will {'be removed' if args.remove_tmp else 'be KEPT'})")
-            if args.remove_tmp:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-
-                try:
-                    shutil.rmtree(tmp_dir, ignore_errors=True)
-                    print(f"🧹 TMP removed: {tmp_dir}")
-                except Exception as e:
-                    print(f"⚠️ Could not remove TMP dir {tmp_dir}: {e}", file=sys.stderr)
-
-        print(f"\n✅ Done! {written_total} poses written to: {pdbqt_dir}")
-        write_manifest_for_outputs(pdbqt_dir, manifest_rows)
+    # --- Mode 4: Folder containing a CSV ---
+    elif mode == "4":
+        run_csv_mode(resolve_csv_path_from_folder(args), args, num_confs, num_workers, OBABEL, state_opts)
 
     # --- Mode 2: MULTIPLE folders (sdf OR smiles) ---
     elif mode == "2":
