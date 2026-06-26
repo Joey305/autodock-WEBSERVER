@@ -799,6 +799,10 @@ def create_app() -> Flask:
             expected.append(nm)
 
         converted = [p.name for p in sorted(out_dir.glob("*.pdbqt"))] if out_dir.exists() else []
+        centers = [
+            {"receptor_pdbqt": key, "center": [x, y, z], "size": size}
+            for key, (x, y, z, size) in sorted(csv_map.items())
+        ]
 
         all_receptors_centered = (total > 0 and centered == total)
         have_rows_for_all = all(n in csv_map for n in expected) if expected else False
@@ -815,7 +819,8 @@ def create_app() -> Flask:
             "conversion_out_dir": str(out_dir),
             "converted_count": len(converted),
             "converted_list": converted,
-            "all_receptors_centered": all_receptors_centered
+            "all_receptors_centered": all_receptors_centered,
+            "centers": centers,
         })
 
     # ---------- 3a CONVERSION (batch) ----------
@@ -1464,6 +1469,10 @@ def create_app() -> Flask:
         csv_map = _read_centers(ws, st)
         expected = [_receptor_pdbqt_name(r["rel"]) for r in st.get("receptors", [])]
         converted = [p.name for p in sorted(out_dir.glob("*.pdbqt"))] if out_dir.exists() else []
+        centers = [
+            {"receptor_pdbqt": key, "center": [x, y, z], "size": size}
+            for key, (x, y, z, size) in sorted(csv_map.items())
+        ]
         zips = sorted(ws.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
         return {
             "jobname": jobname,
@@ -1488,6 +1497,7 @@ def create_app() -> Flask:
             "conversion_out_dir": str(out_dir),
             "converted_count": len(converted),
             "converted_list": converted,
+            "centers": centers,
         }
 
     def _resolve_center_payload(jobname: str, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], Optional[str], Optional[Path]]:

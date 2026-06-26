@@ -268,6 +268,9 @@
               <div class="small text-muted">Inspect the generated PDBQT output before moving on to ligands.</div>
             </div>
             <div class="d-flex align-items-center gap-2">
+              <label class="chip-check mb-0">
+                <input id="preparedBoxToggle" type="checkbox" checked> Show docking box
+              </label>
               <button id="btnPreparedPrev" class="btn btn-outline-secondary btn-sm" type="button">Previous</button>
               <span id="preparedReviewCounter" class="small text-muted">1 / 1</span>
               <button id="btnPreparedNext" class="btn btn-outline-secondary btn-sm" type="button">Next</button>
@@ -415,6 +418,7 @@ let selectedLigandKey=null;
 let preparedStage=null;
 let preparedReviewList=[];
 let preparedReviewIndex=0;
+let summaryState=null;
 
 function resizeVisibleStages(){
   Object.values(stagesByRel).forEach(stage=>{
@@ -494,10 +498,52 @@ function receptorPreparedRel(rel){
   const name=(rel.split('/').pop()||rel).replace(/\.(pdb|cif|mmcif|ent)$/i,'.pdbqt');
   return `Receptors_PDBQT/${name}`;
 }
+function receptorPreparedName(rel){
+  return receptorPreparedRel(rel).split('/').pop() || '';
+}
 function ensurePreparedStage(){
   if(preparedStage) return preparedStage;
   preparedStage = new NGL.Stage('preparedViewport',{backgroundColor:'white'});
   return preparedStage;
+}
+function getPreparedCenterEntry(preparedRel){
+  const preparedName = (preparedRel || '').split('/').pop() || '';
+  return (summaryState?.centers || []).find(entry => entry.receptor_pdbqt === preparedName) || null;
+}
+function boxCorners(center, size){
+  const half = Number(size || 20) / 2;
+  const [cx, cy, cz] = (center || [0,0,0]).map(Number);
+  return [
+    [cx-half, cy-half, cz-half],
+    [cx+half, cy-half, cz-half],
+    [cx+half, cy+half, cz-half],
+    [cx-half, cy+half, cz-half],
+    [cx-half, cy-half, cz+half],
+    [cx+half, cy-half, cz+half],
+    [cx+half, cy+half, cz+half],
+    [cx-half, cy+half, cz+half],
+  ];
+}
+function drawPreparedBox(stage, centerEntry){
+  if(!stage) return;
+  stage.getComponentsByName('docking-box').list.forEach(c=> stage.removeComponent(c));
+  if(!centerEntry || !$('#preparedBoxToggle').checked) return;
+
+  const shape = new NGL.Shape('docking-box');
+  const corners = boxCorners(centerEntry.center, centerEntry.size);
+  const color = [1.0, 0.96, 0.15];
+  const edges = [
+    [0,1],[1,2],[2,3],[3,0],
+    [4,5],[5,6],[6,7],[7,4],
+    [0,4],[1,5],[2,6],[3,7],
+  ];
+
+  edges.forEach(([a,b])=> shape.addCylinder(corners[a], corners[b], color, 0.16));
+  corners.forEach(corner=> shape.addSphere(corner, color, 0.22));
+  shape.addSphere(centerEntry.center || [0,0,0], color, 0.42);
+
+  const comp = stage.addComponentFromObject(shape);
+  comp.addRepresentation('buffer', {opacity:0.6});
 }
 function resetPreparedReview(){
   preparedReviewList=[];
@@ -530,6 +576,7 @@ async function loadPreparedReviewAt(index){
   comp.addRepresentation('cartoon',{opacity:.92,colorScheme:'chainname'});
   comp.addRepresentation('licorice',{sele:'hetero OR not protein'});
   comp.addRepresentation('ball+stick',{sele:'hetero'});
+  drawPreparedBox(stage, getPreparedCenterEntry(current.preparedRel));
   comp.autoView();
   $('#preparedReviewWrap').classList.remove('d-none');
   updatePreparedReviewControls();
@@ -654,8 +701,8 @@ async function fetchState(){
   isMulti=(state?.receptors?.length||0)>1;
   $('#flowPill span').textContent = isMulti ? 'Multi receptor workflow' : 'Single receptor workflow';
 }
-async function fetchSummary(){ const r=await fetch(`/api/summary?jobname=${encodeURIComponent(jobname)}`); return r.json(); }
-async function reloadAll(){ if(!jobname) return; await fetchState(); drawReceptorList(); await gatePanels(); await syncPreparedReview(currentRel); }
+async function fetchSummary(){ const r=await fetch(`/api/summary?jobname=${encodeURIComponent(jobname)}`); summaryState=await r.json(); return summaryState; }
+async function reloadAll(){ if(!jobname) return; await fetchState(); await fetchSummary(); drawReceptorList(); await gatePanels(); await syncPreparedReview(currentRel); }
 
 /* ---------- receptor list ---------- */
 function badgeFor(r){
@@ -1142,6 +1189,11 @@ function pollPrep(isBatch){
 
 $('#btnPreparedPrev').onclick=()=>loadPreparedReviewAt(preparedReviewIndex - 1);
 $('#btnPreparedNext').onclick=()=>loadPreparedReviewAt(preparedReviewIndex + 1);
+$('#preparedBoxToggle').onchange=()=>{
+  if(!preparedReviewList.length || !preparedStage) return;
+  const current = preparedReviewList[preparedReviewIndex];
+  drawPreparedBox(preparedStage, getPreparedCenterEntry(current.preparedRel));
+};
 
 /* ---------- ligands ---------- */
 ['csvSmilesCol','csvIdCol'].forEach(id=> document.addEventListener('DOMContentLoaded', ()=>$('#'+id).addEventListener('change', syncCsvColumnInputs)));
