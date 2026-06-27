@@ -106,6 +106,49 @@ class HtmlVizBuilderTests(unittest.TestCase):
             parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(parsed["entries"][0]["ligand"], "LigA")
 
+    def test_build_project_keeps_multiple_variants_for_selected_ligand_base(self):
+        module = load_script_module("5_BuidlHTMLViz.py", "html_viz_builder_variants_module")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            csv_path = root / "scores.csv"
+            receptors = root / "Receptors"
+            receptors.mkdir()
+            (receptors / "recA.pdbqt").write_text("ATOM      1  N   GLY A   1      11.104  13.207  10.451  1.00 20.00           N\n")
+
+            variant_paths = []
+            for variant, score in [("LigA_p01_t01_c001", "-9.1"), ("LigA_p01_t02_c001", "-8.8")]:
+                out_dir = root / "Docking_Results_demo" / "recA" / variant
+                out_dir.mkdir(parents=True)
+                pose_file = out_dir / "out.pdbqt"
+                pose_file.write_text(
+                    f"MODEL 1\nREMARK VINA RESULT: {score} 0.0 0.0\nATOM      1  C   UNL A   1      12.000  10.000   8.000  0.00  0.00    C\nENDMDL\n",
+                    encoding="utf-8",
+                )
+                variant_paths.append((variant, pose_file, score))
+
+            csv_path.write_text(
+                "Receptor,Ligand,LigandBase,LigandVariant,Pose,Binding_Affinity,OutFile\n"
+                + "\n".join(
+                    f"recA,LigA,LigA,{variant},1,{score},{pose_file}"
+                    for variant, pose_file, score in variant_paths
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            manifest = module.build_project(
+                csv_path=csv_path,
+                receptor_roots=[receptors],
+                top_ligands=1,
+                top_poses=1,
+                project_name="DemoViz",
+                page_title="Demo Viz",
+            )
+
+            self.assertEqual(manifest["entry_count"], 2)
+            variants = [entry["ligand_variant"] for entry in manifest["entries"]]
+            self.assertEqual(variants, ["LigA_p01_t01_c001", "LigA_p01_t02_c001"])
+
 
 if __name__ == "__main__":
     unittest.main()

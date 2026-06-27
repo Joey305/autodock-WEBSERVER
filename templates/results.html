@@ -370,7 +370,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (button) {
         button.classList.add("is-active");
       }
-      localViewerTitle.textContent = entry.ligand || entry.viewerTitle || "Viewer";
+      localViewerTitle.textContent = entry.ligand_variant || entry.ligand || entry.viewerTitle || "Viewer";
       localViewerFrame.src = entry.viewerUrl;
       localOpenStandalone.href = entry.viewerUrl;
       localOpenStandalone.classList.remove("d-none");
@@ -382,7 +382,7 @@ document.addEventListener("DOMContentLoaded", () => {
       button.className = "local-entry-btn";
       button.innerHTML = `
         <span class="local-entry-top">${entry.receptor || ""}</span>
-        <strong>${entry.ligand || entry.viewerTitle || "Viewer"}</strong>
+        <strong>${entry.ligand_variant || entry.ligand || entry.viewerTitle || "Viewer"}</strong>
         <span class="local-entry-score">${entry.best_affinity || ""}${entry.best_affinity ? " kcal/mol" : ""}</span>
       `;
       button.addEventListener("click", () => activateEntry(entry, button));

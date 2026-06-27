@@ -187,22 +187,38 @@ def group_top_hits(rows: Iterable[Dict[str, str]], top_ligands: int) -> List[Dic
     for row in rows:
         receptor = row.get("Receptor", "").strip()
         ligand_key = row.get("LigandBase") or row.get("Ligand") or row.get("LigandVariant") or "ligand"
-        existing = per_receptor[receptor].get(ligand_key)
+        variant_key = row.get("LigandVariant") or row.get("Ligand") or "variant"
+        bucket = per_receptor[receptor]
+        existing = bucket.get(variant_key)
         current_score = safe_float(row.get("Binding_Affinity", ""))
         if existing is None or current_score < safe_float(existing.get("Binding_Affinity", "")):
-            per_receptor[receptor][ligand_key] = row
+            row_copy = dict(row)
+            row_copy["_LigandBaseKey"] = ligand_key
+            row_copy["_LigandVariantKey"] = variant_key
+            bucket[variant_key] = row_copy
 
     selected: List[Dict[str, str]] = []
     for receptor in sorted(per_receptor):
-        ranked = sorted(
-            per_receptor[receptor].values(),
+        variants = list(per_receptor[receptor].values())
+        base_best: Dict[str, float] = {}
+        for row in variants:
+            base_key = row.get("_LigandBaseKey", "")
+            score = safe_float(row.get("Binding_Affinity", ""))
+            base_best[base_key] = min(score, base_best.get(base_key, score))
+
+        ranked_bases = sorted(base_best.items(), key=lambda item: (item[1], item[0]))
+        allowed_bases = {base for base, _score in ranked_bases[: max(0, top_ligands)]}
+
+        ranked_variants = sorted(
+            [row for row in variants if row.get("_LigandBaseKey", "") in allowed_bases],
             key=lambda row: (
+                base_best.get(row.get("_LigandBaseKey", ""), 1e9),
                 safe_float(row.get("Binding_Affinity", "")),
-                safe_float(row.get("Pose", ""), default=999999),
-                row.get("LigandBase", row.get("Ligand", "")),
+                row.get("_LigandBaseKey", ""),
+                row.get("_LigandVariantKey", ""),
             ),
         )
-        selected.extend(ranked[: max(0, top_ligands)])
+        selected.extend(ranked_variants)
     return selected
 
 
@@ -290,27 +306,27 @@ def build_viewer_html(
 <script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.4.2/3Dmol-min.js"></script>
 <style>
 :root {{
-  --bg: #f2efe8;
-  --panel: #fffdf8;
-  --panel-strong: #f7f2e8;
-  --ink: #182230;
-  --muted: #5f6b7a;
-  --line: #d8cec0;
-  --accent: #006d77;
-  --accent-soft: rgba(0, 109, 119, 0.11);
-  --good: #1d7f57;
-  --shadow: 0 18px 50px rgba(24, 34, 48, 0.12);
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-strong: #1c2333;
+  --ink: #e6edf3;
+  --muted: #8b949e;
+  --line: #30363d;
+  --accent: #58a6ff;
+  --accent-soft: rgba(88, 166, 255, 0.12);
+  --good: #3fb950;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
 }}
 * {{ box-sizing: border-box; }}
-html, body {{ margin: 0; height: 100%; background: linear-gradient(135deg, #f5efe4 0%, #eef4f3 100%); color: var(--ink); font-family: "IBM Plex Sans", sans-serif; }}
-body {{ display: grid; grid-template-columns: 330px 1fr; }}
-.sidebar {{ background: rgba(255, 253, 248, 0.92); backdrop-filter: blur(16px); border-right: 1px solid var(--line); padding: 22px; overflow: auto; }}
-.viewer-wrap {{ padding: 18px; }}
-#viewer {{ width: 100%; height: calc(100vh - 36px); border-radius: 22px; box-shadow: var(--shadow); border: 1px solid rgba(24, 34, 48, 0.08); background: radial-gradient(circle at top, #173042 0%, #08131d 82%); }}
+html, body {{ margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", sans-serif; overflow: hidden; }}
+body {{ display: grid; grid-template-columns: 290px 1fr; }}
+.sidebar {{ background: var(--panel); border-right: 1px solid var(--line); padding: 18px; overflow: auto; }}
+.viewer-wrap {{ padding: 0; background: #0b1220; }}
+#viewer {{ width: 100%; height: 100vh; box-shadow: var(--shadow); background: radial-gradient(circle at top, #173042 0%, #08131d 82%); }}
 .eyebrow {{ text-transform: uppercase; letter-spacing: 0.16em; font-size: 11px; color: var(--muted); margin-bottom: 10px; }}
-h1 {{ margin: 0 0 8px; font-size: 28px; line-height: 1.05; }}
+h1 {{ margin: 0 0 8px; font-size: 24px; line-height: 1.05; }}
 .lede {{ margin: 0 0 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }}
-.meta-card {{ background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px; margin-bottom: 14px; }}
+.meta-card {{ background: var(--panel-strong); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }}
 .meta-label {{ color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }}
 .meta-value {{ font-family: "IBM Plex Mono", monospace; font-size: 13px; word-break: break-word; }}
 .controls {{ display: grid; gap: 10px; }}
@@ -320,7 +336,7 @@ select, button {{
   width: 100%;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--panel-strong);
   color: var(--ink);
   padding: 10px 12px;
   font: inherit;
@@ -339,10 +355,22 @@ button.secondary {{
 .hint {{ margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.5; }}
 .credit {{ margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); line-height: 1.5; }}
 .credit a {{ color: var(--accent); }}
+.status-pill {{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 14px;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid rgba(63, 185, 80, 0.28);
+  color: #9be9a8;
+  font-size: 12px;
+  font-weight: 600;
+}}
 @media (max-width: 960px) {{
   body {{ grid-template-columns: 1fr; }}
-  .viewer-wrap {{ padding-top: 0; }}
-  #viewer {{ height: 68vh; border-radius: 0 0 22px 22px; }}
+  #viewer {{ height: 68vh; }}
 }}
 </style>
 </head>
@@ -351,6 +379,7 @@ button.secondary {{
     <div class="eyebrow">Docking Viewer</div>
     <h1>{ligand_label}</h1>
     <p class="lede">Portable HTML docking viewer generated for your AutoDock Vina workflow and adapted from the VinaScope viewing flow.</p>
+    <div class="status-pill">Focused on the ligand binding site by default</div>
 
     <div class="meta-card">
       <div class="meta-label">Receptor</div>
@@ -386,7 +415,8 @@ button.secondary {{
           <option value="line">Line</option>
         </select>
       </div>
-      <button id="resetView" type="button">Reset Camera</button>
+      <button id="focusLigand" type="button">Focus Binding Site</button>
+      <button id="resetView" type="button">Show Full Complex</button>
       <button id="savePng" class="secondary" type="button">Save PNG</button>
     </div>
 
@@ -413,10 +443,33 @@ function splitPoseBlocks(text) {{
   return matches && matches.length ? matches : [text];
 }}
 
+function poseBlockToPdb(text, poseIndex) {{
+  const lines = text.split(/\\r?\\n/);
+  const pdbLines = [`HEADER    VINA POSE ${{poseIndex + 1}}`];
+  for (const line of lines) {{
+    if (line.startsWith("ATOM") || line.startsWith("HETATM")) {{
+      pdbLines.push(line.slice(0, 66));
+    }}
+  }}
+  pdbLines.push("END");
+  return pdbLines.join("\\n");
+}}
+
 const poseBlocks = splitPoseBlocks(ligandText);
+const posePdbBlocks = poseBlocks.map((block, index) => poseBlockToPdb(block, index));
 const stage = $3Dmol.createViewer("viewer", {{ backgroundColor: "#08131d" }});
 let receptorModel = null;
 let ligandModel = null;
+
+function focusOnLigand() {{
+  const atoms = ligandModel && ligandModel.selectedAtoms ? ligandModel.selectedAtoms({{}}) : [];
+  if (!atoms || !atoms.length) {{
+    stage.zoomTo();
+    return;
+  }}
+  stage.zoomTo(atoms);
+  stage.zoom(1.4);
+}}
 
 function setReceptorStyle() {{
   if (!receptorModel) return;
@@ -424,15 +477,15 @@ function setReceptorStyle() {{
   const style = document.getElementById("receptorStyle").value;
   if (style === "surface") {{
     stage.removeAllSurfaces();
-    receptorModel.setStyle({{}}, {{ cartoon: {{ color: "spectrum", opacity: 0.55 }} }});
+    receptorModel.setStyle({{}}, {{ cartoon: {{ color: "spectrum", opacity: 0.38 }} }});
     stage.addSurface($3Dmol.SurfaceType.VDW, {{ opacity: 0.7, color: "white" }}, {{ model: receptorModel }});
     return;
   }}
   stage.removeAllSurfaces();
   if (style === "stick") {{
-    receptorModel.setStyle({{}}, {{ stick: {{ colorscheme: "lightgrayCarbon", radius: 0.18 }} }});
+    receptorModel.setStyle({{}}, {{ stick: {{ colorscheme: "lightgrayCarbon", radius: 0.14, opacity: 0.42 }} }});
   }} else {{
-    receptorModel.setStyle({{}}, {{ cartoon: {{ color: "spectrum", opacity: 0.8 }} }});
+    receptorModel.setStyle({{}}, {{ cartoon: {{ color: "spectrum", opacity: 0.45 }} }});
   }}
 }}
 
@@ -441,21 +494,21 @@ function setLigandStyle() {{
   ligandModel.setStyle({{}}, {{}});
   const style = document.getElementById("ligandStyle").value;
   if (style === "sphere") {{
-    ligandModel.setStyle({{}}, {{ sphere: {{ scale: 0.34, colorscheme: "greenCarbon" }} }});
+    ligandModel.setStyle({{}}, {{ stick: {{ radius: 0.18, colorscheme: "orangeCarbon" }}, sphere: {{ scale: 0.32, colorscheme: "orangeCarbon" }} }});
   }} else if (style === "line") {{
-    ligandModel.setStyle({{}}, {{ line: {{ colorscheme: "greenCarbon", linewidth: 2.0 }} }});
+    ligandModel.setStyle({{}}, {{ line: {{ colorscheme: "orangeCarbon", linewidth: 2.2 }} }});
   }} else {{
-    ligandModel.setStyle({{}}, {{ stick: {{ colorscheme: "greenCarbon", radius: 0.22 }} }});
+    ligandModel.setStyle({{}}, {{ stick: {{ colorscheme: "orangeCarbon", radius: 0.28 }} }});
   }}
 }}
 
 function renderPose(index) {{
   stage.clear();
   receptorModel = stage.addModel(receptorText, "pdbqt");
-  ligandModel = stage.addModel(poseBlocks[index] || poseBlocks[0], "pdbqt");
+  ligandModel = stage.addModel(posePdbBlocks[index] || posePdbBlocks[0], "pdb");
   setReceptorStyle();
   setLigandStyle();
-  stage.zoomTo();
+  focusOnLigand();
   stage.render();
 }}
 
@@ -477,6 +530,10 @@ document.getElementById("ligandStyle").addEventListener("change", () => {{
   stage.render();
 }});
 poseSelect.addEventListener("change", () => renderPose(parseInt(poseSelect.value, 10) || 0));
+document.getElementById("focusLigand").addEventListener("click", () => {{
+  focusOnLigand();
+  stage.render();
+}});
 document.getElementById("resetView").addEventListener("click", () => {{
   stage.zoomTo();
   stage.render();
@@ -641,6 +698,7 @@ def build_project(
     for row in selected_rows:
         receptor_name = row.get("Receptor", "").strip()
         ligand_name = row.get("LigandBase") or row.get("Ligand") or row.get("LigandVariant") or "ligand"
+        ligand_variant = row.get("LigandVariant") or str(ligand_name)
         outfile = Path(row.get("OutFile", "")).resolve()
         receptor_file = find_receptor_file(receptor_name, search_roots)
 
@@ -659,7 +717,7 @@ def build_project(
         ligand_text = trim_pose_file_text(outfile.read_text(encoding="utf-8", errors="ignore"), top_poses=top_poses)
         affinities = pose_affinities_from_text(ligand_text)
         best_affinity = f"{min(affinities):.2f}" if affinities else row.get("Binding_Affinity", "")
-        slug = safe_slug(f"{Path(receptor_name).stem}__{ligand_name}")
+        slug = safe_slug(f"{Path(receptor_name).stem}__{ligand_variant}")
 
         receptor_copy = inputs_dir / f"{slug}_receptor.pdbqt"
         ligand_copy = inputs_dir / f"{slug}_poses.pdbqt"
@@ -671,7 +729,7 @@ def build_project(
             build_viewer_html(
                 page_title=page_title,
                 receptor_label=Path(receptor_file).name,
-                ligand_label=str(ligand_name),
+                ligand_label=str(ligand_variant),
                 receptor_text=receptor_text,
                 ligand_text=ligand_text,
                 best_affinity=best_affinity,
