@@ -243,11 +243,11 @@ def create_app() -> Flask:
         nav_links = [
             {"name": "Home", "endpoint": "home"},
             {"name": "Build", "endpoint": "build"},
+            {"name": "Results", "endpoint": "results"},
             {"name": "Workflow", "endpoint": "workflow"},
             {"name": "About", "endpoint": "about"},
             {"name": "Docs", "endpoint": "documentation"},
             {"name": "GitHub", "url": REPOSITORY_URL, "external": True},
-            {"name": "Contact", "endpoint": "contact"},
         ]
         return {
             "contact_email": SITE_CONTACT_EMAIL,
@@ -353,6 +353,10 @@ def create_app() -> Flask:
     @app.get("/workflow")
     def workflow():
         return render_template("workflow.html")
+
+    @app.get("/results")
+    def results():
+        return render_template("results.html")
 
     @app.get("/modules")
     def modules():

@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% block title %}Results | AutoDock-Vina PrepServer{% endblock %}
+{% block meta_description %}Load packaged docking visualization projects and open generated HTML docking viewers inside AutoDock-Vina PrepServer.{% endblock %}
+{% block og_title %}Results | AutoDock-Vina PrepServer{% endblock %}
+{% block og_description %}Load packaged docking visualization projects and open generated HTML docking viewers inside AutoDock-Vina PrepServer.{% endblock %}
+
+{% block content %}
+<section class="page-hero compact">
+  <div class="page-hero-copy">
+    <span class="hero-kicker">Results</span>
+    <h1>Load Docking Visualization Results</h1>
+    <p class="hero-lead">Use this loading page to open generated HTML visualization projects from a workspace and keep result review inside your server workflow.</p>
+  </div>
+</section>
+
+<section class="results-shell">
+  <article class="results-card">
+    <div class="results-card-top">
+      <span class="results-eyebrow">Load Viewer Project</span>
+      <h2>Open a generated manifest</h2>
+      <p>Enter the workspace job name and the manifest location for a generated `5_BuidlHTMLViz.py` project.</p>
+    </div>
+
+    <form id="resultsLoader" class="results-form">
+      <label for="jobnameInput">Workspace job name</label>
+      <input id="jobnameInput" class="form-control" placeholder="06-27-2026-12-00-00-public">
+
+      <label for="manifestInput">Manifest path</label>
+      <input id="manifestInput" class="form-control" value="Docking_HTML_Viz_Project/manifest.json">
+
+      <button type="submit" class="btn btn-app-primary">Open results</button>
+    </form>
+
+    <div class="results-note">
+      <strong>Expected output:</strong> the generated project folder should contain `manifest.json`, `index.html`, and `viewers/*.html`.
+    </div>
+  </article>
+
+  <article class="results-card results-card-accent">
+    <div class="results-card-top">
+      <span class="results-eyebrow">Workflow</span>
+      <h2>How this fits</h2>
+      <p>After docking scores are parsed and ranked, `5_BuidlHTMLViz.py` can package the top hits into a portable HTML result bundle.</p>
+    </div>
+    <ol class="results-steps">
+      <li>Generate docking scores with the existing workflow.</li>
+      <li>Run `5_BuidlHTMLViz.py` on the sorted CSV.</li>
+      <li>Open the generated manifest here to browse the project in-app.</li>
+    </ol>
+    <a class="btn btn-outline-primary" href="{{ url_for('workflow') }}">View workflow guide</a>
+  </article>
+</section>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+.results-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 1.2rem;
+}
+.results-card {
+  border: 1px solid var(--app-border);
+  border-radius: 1.5rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.9), var(--surface-elevated));
+  box-shadow: var(--card-shadow);
+  padding: 1.35rem;
+}
+.results-card-accent {
+  background:
+    radial-gradient(circle at top right, rgba(8, 145, 178, 0.14), transparent 42%),
+    linear-gradient(180deg, rgba(255,255,255,0.94), var(--surface-elevated));
+}
+.results-card-top h2 {
+  margin: 0.2rem 0 0.45rem;
+}
+.results-card-top p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.results-eyebrow {
+  display: inline-block;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+.results-form {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1.1rem;
+}
+.results-form label {
+  font-weight: 600;
+  font-size: 0.94rem;
+}
+.results-note {
+  margin-top: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+}
+.results-steps {
+  margin: 1rem 0 1.1rem;
+  padding-left: 1.2rem;
+  color: var(--text-secondary);
+}
+.results-steps li + li {
+  margin-top: 0.45rem;
+}
+@media (max-width: 920px) {
+  .results-shell {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const form = document.getElementById("resultsLoader");
+  if (!form) return;
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const jobname = document.getElementById("jobnameInput")?.value.trim();
+    const rel = document.getElementById("manifestInput")?.value.trim();
+    if (!jobname || !rel) {
+      return;
+    }
+    const target = new URL("{{ url_for('docking_visualization_project') }}", window.location.origin);
+    target.searchParams.set("jobname", jobname);
+    target.searchParams.set("rel", rel);
+    window.location.href = target.toString();
+  });
+});
+</script>
+{% endblock %}
