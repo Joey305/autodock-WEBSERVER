@@ -1,0 +1,190 @@
+{% extends 'base.html' %}
+{% block title %}Docking Visualization Project{% endblock %}
+{% block meta_description %}Browse packaged HTML docking viewers generated from AutoDock Vina results and adapted from the VinaScope visualization flow.{% endblock %}
+{% block og_description %}Browse packaged HTML docking viewers generated from AutoDock Vina results and adapted from the VinaScope visualization flow.{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <div class="page-hero-copy">
+    <span class="hero-kicker">Docking Visualization</span>
+    <h1>{{ manifest.page_title or manifest.project_name }}</h1>
+    <p class="hero-lead">Open packaged viewers inside the docking server while keeping the project portable as a standalone HTML bundle.</p>
+  </div>
+</section>
+
+<section class="notice-card mb-4">
+  <p class="mb-2"><strong>Attribution:</strong> This workflow adapts the VinaScope visualization flow from <a href="{{ manifest.attribution.repo }}" target="_blank" rel="noreferrer">py-VinaScope-Docking-Viewer</a> and the public <a href="{{ manifest.attribution.viewer }}" target="_blank" rel="noreferrer">VinaDock-Viz viewer</a>.</p>
+  <p class="mb-0">{{ manifest.attribution.author }}<br>{{ manifest.attribution.affiliation }}</p>
+</section>
+
+<section class="viz-shell">
+  <aside class="viz-sidebar">
+    <div class="viz-sidebar-head">
+      <div class="viz-kicker">Project</div>
+      <h2>{{ manifest.project_name }}</h2>
+      <p>{{ manifest.entry_count }} viewer{{ "" if manifest.entry_count == 1 else "s" }} generated from {{ manifest.source_csv }}</p>
+    </div>
+    <div class="viz-entry-list">
+      {% for entry in entries %}
+      <button
+        type="button"
+        class="viz-entry {% if loop.first %}is-active{% endif %}"
+        data-viewer-url="{{ entry.viewer_url }}"
+        data-title="{{ entry.ligand }}"
+      >
+        <span class="viz-entry-top">{{ entry.receptor }}</span>
+        <strong>{{ entry.ligand }}</strong>
+        <span class="viz-entry-score">{{ entry.best_affinity }} kcal/mol</span>
+      </button>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <div class="viz-frame-panel">
+    <div class="viz-frame-head">
+      <div>
+        <div class="viz-kicker">Embedded Viewer</div>
+        <h2 id="vizTitle">{{ entries[0].ligand if entries else "No generated viewers found" }}</h2>
+      </div>
+      {% if entries %}
+      <a class="btn btn-outline-primary" id="vizOpenStandalone" href="{{ entries[0].viewer_url }}" target="_blank" rel="noreferrer">Open standalone</a>
+      {% endif %}
+    </div>
+    {% if entries %}
+    <iframe id="vizFrame" class="viz-frame" src="{{ entries[0].viewer_url }}" title="Docking viewer"></iframe>
+    {% else %}
+    <div class="notice-card">
+      <p class="mb-0">This manifest did not include any generated viewer HTML files.</p>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+.viz-shell {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+.viz-sidebar,
+.viz-frame-panel {
+  background: var(--surface-elevated);
+  border: 1px solid var(--app-border);
+  border-radius: 1.4rem;
+  box-shadow: var(--card-shadow);
+}
+.viz-sidebar {
+  overflow: hidden;
+  position: sticky;
+  top: 1rem;
+}
+.viz-sidebar-head,
+.viz-frame-head {
+  padding: 1.1rem 1.15rem 1rem;
+  border-bottom: 1px solid var(--app-border);
+}
+.viz-sidebar-head h2,
+.viz-frame-head h2 {
+  margin: 0.15rem 0 0.35rem;
+  font-size: 1.25rem;
+}
+.viz-sidebar-head p,
+.viz-frame-head p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.viz-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.viz-entry-list {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  max-height: 70vh;
+  overflow: auto;
+}
+.viz-entry {
+  text-align: left;
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  background: var(--surface-subtle);
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.22rem;
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.viz-entry:hover,
+.viz-entry.is-active {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 36px rgba(16, 42, 67, 0.12);
+}
+.viz-entry-top,
+.viz-entry-score {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+.viz-frame-panel {
+  padding: 0;
+  overflow: hidden;
+}
+.viz-frame-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+.viz-frame {
+  width: 100%;
+  min-height: 78vh;
+  border: 0;
+  background: #fff;
+}
+@media (max-width: 980px) {
+  .viz-shell {
+    grid-template-columns: 1fr;
+  }
+  .viz-sidebar {
+    position: static;
+  }
+  .viz-entry-list {
+    max-height: none;
+  }
+  .viz-frame {
+    min-height: 62vh;
+  }
+}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const frame = document.getElementById("vizFrame");
+  const title = document.getElementById("vizTitle");
+  const openLink = document.getElementById("vizOpenStandalone");
+  const buttons = [...document.querySelectorAll(".viz-entry")];
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      buttons.forEach((item) => item.classList.remove("is-active"));
+      button.classList.add("is-active");
+      if (frame) {
+        frame.src = button.dataset.viewerUrl;
+      }
+      if (title) {
+        title.textContent = button.dataset.title || "Docking viewer";
+      }
+      if (openLink) {
+        openLink.href = button.dataset.viewerUrl;
+      }
+    });
+  });
+});
+</script>
+{% endblock %}

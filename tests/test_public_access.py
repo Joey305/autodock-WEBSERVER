@@ -1,5 +1,6 @@
 import importlib
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -94,6 +95,54 @@ class PublicAccessTests(unittest.TestCase):
             query_string={"jobname": workspace["jobname"], "rel": "../README.md"},
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_visualization_project_page_renders_workspace_manifest(self):
+        workspace = self.client.post("/api/workspace").get_json()
+        ws = self.workspace_root / workspace["jobname"]
+        viz_dir = ws / "Docking_HTML_Viz_Project"
+        viewer_dir = viz_dir / "viewers"
+        viewer_dir.mkdir(parents=True)
+        (viewer_dir / "entry.html").write_text("<html><body>viewer</body></html>", encoding="utf-8")
+        (viz_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "project_name": "Docking_HTML_Viz_Project",
+                    "page_title": "Docking Viz",
+                    "source_csv": "/tmp/demo.csv",
+                    "entry_count": 1,
+                    "entries": [
+                        {
+                            "receptor": "recA",
+                            "ligand": "LigA",
+                            "best_affinity": "-9.1",
+                            "viewer_file": "viewers/entry.html",
+                        }
+                    ],
+                    "attribution": {
+                        "repo": "https://github.com/muntisa/py-VinaScope-Docking-Viewer",
+                        "viewer": "https://muntisa.github.io/VinaDock-Viz/VinaDock_Viz.html",
+                        "author": "Cristian R. Munteanu, PhD",
+                        "affiliation": "Professor of Computer Science, University of A Coruna, RNASA-IMEDIR",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        response = self.client.get(
+            "/viz/project",
+            query_string={"jobname": workspace["jobname"], "rel": "Docking_HTML_Viz_Project/manifest.json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Docking Viz", response.data)
+        self.assertIn(b"py-VinaScope-Docking-Viewer", response.data)
+
+        inline = self.client.get(
+            "/api/wsinline",
+            query_string={"jobname": workspace["jobname"], "rel": "Docking_HTML_Viz_Project/viewers/entry.html"},
+        )
+        self.assertEqual(inline.status_code, 200)
+        self.assertIn(b"viewer", inline.data)
 
     def test_ligand_zip_upload_flattens_nested_ligands_folder(self):
         workspace = self.client.post("/api/workspace").get_json()

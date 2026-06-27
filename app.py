@@ -306,6 +306,12 @@ def create_app() -> Flask:
             return resolved
         return None
 
+    def _path_within(base: Path, candidate: Path) -> bool:
+        try:
+            return str(candidate.resolve()).startswith(str(base.resolve()))
+        except Exception:
+            return False
+
     # ---------- PAGES ----------
     @app.get("/robots.txt")
     def robots_txt():
@@ -382,6 +388,42 @@ def create_app() -> Flask:
     @app.get("/troubleshooting")
     def troubleshooting():
         return render_template("troubleshooting.html")
+
+    @app.get("/viz/project")
+    @login_required
+    def docking_visualization_project():
+        jobname = request.args.get("jobname", "").strip()
+        rel = request.args.get("rel", "").strip()
+        if not jobname or not rel:
+            return ("missing jobname or rel", 400)
+        ws = _ws(jobname)
+        if not ws.exists():
+            return ("workspace missing", 404)
+        manifest_path = _resolve_workspace_file(ws, rel)
+        if manifest_path is None or manifest_path.name != "manifest.json":
+            return ("manifest not found", 404)
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return ("manifest is invalid", 400)
+
+        entries = []
+        for entry in manifest.get("entries", []):
+            viewer_rel = (entry.get("viewer_file") or "").strip()
+            viewer_path = _resolve_workspace_file(ws, str(Path(rel).parent / viewer_rel))
+            if viewer_path is None or not _path_within(ws, viewer_path):
+                continue
+            entries.append(
+                {
+                    **entry,
+                    "viewer_url": url_for(
+                        "api_wsinline",
+                        jobname=jobname,
+                        rel=str((Path(rel).parent / viewer_rel).as_posix()),
+                    ),
+                }
+            )
+        return render_template("docking_visualization_project.html", manifest=manifest, entries=entries)
     
 
     # ---------- STATE HELPERS ----------
@@ -677,6 +719,19 @@ def create_app() -> Flask:
         if p is None:
             return ("not found", 404)
         return send_file(p)
+
+    @app.get("/api/wsinline")
+    @login_required
+    def api_wsinline():
+        jobname = request.args.get("jobname", "")
+        rel = request.args.get("rel", "")
+        ws = _ws(jobname)
+        if not ws.exists():
+            return ("workspace missing", 404)
+        p = _resolve_workspace_file(ws, rel)
+        if p is None or not _path_within(ws, p):
+            return ("not found", 404)
+        return send_file(p, as_attachment=False, download_name=p.name)
 
     # ---------- HET COUNTS ----------
     @app.get("/api/het_counts")
