@@ -17,11 +17,23 @@
   <article class="results-card">
     <div class="results-card-top">
       <span class="results-eyebrow">Load Viewer Project</span>
-      <h2>Open a generated manifest</h2>
-      <p>Enter the workspace job name and the manifest location for a generated `5_BuidlHTMLViz.py` project.</p>
+      <h2>Drop a generated project folder</h2>
+      <p>Drag the folder created by <code>5_BuidlHTMLViz.py</code> right onto this page, or choose it from disk, and the manifest plus viewer HTML files will open here client-side.</p>
+    </div>
+
+    <div id="folderDropzone" class="results-dropzone" tabindex="0" role="button" aria-label="Drop visualization folder here or choose folder">
+      <div class="results-drop-icon"><i class="bi bi-folder2-open"></i></div>
+      <div class="results-drop-copy">
+        <strong>Drop folder here</strong>
+        <span>Or click to choose the generated visualization folder</span>
+      </div>
+      <input id="folderPicker" type="file" webkitdirectory directory multiple hidden>
     </div>
 
     <form id="resultsLoader" class="results-form">
+      <div class="results-divider">
+        <span>or open from server workspace</span>
+      </div>
       <label for="jobnameInput">Workspace job name</label>
       <input id="jobnameInput" class="form-control" placeholder="06-27-2026-12-00-00-public">
 
@@ -32,8 +44,9 @@
     </form>
 
     <div class="results-note">
-      <strong>Expected output:</strong> the generated project folder should contain `manifest.json`, `index.html`, and `viewers/*.html`.
+      <strong>Expected output:</strong> the generated project folder should contain <code>manifest.json</code>, <code>index.html</code>, and <code>viewers/*.html</code>.
     </div>
+    <div id="resultsStatus" class="results-status d-none"></div>
   </article>
 
   <article class="results-card results-card-accent">
@@ -49,6 +62,28 @@
     </ol>
     <a class="btn btn-outline-primary" href="{{ url_for('workflow') }}">View workflow guide</a>
   </article>
+</section>
+
+<section id="localResultsViewer" class="local-results-shell d-none">
+  <aside class="local-results-sidebar">
+    <div class="local-results-head">
+      <span class="results-eyebrow">Local Project</span>
+      <h2 id="localProjectTitle">Docking_HTML_Viz_Project</h2>
+      <p id="localProjectMeta">0 viewers loaded</p>
+    </div>
+    <div id="localEntryList" class="local-entry-list"></div>
+  </aside>
+
+  <div class="local-results-frame-panel">
+    <div class="local-results-frame-head">
+      <div>
+        <span class="results-eyebrow">Embedded Viewer</span>
+        <h2 id="localViewerTitle">Viewer</h2>
+      </div>
+      <a id="localOpenStandalone" class="btn btn-outline-primary d-none" target="_blank" rel="noreferrer">Open standalone</a>
+    </div>
+    <iframe id="localViewerFrame" class="local-results-frame" title="Local docking viewer"></iframe>
+  </div>
 </section>
 {% endblock %}
 
@@ -90,6 +125,61 @@
   gap: 0.8rem;
   margin-top: 1.1rem;
 }
+.results-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1.1rem 1rem;
+  border: 2px dashed color-mix(in srgb, var(--app-brand) 45%, var(--app-border));
+  border-radius: 1.15rem;
+  background:
+    radial-gradient(circle at top right, rgba(79, 195, 247, 0.16), transparent 38%),
+    var(--surface-subtle);
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.results-dropzone:hover,
+.results-dropzone.is-active {
+  transform: translateY(-1px);
+  border-color: var(--app-brand);
+  box-shadow: 0 14px 38px rgba(16, 42, 67, 0.12);
+}
+.results-drop-icon {
+  width: 3.25rem;
+  height: 3.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 1rem;
+  background: rgba(79, 195, 247, 0.2);
+  color: var(--app-brand);
+  font-size: 1.4rem;
+  flex: 0 0 auto;
+}
+.results-drop-copy {
+  display: grid;
+  gap: 0.18rem;
+}
+.results-drop-copy span {
+  color: var(--text-secondary);
+}
+.results-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin: 0.1rem 0 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.results-divider::before,
+.results-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--app-border);
+}
 .results-form label {
   font-weight: 600;
   font-size: 0.94rem;
@@ -101,6 +191,21 @@
   background: var(--surface-subtle);
   color: var(--text-secondary);
 }
+.results-status {
+  margin-top: 0.9rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+}
+.results-status.is-error {
+  border: 1px solid color-mix(in srgb, var(--app-danger) 38%, var(--app-border));
+  color: var(--app-danger);
+}
+.results-status.is-success {
+  border: 1px solid color-mix(in srgb, var(--app-success) 38%, var(--app-border));
+  color: var(--app-success);
+}
 .results-steps {
   margin: 1rem 0 1.1rem;
   padding-left: 1.2rem;
@@ -109,9 +214,95 @@
 .results-steps li + li {
   margin-top: 0.45rem;
 }
+.local-results-shell {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 1.2rem;
+  margin-top: 1.4rem;
+}
+.local-results-sidebar,
+.local-results-frame-panel {
+  border: 1px solid var(--app-border);
+  border-radius: 1.4rem;
+  background: var(--surface-elevated);
+  box-shadow: var(--card-shadow);
+}
+.local-results-head,
+.local-results-frame-head {
+  padding: 1.05rem 1.15rem;
+  border-bottom: 1px solid var(--app-border);
+}
+.local-results-head h2,
+.local-results-frame-head h2 {
+  margin: 0.2rem 0 0.35rem;
+}
+.local-results-head p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.local-entry-list {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  max-height: 74vh;
+  overflow: auto;
+}
+.local-entry-btn {
+  display: grid;
+  gap: 0.2rem;
+  text-align: left;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--app-border);
+  background: var(--surface-subtle);
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.local-entry-btn:hover,
+.local-entry-btn.is-active {
+  border-color: var(--app-brand);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(16, 42, 67, 0.12);
+}
+.local-entry-top,
+.local-entry-score {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+.local-results-frame-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+.local-results-frame {
+  width: 100%;
+  min-height: 78vh;
+  border: 0;
+  background: #fff;
+  border-radius: 0 0 1.4rem 1.4rem;
+}
 @media (max-width: 920px) {
   .results-shell {
     grid-template-columns: 1fr;
+  }
+  .local-results-shell {
+    grid-template-columns: 1fr;
+  }
+  .local-entry-list {
+    max-height: none;
+  }
+  .local-results-frame {
+    min-height: 62vh;
+  }
+}
+@media (max-width: 640px) {
+  .results-dropzone {
+    align-items: flex-start;
+  }
+  .results-drop-copy strong,
+  .results-drop-copy span {
+    display: block;
   }
 }
 </style>
@@ -121,6 +312,184 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("resultsLoader");
+  const dropzone = document.getElementById("folderDropzone");
+  const folderPicker = document.getElementById("folderPicker");
+  const resultsStatus = document.getElementById("resultsStatus");
+  const localShell = document.getElementById("localResultsViewer");
+  const localEntryList = document.getElementById("localEntryList");
+  const localProjectTitle = document.getElementById("localProjectTitle");
+  const localProjectMeta = document.getElementById("localProjectMeta");
+  const localViewerTitle = document.getElementById("localViewerTitle");
+  const localViewerFrame = document.getElementById("localViewerFrame");
+  const localOpenStandalone = document.getElementById("localOpenStandalone");
+  let activeObjectUrls = [];
+
+  function setStatus(message, type = "") {
+    if (!resultsStatus) return;
+    resultsStatus.textContent = message;
+    resultsStatus.classList.remove("d-none", "is-error", "is-success");
+    if (type) {
+      resultsStatus.classList.add(type);
+    }
+  }
+
+  function clearStatus() {
+    if (!resultsStatus) return;
+    resultsStatus.textContent = "";
+    resultsStatus.classList.add("d-none");
+    resultsStatus.classList.remove("is-error", "is-success");
+  }
+
+  function resetObjectUrls() {
+    activeObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    activeObjectUrls = [];
+  }
+
+  function normPath(path) {
+    return String(path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  }
+
+  function addObjectUrl(blob) {
+    const url = URL.createObjectURL(blob);
+    activeObjectUrls.push(url);
+    return url;
+  }
+
+  function renderLocalProject(manifest, entries) {
+    if (!localShell || !localEntryList || !localProjectTitle || !localProjectMeta || !localViewerTitle || !localViewerFrame || !localOpenStandalone) {
+      return;
+    }
+
+    localShell.classList.remove("d-none");
+    localProjectTitle.textContent = manifest.page_title || manifest.project_name || "Docking Visualization Project";
+    localProjectMeta.textContent = `${entries.length} viewer${entries.length === 1 ? "" : "s"} loaded locally`;
+    localEntryList.innerHTML = "";
+
+    const activateEntry = (entry, button) => {
+      [...localEntryList.querySelectorAll(".local-entry-btn")].forEach((node) => node.classList.remove("is-active"));
+      if (button) {
+        button.classList.add("is-active");
+      }
+      localViewerTitle.textContent = entry.ligand || entry.viewerTitle || "Viewer";
+      localViewerFrame.src = entry.viewerUrl;
+      localOpenStandalone.href = entry.viewerUrl;
+      localOpenStandalone.classList.remove("d-none");
+    };
+
+    entries.forEach((entry, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "local-entry-btn";
+      button.innerHTML = `
+        <span class="local-entry-top">${entry.receptor || ""}</span>
+        <strong>${entry.ligand || entry.viewerTitle || "Viewer"}</strong>
+        <span class="local-entry-score">${entry.best_affinity || ""}${entry.best_affinity ? " kcal/mol" : ""}</span>
+      `;
+      button.addEventListener("click", () => activateEntry(entry, button));
+      localEntryList.appendChild(button);
+      if (index === 0) {
+        activateEntry(entry, button);
+      }
+    });
+  }
+
+  async function collectFromEntry(entry, prefix = "") {
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      return [{ path: normPath(`${prefix}${entry.name}`), file }];
+    }
+    if (!entry.isDirectory) {
+      return [];
+    }
+    const reader = entry.createReader();
+    const children = [];
+    while (true) {
+      const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+      if (!batch.length) {
+        break;
+      }
+      children.push(...batch);
+    }
+    let files = [];
+    for (const child of children) {
+      const nested = await collectFromEntry(child, `${prefix}${entry.name}/`);
+      files = files.concat(nested);
+    }
+    return files;
+  }
+
+  async function gatherDroppedFiles(dataTransfer) {
+    const items = [...(dataTransfer.items || [])];
+    if (items.length && items.some((item) => item.webkitGetAsEntry)) {
+      let files = [];
+      for (const item of items) {
+        const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+        if (!entry) continue;
+        const nested = await collectFromEntry(entry);
+        files = files.concat(nested);
+      }
+      return files;
+    }
+    return [...(dataTransfer.files || [])].map((file) => ({
+      path: normPath(file.webkitRelativePath || file.name),
+      file,
+    }));
+  }
+
+  async function loadLocalProject(fileRecords) {
+    clearStatus();
+    resetObjectUrls();
+
+    const fileMap = new Map();
+    fileRecords.forEach(({ path, file }) => {
+      if (path) {
+        fileMap.set(normPath(path), file);
+      }
+    });
+
+    const manifestEntry = [...fileMap.entries()].find(([path]) => path.endsWith("manifest.json"));
+    if (!manifestEntry) {
+      setStatus("Could not find manifest.json in the dropped folder.", "is-error");
+      return;
+    }
+
+    const [manifestPath, manifestFile] = manifestEntry;
+    const manifestDir = manifestPath.includes("/") ? manifestPath.slice(0, manifestPath.lastIndexOf("/")) : "";
+    let manifest;
+    try {
+      manifest = JSON.parse(await manifestFile.text());
+    } catch (error) {
+      setStatus("manifest.json could not be parsed.", "is-error");
+      return;
+    }
+
+    const entries = [];
+    for (const entry of manifest.entries || []) {
+      const viewerRel = normPath(entry.viewer_file);
+      const lookupPath = normPath(manifestDir ? `${manifestDir}/${viewerRel}` : viewerRel);
+      const viewerFile = fileMap.get(lookupPath) || fileMap.get(viewerRel);
+      if (!viewerFile) {
+        continue;
+      }
+      const viewerText = await viewerFile.text();
+      const viewerUrl = addObjectUrl(new Blob([viewerText], { type: "text/html" }));
+      entries.push({
+        ...entry,
+        viewerUrl,
+        viewerTitle: viewerFile.name.replace(/\.html$/i, ""),
+      });
+    }
+
+    if (!entries.length) {
+      setStatus("manifest.json was found, but no viewer HTML files could be matched.", "is-error");
+      return;
+    }
+
+    setStatus(`Loaded ${entries.length} viewer${entries.length === 1 ? "" : "s"} from the dropped project folder.`, "is-success");
+    renderLocalProject(manifest, entries);
+    localShell?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   if (!form) return;
 
   form.addEventListener("submit", (event) => {
@@ -135,6 +504,54 @@ document.addEventListener("DOMContentLoaded", () => {
     target.searchParams.set("rel", rel);
     window.location.href = target.toString();
   });
+
+  if (dropzone && folderPicker) {
+    dropzone.addEventListener("click", () => folderPicker.click());
+    dropzone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        folderPicker.click();
+      }
+    });
+
+    folderPicker.addEventListener("change", async (event) => {
+      const files = [...(event.target.files || [])].map((file) => ({
+        path: normPath(file.webkitRelativePath || file.name),
+        file,
+      }));
+      if (files.length) {
+        await loadLocalProject(files);
+      }
+      folderPicker.value = "";
+    });
+
+    ["dragenter", "dragover"].forEach((type) => {
+      dropzone.addEventListener(type, (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        dropzone.classList.add("is-active");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((type) => {
+      dropzone.addEventListener(type, (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (type === "drop" || !dropzone.contains(event.relatedTarget)) {
+          dropzone.classList.remove("is-active");
+        }
+      });
+    });
+
+    dropzone.addEventListener("drop", async (event) => {
+      const files = await gatherDroppedFiles(event.dataTransfer);
+      if (files.length) {
+        await loadLocalProject(files);
+      } else {
+        setStatus("Nothing usable was found in the dropped item.", "is-error");
+      }
+    });
+  }
 });
 </script>
 {% endblock %}

@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -17,6 +18,43 @@ def load_script_module(filename: str, module_name: str):
 
 
 class HtmlVizBuilderTests(unittest.TestCase):
+    def test_resolve_args_prompts_for_missing_csv(self):
+        module = load_script_module("5_BuidlHTMLViz.py", "html_viz_builder_prompt_module")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            csv_path = root / "demo_vina_docking_scores_sorted.csv"
+            csv_path.write_text("Receptor,Ligand,Pose,Binding_Affinity,OutFile\n", encoding="utf-8")
+
+            args = module.argparse.Namespace(
+                csv=None,
+                outdir=None,
+                receptor_roots=["Receptors", "Receptors_PDBQT", "."],
+                top_ligands=25,
+                top_poses=3,
+                project_name="Docking_HTML_Viz_Project",
+                page_title="Docking Visualization Project",
+            )
+
+            responses = iter(
+                [
+                    "1",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                ]
+            )
+
+            with mock.patch.object(module.Path, "cwd", return_value=root):
+                with mock.patch("builtins.input", side_effect=lambda _: next(responses)):
+                    resolved = module.resolve_args(args)
+
+            self.assertEqual(Path(resolved.csv).resolve(), csv_path.resolve())
+            self.assertEqual(Path(resolved.outdir).resolve(), root.resolve())
+            self.assertEqual(resolved.receptor_roots, ["."])
+
     def test_build_project_writes_manifest_viewers_and_zip(self):
         module = load_script_module("5_BuidlHTMLViz.py", "html_viz_builder_module")
         with tempfile.TemporaryDirectory() as tmpdir:
