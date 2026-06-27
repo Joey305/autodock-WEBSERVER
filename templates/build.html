@@ -47,6 +47,9 @@
   .builder-page .ligand-choice{display:inline-flex;align-items:center;gap:.35rem;text-align:left;white-space:normal;min-height:38px}
   .builder-page .ligand-choice .bi{opacity:0}
   .builder-page .ligand-choice.active .bi{opacity:1}
+  .builder-page .curated-card{border:1px solid var(--app-border);border-radius:12px;background:linear-gradient(135deg,var(--app-surface-2),rgba(255,255,255,.65));padding:1rem}
+  .builder-page .curated-actions{display:flex;flex-wrap:wrap;gap:.6rem}
+  .builder-page .curated-btn{min-width:220px;text-align:left}
   .builder-page pre{max-width:100%;min-width:0;white-space:pre-wrap;overflow:auto;overflow-wrap:anywhere;word-break:break-word}
   .builder-page .input-group > .form-control,
   .builder-page .input-group > .form-select{min-width:0}
@@ -87,6 +90,7 @@
     .builder-page .badge-pipe{white-space:normal;text-align:center}
     .builder-page .ligand-picker{padding:.65rem}
     .builder-page .ligand-choice{width:100%;justify-content:flex-start;min-height:44px}
+    .builder-page .curated-btn{width:100%;min-width:0}
     .builder-page .prep-action-row,
     .builder-page .build-actions{align-items:stretch!important;gap:.65rem!important}
     .builder-page .prep-action-row > .btn,
@@ -311,6 +315,22 @@
           <input id="ligFolder" type="file" class="form-control" webkitdirectory directory multiple disabled>
           <button id="btnLigFolder" class="btn btn-success" disabled>Upload Folder</button>
         </div>
+      </div>
+    </div>
+    <div class="curated-card mt-3">
+      <div class="fw-semibold mb-1">Or start from a curated ChEMBL drug list</div>
+      <div class="small text-muted mb-3">
+        These preset CSV libraries are useful when a user does not already have ligands in mind.
+        Phase 2 or higher means the compounds reached clinical testing and were not immediately ruled out as lethally unsafe in that context,
+        but that does not mean they are non-toxic or safe for every purpose, dose, tissue, or patient population.
+      </div>
+      <div class="curated-actions">
+        <button id="btnCuratedPhase4" class="btn btn-outline-primary curated-btn" type="button" disabled>
+          Use ChEMBL Phase 4 approved drugs
+        </button>
+        <button id="btnCuratedPhase2" class="btn btn-outline-primary curated-btn" type="button" disabled>
+          Use ChEMBL Phase 2 or higher
+        </button>
       </div>
     </div>
     <div class="row g-3 mt-2">
@@ -702,7 +722,25 @@ async function fetchState(){
   $('#flowPill span').textContent = isMulti ? 'Multi receptor workflow' : 'Single receptor workflow';
 }
 async function fetchSummary(){ const r=await fetch(`/api/summary?jobname=${encodeURIComponent(jobname)}`); summaryState=await r.json(); return summaryState; }
-async function reloadAll(){ if(!jobname) return; await fetchState(); await fetchSummary(); drawReceptorList(); await gatePanels(); await syncPreparedReview(currentRel); }
+function syncLigandUploadUIFromState(){
+  const info = summaryState?.ligand_info || {};
+  if(!summaryState?.ligands_uploaded){
+    resetCsvColumnUI('');
+    $('#ligUploadStatus').textContent = '';
+    return;
+  }
+  const uploadLabel = info.curated_library?.label || info.filename || 'Ligands uploaded';
+  summarizeLigandUpload(info, uploadLabel, {silent:true});
+  if(info.is_csv){
+    const headers = info.headers || [];
+    const smilesGuess = info.suggested_smiles_col || likelyHeader(headers, ['SMILES','smiles','Smile','canonical_smiles','isomeric_smiles','Ligand SMILES']);
+    const idGuess = info.suggested_id_col || likelyHeader(headers, ['ID','id','Name','name','Ligand','ligand_id','compound_id','CompoundID','Title']);
+    setupCsvColumnUIFromHeaders(info.filename || uploadLabel, headers, smilesGuess, idGuess);
+  }else{
+    resetCsvColumnUI('');
+  }
+}
+async function reloadAll(){ if(!jobname) return; await fetchState(); await fetchSummary(); drawReceptorList(); syncLigandUploadUIFromState(); await gatePanels(); await syncPreparedReview(currentRel); }
 
 /* ---------- receptor list ---------- */
 function badgeFor(r){
@@ -814,6 +852,30 @@ function resetCsvColumnUI(message=''){
   });
   $('#csvColumnStatus').textContent = message;
 }
+function setupCsvColumnUIFromHeaders(name, headers, smilesGuess='', idGuess=''){
+  const normalizedHeaders = Array.isArray(headers) ? headers : [];
+  if(!normalizedHeaders.length){
+    resetCsvColumnUI('No CSV headers were detected. Enter custom column names if needed.');
+    $('#csvColumnPanel').classList.remove('d-none');
+    ['csvSmilesCol','csvIdCol','csvSmilesCustom','csvIdCustom'].forEach(id=> enable($('#'+id), true));
+    populateCsvSelect($('#csvSmilesCol'), [], '', false);
+    populateCsvSelect($('#csvIdCol'), [], '', true);
+    $('#csvSmilesCol').value='__custom__';
+    $('#csvIdCol').value='__custom__';
+    syncCsvColumnInputs();
+    ligandUploadState = { kind:'csv', headers:[], selectedSmiles:'', selectedId:'' };
+    return;
+  }
+  ligandUploadState = { kind:'csv', headers:normalizedHeaders, selectedSmiles:smilesGuess, selectedId:idGuess };
+  $('#csvColumnPanel').classList.remove('d-none');
+  populateCsvSelect($('#csvSmilesCol'), normalizedHeaders, smilesGuess, true);
+  populateCsvSelect($('#csvIdCol'), normalizedHeaders, idGuess, true);
+  ['csvSmilesCol','csvIdCol'].forEach(id=> enable($('#'+id), true));
+  enable($('#csvSmilesCustom'), $('#csvSmilesCol').value === '__custom__');
+  enable($('#csvIdCustom'), $('#csvIdCol').value === '__custom__');
+  $('#csvColumnStatus').textContent = `Detected ${normalizedHeaders.length} column${normalizedHeaders.length===1?'':'s'} from ${name}.`;
+  syncCsvColumnInputs();
+}
 async function setupCsvColumnUI(file){
   try{
     const headers = await detectCsvHeaders(file);
@@ -831,15 +893,7 @@ async function setupCsvColumnUI(file){
     }
     const smilesGuess = likelyHeader(headers, ['SMILES','smiles','Smile','canonical_smiles','isomeric_smiles','Ligand SMILES']);
     const idGuess = likelyHeader(headers, ['ID','id','Name','name','Ligand','ligand_id','compound_id','CompoundID','Title']);
-    ligandUploadState = { kind:'csv', headers, selectedSmiles:smilesGuess, selectedId:idGuess };
-    $('#csvColumnPanel').classList.remove('d-none');
-    populateCsvSelect($('#csvSmilesCol'), headers, smilesGuess, true);
-    populateCsvSelect($('#csvIdCol'), headers, idGuess, true);
-    ['csvSmilesCol','csvIdCol'].forEach(id=> enable($('#'+id), true));
-    enable($('#csvSmilesCustom'), $('#csvSmilesCol').value === '__custom__');
-    enable($('#csvIdCustom'), $('#csvIdCol').value === '__custom__');
-    $('#csvColumnStatus').textContent = `Detected ${headers.length} column${headers.length===1?'':'s'} from ${file.name}.`;
-    syncCsvColumnInputs();
+    setupCsvColumnUIFromHeaders(file.name, headers, smilesGuess, idGuess);
   }catch(err){
     resetCsvColumnUI('Could not parse CSV headers. You can still enter custom column names.');
     $('#csvColumnPanel').classList.remove('d-none');
@@ -1208,7 +1262,7 @@ $('#ligSingle').onchange=async()=>{
 };
 $('#ligZip').onchange=()=>resetCsvColumnUI('');
 $('#ligFolder').onchange=()=>resetCsvColumnUI('');
-function summarizeLigandUpload(payload, fallbackLabel){
+function summarizeLigandUpload(payload, fallbackLabel, {silent=false} = {}){
   const accepted = payload.accepted_files || [];
   const warnings = payload.warnings || [];
   const prefix = accepted.length
@@ -1216,7 +1270,7 @@ function summarizeLigandUpload(payload, fallbackLabel){
     : (fallbackLabel || 'Ligands uploaded');
   const detail = warnings.length ? `${prefix} Warnings: ${warnings.join(' | ')}` : prefix;
   $('#ligUploadStatus').textContent = detail;
-  toast(prefix);
+  if(!silent) toast(prefix);
 }
 $('#btnLigSingle').onclick=async()=>{
   const f=$('#ligSingle').files[0]; if(!f) return alert('Pick a file');
@@ -1238,6 +1292,27 @@ $('#btnLigFolder').onclick=async()=>{
   files.forEach(f=> fd.append('files', f, f.webkitRelativePath || f.name));
   const payload = await postForm('/api/ligands/upload', fd); summarizeLigandUpload(payload, 'Ligand folder uploaded'); await reloadAll(); await gateLigandsAndBuild();
 };
+async function uploadCuratedLibrary(libraryKey){
+  resetCsvColumnUI('');
+  const fd=new FormData();
+  fd.append('jobname', jobname);
+  fd.append('library', libraryKey);
+  const payload = await postForm('/api/ligands/curated', fd);
+  if(payload.headers?.length || payload.is_csv){
+    setupCsvColumnUIFromHeaders(
+      payload.filename || 'curated library',
+      payload.headers || [],
+      payload.suggested_smiles_col || '',
+      payload.suggested_id_col || ''
+    );
+  }
+  const label = payload.curated_library?.label || 'Curated ligand library uploaded';
+  summarizeLigandUpload(payload, label);
+  await reloadAll();
+  await gateLigandsAndBuild();
+}
+$('#btnCuratedPhase4').onclick=()=>uploadCuratedLibrary('phase4');
+$('#btnCuratedPhase2').onclick=()=>uploadCuratedLibrary('phase2');
 
 /* ---------- gating for steps 2 & 3 ---------- */
 async function gateLigandsAndBuild(started=false, s=null){
@@ -1247,7 +1322,7 @@ async function gateLigandsAndBuild(started=false, s=null){
   const conversionDone = expected>0 && converted>=expected;
 
   $('#ligandStep').classList.toggle('d-none', !conversionStarted);
-  [$('#ligSingle'),$('#ligZip'),$('#ligFolder'),$('#btnLigSingle'),$('#btnLigZip'),$('#btnLigFolder')].forEach(el=> enable(el, conversionStarted));
+  [$('#ligSingle'),$('#ligZip'),$('#ligFolder'),$('#btnLigSingle'),$('#btnLigZip'),$('#btnLigFolder'),$('#btnCuratedPhase4'),$('#btnCuratedPhase2')].forEach(el=> enable(el, conversionStarted));
 
   const canBuild = conversionDone && (s.ligands_uploaded || state?.ligands_uploaded);
   $('#buildStep').classList.toggle('d-none', !conversionStarted);

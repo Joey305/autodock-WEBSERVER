@@ -3,7 +3,7 @@
 # ==============================
 from __future__ import annotations
 
-import os, json, time, csv, subprocess, re
+import os, json, time, csv, subprocess, re, shutil
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -68,6 +68,19 @@ LAB_LINK = {
     "role": "Laboratory context for the connected molecular design tool ecosystem",
 }
 
+CURATED_LIGAND_LIBRARY_MAP = {
+    "phase4": {
+        "filename": "chembl_phase4_approved_smiles.csv",
+        "label": "ChEMBL Phase 4 approved drugs",
+        "description": "Approved drugs in ChEMBL. Approval does not mean non-toxic in every setting or dose.",
+    },
+    "phase2": {
+        "filename": "chembl_phase2_or_higher_smiles.csv",
+        "label": "ChEMBL Phase 2 or higher compounds",
+        "description": "Compounds that reached at least Phase 2 clinical testing. This does not mean they are non-toxic or safe for all uses.",
+    },
+}
+
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
@@ -113,6 +126,57 @@ def infer_ligand_workflow(ligand_info: Dict[str, Any]) -> tuple[str, str, Option
     if upload_mode == "single" and ext in {".smiles", ".smi"}:
         return "2", "smiles", None
     return "2", "sdf", None
+
+
+def _curated_ligand_source(library_key: str) -> Optional[Dict[str, Any]]:
+    entry = CURATED_LIGAND_LIBRARY_MAP.get((library_key or "").strip().lower())
+    if not entry:
+        return None
+    path = Path(current_app.static_folder or "static") / "data" / entry["filename"]
+    if not path.exists():
+        return None
+    headers: List[str] = []
+    try:
+        with path.open("r", newline="", encoding="utf-8") as fh:
+            reader = csv.reader(fh)
+            headers = next(reader, []) or []
+    except Exception:
+        headers = []
+    smiles_col = "canonical_smiles" if "canonical_smiles" in headers else ""
+    id_candidates = ["pref_name", "molecule_chembl_id", "compound_id", "id", "name"]
+    id_col = next((col for col in id_candidates if col in headers), "")
+    return {
+        "key": library_key.strip().lower(),
+        "path": path,
+        "headers": headers,
+        "suggested_smiles_col": smiles_col,
+        "suggested_id_col": id_col,
+        **entry,
+    }
+
+
+def _csv_upload_metadata(lig_dir: Path, result: Dict[str, Any]) -> Dict[str, Any]:
+    if not result.get("is_csv"):
+        return {}
+    accepted = result.get("accepted_files") or []
+    if len(accepted) != 1:
+        return {}
+    csv_path = lig_dir / accepted[0]
+    if not csv_path.exists():
+        return {}
+    try:
+        with csv_path.open("r", newline="", encoding="utf-8") as fh:
+            headers = next(csv.reader(fh), []) or []
+    except Exception:
+        headers = []
+    smiles_col = "canonical_smiles" if "canonical_smiles" in headers else ""
+    id_candidates = ["pref_name", "molecule_chembl_id", "compound_id", "id", "name"]
+    id_col = next((col for col in id_candidates if col in headers), "")
+    return {
+        "headers": headers,
+        "suggested_smiles_col": smiles_col,
+        "suggested_id_col": id_col,
+    }
 
 # ---------- Config ----------
 class Config:
@@ -1251,6 +1315,7 @@ def create_app() -> Flask:
                 **result,
             }), 400
 
+        csv_meta = _csv_upload_metadata(lig_dir, result)
         st = _load_state(ws)
         st["ligands_uploaded"] = True
         st["ligand_info"] = {
@@ -1263,6 +1328,52 @@ def create_app() -> Flask:
             "is_csv": result["is_csv"],
             "filetypes": result["filetypes"],
             "ligands_root": result["ligands_root"],
+            **csv_meta,
+        }
+        _save_state(ws, st)
+        return jsonify({"ok": True, **st["ligand_info"]})
+
+    @app.post("/api/ligands/curated")
+    @login_required
+    def api_lig_curated():
+        jobname = request.form.get("jobname", "")
+        library_key = request.form.get("library", "")
+        ws = _ws(jobname)
+        if not ws.exists():
+            return ("workspace missing", 400)
+        curated = _curated_ligand_source(library_key)
+        if not curated:
+            return jsonify({"ok": False, "error": "Curated ligand library not found."}), 404
+
+        lig_dir = ensure_subdir(ws, "Ligands")
+        source_path = curated["path"]
+        target_path = lig_dir / source_path.name
+        shutil.copy2(source_path, target_path)
+
+        result = {
+            "accepted_files": [target_path.name],
+            "accepted_count": 1,
+            "ignored_files": [],
+            "warnings": [],
+            "is_csv": True,
+            "filetypes": [".csv"],
+            "ligands_root": str(lig_dir),
+            "headers": curated["headers"],
+            "suggested_smiles_col": curated["suggested_smiles_col"],
+            "suggested_id_col": curated["suggested_id_col"],
+            "curated_library": {
+                "key": curated["key"],
+                "label": curated["label"],
+                "description": curated["description"],
+            },
+        }
+
+        st = _load_state(ws)
+        st["ligands_uploaded"] = True
+        st["ligand_info"] = {
+            "upload_mode": "curated",
+            "filename": source_path.name,
+            **result,
         }
         _save_state(ws, st)
         return jsonify({"ok": True, **st["ligand_info"]})
@@ -1790,9 +1901,50 @@ def create_app() -> Flask:
             return _v1_error("bad_mode", "Ligand upload mode must be single, zip, or folder.", 400)
         if not result["accepted_count"]:
             return _v1_error("no_supported_ligands", "No supported ligand files were found. Upload .sdf, .smiles, .smi, or .csv files.", 400, result)
+        csv_meta = _csv_upload_metadata(lig_dir, result)
         st = _load_state(ws)
         st["ligands_uploaded"] = True
-        st["ligand_info"] = {"upload_mode": mode, "filename": upload_name, **result}
+        st["ligand_info"] = {"upload_mode": mode, "filename": upload_name, **result, **csv_meta}
+        _save_state(ws, st)
+        return _v1_ok(st["ligand_info"], warnings=result.get("warnings", []))
+
+    @app.post("/api/v1/workspaces/<jobname>/ligands/curated")
+    @login_required
+    def api_v1_ligands_curated(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        library_key = request.form.get("library", "")
+        curated = _curated_ligand_source(library_key)
+        if not curated:
+            return _v1_error("curated_library_missing", "Curated ligand library not found.", 404)
+
+        lig_dir = ensure_subdir(ws, "Ligands")
+        source_path = curated["path"]
+        target_path = lig_dir / source_path.name
+        shutil.copy2(source_path, target_path)
+
+        result = {
+            "accepted_files": [target_path.name],
+            "accepted_count": 1,
+            "ignored_files": [],
+            "warnings": [],
+            "is_csv": True,
+            "filetypes": [".csv"],
+            "ligands_root": str(lig_dir),
+            "headers": curated["headers"],
+            "suggested_smiles_col": curated["suggested_smiles_col"],
+            "suggested_id_col": curated["suggested_id_col"],
+            "curated_library": {
+                "key": curated["key"],
+                "label": curated["label"],
+                "description": curated["description"],
+            },
+        }
+
+        st = _load_state(ws)
+        st["ligands_uploaded"] = True
+        st["ligand_info"] = {"upload_mode": "curated", "filename": source_path.name, **result}
         _save_state(ws, st)
         return _v1_ok(st["ligand_info"], warnings=result.get("warnings", []))
 
