@@ -324,9 +324,250 @@ def build_viewer_html(
         f'toast("Loaded {ligand_label} ({best_affinity} kcal/mol)");',
         1,
     )
+
+    binding_pocket_controls = """        <label class="toggle-row">
+          <input type="checkbox" id="surface-toggle">
+          <span>VDW surface overlay</span>
+        </label>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- BINDING POCKET STYLE -->
+      <div class="section">
+        <div class="sec-label">Binding Pocket</div>
+        <div class="ctrl-group">
+          <div class="ctrl-label">Style</div>
+          <div class="btn-row" id="pocket-style-btns">
+            <button class="btn active" data-v="stick">Sticks</button>
+            <button class="btn" data-v="sphere">Spheres</button>
+            <button class="btn" data-v="line">Lines</button>
+          </div>
+        </div>
+        <label class="toggle-row">
+          <input type="checkbox" id="pocket-toggle" checked>
+          <span>Show atoms within 5 Å of active ligand</span>
+        </label>
+      </div>
+
+      <div class="divider"></div>"""
     template = template.replace(
-        '<div class="logo-name">VinaScope</div>',
-        '<div class="logo-name">VinaScope</div>',
+        """        <label class="toggle-row">
+          <input type="checkbox" id="surface-toggle">
+          <span>VDW surface overlay</span>
+        </label>
+      </div>
+
+      <div class="divider"></div>""",
+        binding_pocket_controls,
+        1,
+    )
+
+    template = template.replace(
+        "const COORD_RX = /^\\s*(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)/;",
+        """const COORD_RX = /^\\s*(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)/;
+const POCKET_DISTANCE_CUTOFF = 5.0;
+const POCKET_HIGHLIGHT = "#f97316";""",
+        1,
+    )
+    template = template.replace(
+        """    const name    = line.substring(12,16).trim();
+    const resname = line.substring(17,20).trim();
+    const chain   = line.substring(21,22).trim() || "A";
+    const resi    = parseInt(line.substring(22,26)) || 0;
+""",
+        """    const serial  = parseInt(line.substring(6,11).trim()) || 0;
+    const name    = line.substring(12,16).trim();
+    const resname = line.substring(17,20).trim();
+    const chain   = line.substring(21,22).trim() || "A";
+    const resi    = parseInt(line.substring(22,26)) || 0;
+""",
+        1,
+    )
+    template = template.replace(
+        "    atoms.push({ name, resname, chain, resi, x, y, z, charge, adtype });",
+        "    atoms.push({ serial, name, resname, chain, resi, x, y, z, charge, adtype });",
+        1,
+    )
+    template = template.replace(
+        """function groupByResidue(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const key = `${r.receptor_resname} ${r.receptor_resi}:${r.receptor_chain}`;
+    if (!map.has(key)) map.set(key, { key, types:new Set(), minDist:Infinity });
+    const g = map.get(key);
+    g.types.add(r.type);
+    g.minDist = Math.min(g.minDist, r.distance);
+  }
+  return [...map.values()].sort((a,b)=>a.minDist-b.minDist);
+}
+""",
+        """function groupByResidue(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const key = `${r.receptor_resname} ${r.receptor_resi}:${r.receptor_chain}`;
+    if (!map.has(key)) map.set(key, { key, types:new Set(), minDist:Infinity });
+    const g = map.get(key);
+    g.types.add(r.type);
+    g.minDist = Math.min(g.minDist, r.distance);
+  }
+  return [...map.values()].sort((a,b)=>a.minDist-b.minDist);
+}
+
+function buildPocketSelection(ligAtoms, recAtoms, cutoff) {
+  const serials = new Set();
+  for (const la of ligAtoms) {
+    for (const ra of recAtoms) {
+      if (dist3(la, ra) <= cutoff) serials.add(ra.serial);
+    }
+  }
+  return [...serials];
+}
+""",
+        1,
+    )
+    template = template.replace(
+        """  const recModel = viewer.addModel(receptorPDB,"pdb");
+
+  let recStyle="cartoon", recColor="spectrum", recSurfObj=null, surfObj=null, surfOn=false;
+""",
+        """  const recModel = viewer.addModel(receptorPDB,"pdb");
+
+  let recStyle="cartoon", recColor="spectrum", recSurfObj=null, surfObj=null, surfOn=false;
+  let pocketOn=true, pocketStyle="stick";
+  let pocketSelection = [];
+""",
+        1,
+    )
+    template = template.replace(
+        """  function applyRecStyle() {
+    viewer.setStyle({model:recModel.getID()},{});
+    const cs = recColor==="chain"?"chain": recColor==="ss"?"ssJmol": undefined;
+    if (recSurfObj) { viewer.removeSurface(recSurfObj); recSurfObj = null; }
+    if (recStyle==="cartoon")
+      viewer.setStyle({model:recModel.getID()},{cartoon:{color:recColor==="spectrum"?"spectrum":undefined,colorscheme:cs}});
+    else if (recStyle==="surface") {
+      viewer.setStyle({model:recModel.getID()},{line:{colorscheme:cs??"element",linewidth:0.3}});
+      recSurfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.88,colorscheme:$3Dmol.elementColors.rasmol},{model:recModel.getID()});
+    }
+    else if (recStyle==="line")
+      viewer.setStyle({model:recModel.getID()},{line:{colorscheme:cs??"element",linewidth:1.5}});
+    else
+      viewer.setStyle({model:recModel.getID()},{stick:{colorscheme:cs??"element",radius:0.12}});
+    if (surfObj) { viewer.removeSurface(surfObj); surfObj=null; }
+    if (surfOn)
+      surfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.35,color:"#0a2040"},{model:recModel.getID()});
+  }
+""",
+        """  function applyRecStyle() {
+    viewer.setStyle({model:recModel.getID()},{});
+    const cs = recColor==="chain"?"chain": recColor==="ss"?"ssJmol": undefined;
+    if (recSurfObj) { viewer.removeSurface(recSurfObj); recSurfObj = null; }
+    if (recStyle==="cartoon")
+      viewer.setStyle({model:recModel.getID()},{cartoon:{color:recColor==="spectrum"?"spectrum":undefined,colorscheme:cs}});
+    else if (recStyle==="surface") {
+      viewer.setStyle({model:recModel.getID()},{line:{colorscheme:cs??"element",linewidth:0.3}});
+      recSurfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.88,colorscheme:$3Dmol.elementColors.rasmol},{model:recModel.getID()});
+    }
+    else if (recStyle==="line")
+      viewer.setStyle({model:recModel.getID()},{line:{colorscheme:cs??"element",linewidth:1.5}});
+    else
+      viewer.setStyle({model:recModel.getID()},{stick:{colorscheme:cs??"element",radius:0.12}});
+    if (surfObj) { viewer.removeSurface(surfObj); surfObj=null; }
+    if (surfOn)
+      surfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.35,color:"#0a2040"},{model:recModel.getID()});
+
+    if (pocketOn && pocketSelection.length) {
+      const pocketSel = {model:recModel.getID(), serial:pocketSelection};
+      if (pocketStyle==="sphere")
+        viewer.setStyle(pocketSel,{sphere:{color:POCKET_HIGHLIGHT,radius:0.45,opacity:0.95}});
+      else if (pocketStyle==="line")
+        viewer.setStyle(pocketSel,{line:{color:POCKET_HIGHLIGHT,linewidth:3}});
+      else
+        viewer.setStyle(pocketSel,{stick:{color:POCKET_HIGHLIGHT,radius:0.2,opacity:0.98}});
+    }
+  }
+""",
+        1,
+    )
+    template = template.replace(
+        """  const recAtoms      = parseAtoms(receptorPDB);
+  const allInteractions = poses.map((_,i)=>
+    computeInteractions(parseAtoms(poseToPDB(poses[i])), recAtoms)
+  );
+""",
+        """  const recAtoms      = parseAtoms(receptorPDB);
+  const ligandAtomsByPose = poses.map((_,i)=>parseAtoms(poseToPDB(poses[i])));
+  const allInteractions = poses.map((_,i)=>
+    computeInteractions(ligandAtomsByPose[i], recAtoms)
+  );
+  const pocketSelections = poses.map((_,i)=>
+    buildPocketSelection(ligandAtomsByPose[i], recAtoms, POCKET_DISTANCE_CUTOFF)
+  );
+""",
+        1,
+    )
+    template = template.replace(
+        """  function selectPose(i) {
+    curPose=i;
+    document.querySelectorAll(".pose-item").forEach((el,j)=>el.classList.toggle("active",j===i));
+    const hex=poseHex(i);
+    document.getElementById("hud-score").textContent = poses[i].score.toFixed(1);
+    document.getElementById("hud-score").style.color = hex;
+    document.getElementById("hud-pose").textContent  = `Pose ${i+1} of ${poses.length}`;
+    applyLigStyles();
+    renderInteractions(allInteractions[i], i);
+    viewer.render();
+  }
+""",
+        """  function selectPose(i) {
+    curPose=i;
+    pocketSelection = pocketSelections[i] || [];
+    document.querySelectorAll(".pose-item").forEach((el,j)=>el.classList.toggle("active",j===i));
+    const hex=poseHex(i);
+    document.getElementById("hud-score").textContent = poses[i].score.toFixed(1);
+    document.getElementById("hud-score").style.color = hex;
+    document.getElementById("hud-pose").textContent  = `Pose ${i+1} of ${poses.length}`;
+    applyRecStyle();
+    applyLigStyles();
+    renderInteractions(allInteractions[i], i);
+    viewer.render();
+  }
+""",
+        1,
+    )
+    template = template.replace(
+        """  wireGroup("#rec-style-btns .btn","v", v=>{ recStyle=v; applyRecStyle(); viewer.render(); });
+  wireGroup("#rec-color-btns .btn","v", v=>{ recColor=v; applyRecStyle(); viewer.render(); });
+  wireGroup("#lig-style-btns .btn","v", v=>{ ligStyle=v; applyLigStyles(); viewer.render(); });
+  wireGroup("#lig-color-btns .btn","v", v=>{ ligColor=v; applyLigStyles(); viewer.render(); });
+""",
+        """  wireGroup("#rec-style-btns .btn","v", v=>{ recStyle=v; applyRecStyle(); viewer.render(); });
+  wireGroup("#rec-color-btns .btn","v", v=>{ recColor=v; applyRecStyle(); viewer.render(); });
+  wireGroup("#pocket-style-btns .btn","v", v=>{ pocketStyle=v; applyRecStyle(); viewer.render(); });
+  wireGroup("#lig-style-btns .btn","v", v=>{ ligStyle=v; applyLigStyles(); viewer.render(); });
+  wireGroup("#lig-color-btns .btn","v", v=>{ ligColor=v; applyLigStyles(); viewer.render(); });
+""",
+        1,
+    )
+    template = template.replace(
+        """  document.getElementById("surface-toggle").addEventListener("change",e=>{
+    surfOn=e.target.checked; applyRecStyle(); viewer.render();
+  });
+  document.getElementById("all-poses-toggle").addEventListener("change",e=>{
+    showAll=e.target.checked; applyLigStyles(); viewer.render();
+  });
+""",
+        """  document.getElementById("surface-toggle").addEventListener("change",e=>{
+    surfOn=e.target.checked; applyRecStyle(); viewer.render();
+  });
+  document.getElementById("pocket-toggle").addEventListener("change",e=>{
+    pocketOn=e.target.checked; applyRecStyle(); viewer.render();
+  });
+  document.getElementById("all-poses-toggle").addEventListener("change",e=>{
+    showAll=e.target.checked; applyLigStyles(); viewer.render();
+  });
+""",
         1,
     )
     return template
