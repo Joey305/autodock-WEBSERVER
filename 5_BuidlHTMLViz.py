@@ -324,6 +324,92 @@ def build_viewer_html(
         f'toast("Loaded {ligand_label} ({best_affinity} kcal/mol)");',
         1,
     )
+    template = template.replace(
+        """#app{display:flex;width:100vw;height:100vh}
+#viewer-wrap{flex:1;position:relative;overflow:hidden}
+#viewer{width:100%;height:100%}
+""",
+        """#app{display:flex;width:100vw;height:100vh}
+#viewer-wrap{flex:1;position:relative;overflow:hidden}
+#viewer{width:100%;height:100%}
+#sidebar-toggle{
+  position:absolute;top:14px;left:14px;z-index:18;
+  width:38px;height:38px;border-radius:10px;
+  border:1px solid rgba(13,148,136,.28);background:rgba(255,255,255,.94);
+  color:var(--accent);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;box-shadow:0 10px 24px rgba(15,23,42,.12);
+  transition:transform .15s,background .15s,border-color .15s;
+}
+#sidebar-toggle:hover{transform:translateY(-1px);background:#fff;border-color:rgba(13,148,136,.48)}
+#sidebar-toggle svg{width:18px;height:18px}
+#app.sidebar-collapsed #sidebar{
+  width:0;min-width:0;border-right:none;box-shadow:none;overflow:hidden;
+}
+#app.sidebar-collapsed #sidebar-body,
+#app.sidebar-collapsed #sidebar-header,
+#app.sidebar-collapsed #sidebar-footer{opacity:0;pointer-events:none}
+""",
+        1,
+    )
+    template = template.replace(
+        """.hud-unit{font-size:8.5px;color:var(--txt-muted);margin-left:2px}
+.hud-pose{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--txt)}
+""",
+        """.hud-unit{font-size:8.5px;color:var(--txt-muted);margin-left:2px}
+.hud-pose{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--txt)}
+.hud-card{pointer-events:auto}
+.hud-interaction-card{min-width:176px}
+.hud-interaction-toggle{
+  width:100%;margin-top:8px;padding:7px 10px;border-radius:8px;
+  border:1px solid var(--border);background:rgba(13,148,136,.08);
+  color:var(--accent);font:600 10px var(--font);letter-spacing:.04em;cursor:pointer;
+}
+.hud-interaction-toggle.is-off{background:transparent;color:var(--txt-muted)}
+.interaction-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.interaction-chip{
+  display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border-radius:999px;
+  border:1px solid var(--border);background:rgba(255,255,255,.94);color:var(--txt);
+  font:600 9px var(--font);letter-spacing:.03em;cursor:pointer;
+}
+.interaction-chip.is-off{opacity:.45;background:rgba(255,255,255,.72)}
+.interaction-chip-swatch{width:8px;height:8px;border-radius:999px;display:inline-block}
+""",
+        1,
+    )
+    template = template.replace(
+        """  <div id="viewer-wrap">
+    <div id="viewer"></div>
+""",
+        """  <div id="viewer-wrap">
+    <button id="sidebar-toggle" type="button" aria-label="Toggle viewer sidebar" title="Toggle viewer sidebar">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+        <path d="M2 3.5h12M2 8h12M2 12.5h12"/>
+      </svg>
+    </button>
+    <div id="viewer"></div>
+""",
+        1,
+    )
+    template = template.replace(
+        """      <div class="hud-card">
+        <div class="hud-lbl">Active Pose</div>
+        <div class="hud-pose" id="hud-pose">—</div>
+      </div>
+    </div>
+""",
+        """      <div class="hud-card">
+        <div class="hud-lbl">Active Pose</div>
+        <div class="hud-pose" id="hud-pose">—</div>
+      </div>
+      <div class="hud-card hud-interaction-card">
+        <div class="hud-lbl">Interaction Lines</div>
+        <button id="toggle-interaction-lines" class="hud-interaction-toggle" type="button">Lines On</button>
+        <div id="interaction-legend" class="interaction-legend"></div>
+      </div>
+    </div>
+""",
+        1,
+    )
 
     binding_pocket_controls = """        <label class="toggle-row">
           <input type="checkbox" id="surface-toggle">
@@ -342,6 +428,7 @@ def build_viewer_html(
             <button class="btn active" data-v="stick">Sticks</button>
             <button class="btn" data-v="sphere">Spheres</button>
             <button class="btn" data-v="line">Lines</button>
+            <button class="btn" data-v="surface">Surface</button>
           </div>
         </div>
         <label class="toggle-row">
@@ -367,7 +454,7 @@ def build_viewer_html(
         "const COORD_RX = /^\\s*(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)/;",
         """const COORD_RX = /^\\s*(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)\\s+(-?\\d+\\.\\d+)/;
 const POCKET_DISTANCE_CUTOFF = 5.0;
-const POCKET_HIGHLIGHT = "#f97316";""",
+const POCKET_HIGHLIGHT = "#facc15";""",
         1,
     )
     template = template.replace(
@@ -415,14 +502,81 @@ const POCKET_HIGHLIGHT = "#f97316";""",
 }
 
 function buildPocketSelection(ligAtoms, recAtoms, cutoff) {
-  const serials = new Set();
+  const residueKeys = new Set();
   for (const la of ligAtoms) {
     for (const ra of recAtoms) {
-      if (dist3(la, ra) <= cutoff) serials.add(ra.serial);
+      if (dist3(la, ra) <= cutoff) residueKeys.add(`${ra.chain}:${ra.resi}:${ra.resname}`);
     }
+  }
+
+  const serials = new Set();
+  for (const ra of recAtoms) {
+    if (residueKeys.has(`${ra.chain}:${ra.resi}:${ra.resname}`)) serials.add(ra.serial);
   }
   return [...serials];
 }
+""",
+        1,
+    )
+    template = template.replace(
+        """const ACC  = new Set(["OA","NA","SA"]);
+const HYDR = new Set(["C","A"]);
+const AROM = new Set(["PHE","TYR","TRP","HIS"]);
+const NEG  = { ASP:new Set(["OD1","OD2"]), GLU:new Set(["OE1","OE2"]) };
+const POS  = { LYS:new Set(["NZ"]), ARG:new Set(["NH1","NH2","NE"]), HIS:new Set(["ND1","NE2"]) };
+
+const TYPE_CSS = {
+""",
+        """const ACC  = new Set(["OA","NA","SA"]);
+const HYDR = new Set(["C","A"]);
+const AROM = new Set(["PHE","TYR","TRP","HIS"]);
+const NEG  = { ASP:new Set(["OD1","OD2"]), GLU:new Set(["OE1","OE2"]) };
+const POS  = { LYS:new Set(["NZ"]), ARG:new Set(["NH1","NH2","NE"]), HIS:new Set(["ND1","NE2"]) };
+const INTERACTION_COLORS = {
+  "H-bond": "#14b8a6",
+  "Hydrophobic": "#f59e0b",
+  "π-stacking": "#8b5cf6",
+  "Salt bridge": "#ef4444",
+  "Van der Waals": "#64748b"
+};
+const INTERACTION_ORDER = ["H-bond", "Hydrophobic", "π-stacking", "Salt bridge", "Van der Waals"];
+
+const TYPE_CSS = {
+""",
+        1,
+    )
+    template = template.replace(
+        """      rows.push({
+        ligand_atom    : la.name,
+        ligand_adtype  : la.adtype,
+        ligand_charge  : la.charge.toFixed(3),
+        receptor_chain : ra.chain,
+        receptor_resname:ra.resname,
+        receptor_resi  : ra.resi,
+        receptor_atom  : ra.name,
+        receptor_adtype: ra.adtype,
+        distance       : d,
+        type
+      });
+""",
+        """      rows.push({
+        ligand_atom    : la.name,
+        ligand_adtype  : la.adtype,
+        ligand_charge  : la.charge.toFixed(3),
+        ligand_x       : la.x,
+        ligand_y       : la.y,
+        ligand_z       : la.z,
+        receptor_chain : ra.chain,
+        receptor_resname:ra.resname,
+        receptor_resi  : ra.resi,
+        receptor_atom  : ra.name,
+        receptor_adtype: ra.adtype,
+        receptor_x     : ra.x,
+        receptor_y     : ra.y,
+        receptor_z     : ra.z,
+        distance       : d,
+        type
+      });
 """,
         1,
     )
@@ -436,6 +590,10 @@ function buildPocketSelection(ligAtoms, recAtoms, cutoff) {
   let recStyle="cartoon", recColor="spectrum", recSurfObj=null, surfObj=null, surfOn=false;
   let pocketOn=true, pocketStyle="stick";
   let pocketSelection = [];
+  let pocketSurfObj=null;
+  let interactionLinesOn = true;
+  let interactionShapes = [];
+  const interactionFilters = Object.fromEntries(INTERACTION_ORDER.map(type => [type, true]));
 """,
         1,
     )
@@ -462,7 +620,10 @@ function buildPocketSelection(ligAtoms, recAtoms, cutoff) {
         """  function applyRecStyle() {
     viewer.setStyle({model:recModel.getID()},{});
     const cs = recColor==="chain"?"chain": recColor==="ss"?"ssJmol": undefined;
-    if (recSurfObj) { viewer.removeSurface(recSurfObj); recSurfObj = null; }
+    if (typeof viewer.removeAllSurfaces === "function") viewer.removeAllSurfaces();
+    recSurfObj = null;
+    surfObj = null;
+    pocketSurfObj = null;
     if (recStyle==="cartoon")
       viewer.setStyle({model:recModel.getID()},{cartoon:{color:recColor==="spectrum"?"spectrum":undefined,colorscheme:cs}});
     else if (recStyle==="surface") {
@@ -473,19 +634,63 @@ function buildPocketSelection(ligAtoms, recAtoms, cutoff) {
       viewer.setStyle({model:recModel.getID()},{line:{colorscheme:cs??"element",linewidth:1.5}});
     else
       viewer.setStyle({model:recModel.getID()},{stick:{colorscheme:cs??"element",radius:0.12}});
-    if (surfObj) { viewer.removeSurface(surfObj); surfObj=null; }
     if (surfOn)
       surfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.35,color:"#0a2040"},{model:recModel.getID()});
 
     if (pocketOn && pocketSelection.length) {
       const pocketSel = {model:recModel.getID(), serial:pocketSelection};
       if (pocketStyle==="sphere")
-        viewer.setStyle(pocketSel,{sphere:{color:POCKET_HIGHLIGHT,radius:0.45,opacity:0.95}});
+        viewer.setStyle(pocketSel,{sphere:{color:POCKET_HIGHLIGHT,radius:1.15,opacity:0.98}});
+      else if (pocketStyle==="surface") {
+        viewer.setStyle(pocketSel,{stick:{colorscheme:"element",radius:0.1,opacity:0.2}});
+        pocketSurfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{color:POCKET_HIGHLIGHT,opacity:0.72},pocketSel);
+      }
       else if (pocketStyle==="line")
-        viewer.setStyle(pocketSel,{line:{color:POCKET_HIGHLIGHT,linewidth:3}});
+        viewer.setStyle(pocketSel,{line:{colorscheme:"element",linewidth:3}});
       else
-        viewer.setStyle(pocketSel,{stick:{color:POCKET_HIGHLIGHT,radius:0.2,opacity:0.98}});
+        viewer.setStyle(pocketSel,{stick:{colorscheme:"element",radius:0.2,opacity:0.98}});
     }
+  }
+  
+  function clearInteractionShapes() {
+    interactionShapes.forEach(shape => viewer.removeShape(shape));
+    interactionShapes = [];
+  }
+
+  function renderInteractionLegend() {
+    const legend = document.getElementById("interaction-legend");
+    if (!legend) return;
+    legend.innerHTML = "";
+    INTERACTION_ORDER.forEach((type) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "interaction-chip" + (interactionFilters[type] ? "" : " is-off");
+      chip.innerHTML = `<span class="interaction-chip-swatch" style="background:${INTERACTION_COLORS[type]}"></span><span>${type}</span>`;
+      chip.addEventListener("click", () => {
+        interactionFilters[type] = !interactionFilters[type];
+        chip.classList.toggle("is-off", !interactionFilters[type]);
+        renderInteractionShapes(allInteractions[curPose] || []);
+        viewer.render();
+      });
+      legend.appendChild(chip);
+    });
+  }
+
+  function renderInteractionShapes(rows) {
+    clearInteractionShapes();
+    if (!interactionLinesOn || !rows || !rows.length) return;
+    rows.forEach((row) => {
+      if (!interactionFilters[row.type]) return;
+      const color = INTERACTION_COLORS[row.type] || "#94a3b8";
+      const shape = viewer.addLine({
+        start: {x: row.ligand_x, y: row.ligand_y, z: row.ligand_z},
+        end: {x: row.receptor_x, y: row.receptor_y, z: row.receptor_z},
+        color,
+        dashed: true,
+        linewidth: 2.4
+      });
+      interactionShapes.push(shape);
+    });
   }
 """,
         1,
@@ -531,6 +736,7 @@ function buildPocketSelection(ligAtoms, recAtoms, cutoff) {
     applyRecStyle();
     applyLigStyles();
     renderInteractions(allInteractions[i], i);
+    renderInteractionShapes(allInteractions[i]);
     viewer.render();
   }
 """,
@@ -567,6 +773,83 @@ function buildPocketSelection(ligAtoms, recAtoms, cutoff) {
   document.getElementById("all-poses-toggle").addEventListener("change",e=>{
     showAll=e.target.checked; applyLigStyles(); viewer.render();
   });
+  document.getElementById("sidebar-toggle").addEventListener("click",()=>{
+    document.getElementById("app").classList.toggle("sidebar-collapsed");
+  });
+  document.getElementById("toggle-interaction-lines").addEventListener("click",()=>{
+    interactionLinesOn = !interactionLinesOn;
+    const btn = document.getElementById("toggle-interaction-lines");
+    btn.textContent = interactionLinesOn ? "Lines On" : "Lines Off";
+    btn.classList.toggle("is-off", !interactionLinesOn);
+    renderInteractionShapes(allInteractions[curPose] || []);
+    viewer.render();
+  });
+""",
+        1,
+    )
+    template = template.replace(
+        """  buildPoseList();
+  applyRecStyle();
+  applyLigStyles();
+  selectPose(0);
+  viewer.zoomTo();
+  viewer.render();
+""",
+        """  buildPoseList();
+  renderInteractionLegend();
+  applyRecStyle();
+  applyLigStyles();
+  selectPose(0);
+  viewer.zoomTo();
+  viewer.render();
+""",
+        1,
+    )
+    template = template.replace(
+        """  // Dismiss loading overlay, then auto-export CSV
+  setTimeout(()=>{
+    const el = document.getElementById("loading");
+    el.classList.add("hidden");
+    setTimeout(()=>{
+      el.remove();
+      downloadBlob(buildCSV(allInteractions,poses),"vina_interactions.csv","text/csv;charset=utf-8;");
+      toast("Interactions CSV saved automatically");
+    }, 500);
+  }, 1000);
+""",
+        """  // Dismiss loading overlay
+  setTimeout(()=>{
+    const el = document.getElementById("loading");
+    el.classList.add("hidden");
+    setTimeout(()=>{
+      el.remove();
+      toast("Viewer ready");
+    }, 500);
+  }, 1000);
+""",
+        1,
+    )
+    template = template.replace(
+        f"""  // Dismiss loading overlay, then auto-export CSV
+  setTimeout(()=>{{
+    const el = document.getElementById("loading");
+    el.classList.add("hidden");
+    setTimeout(()=>{{
+      el.remove();
+      downloadBlob(buildCSV(allInteractions,poses),"vina_interactions.csv","text/csv;charset=utf-8;");
+      toast("Loaded {ligand_label} ({best_affinity} kcal/mol)");
+    }}, 500);
+  }}, 1000);
+""",
+        """  // Dismiss loading overlay
+  setTimeout(()=>{
+    const el = document.getElementById("loading");
+    el.classList.add("hidden");
+    setTimeout(()=>{
+      el.remove();
+      toast("Viewer ready");
+    }, 500);
+  }, 1000);
 """,
         1,
     )

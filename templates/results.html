@@ -86,9 +86,12 @@
 <section id="localResultsViewer" class="local-results-shell d-none">
   <aside class="local-results-sidebar">
     <div class="local-results-head">
-      <span class="results-eyebrow">Local Project</span>
-      <h2 id="localProjectTitle">Docking_HTML_Viz_Project</h2>
-      <p id="localProjectMeta">0 viewers loaded</p>
+      <div>
+        <span class="results-eyebrow">Local Project</span>
+        <h2 id="localProjectTitle">Docking_HTML_Viz_Project</h2>
+        <p id="localProjectMeta">0 viewers loaded</p>
+      </div>
+      <button id="toggleLocalProjectList" type="button" class="btn btn-outline-primary btn-sm">Collapse list</button>
     </div>
     <div id="localEntryList" class="local-entry-list"></div>
   </aside>
@@ -99,7 +102,9 @@
         <span class="results-eyebrow">Embedded Viewer</span>
         <h2 id="localViewerTitle">Viewer</h2>
       </div>
-      <a id="localOpenStandalone" class="btn btn-outline-primary d-none" target="_blank" rel="noreferrer">Open standalone</a>
+      <div class="local-results-frame-actions">
+        <a id="localOpenStandalone" class="btn btn-outline-primary d-none" target="_blank" rel="noreferrer">Open standalone</a>
+      </div>
     </div>
     <iframe id="localViewerFrame" class="local-results-frame" title="Local docking viewer"></iframe>
   </div>
@@ -268,6 +273,9 @@
   gap: 1.2rem;
   margin-top: 1.4rem;
 }
+.local-results-shell.is-list-collapsed {
+  grid-template-columns: 1fr;
+}
 .local-results-sidebar,
 .local-results-frame-panel {
   border: 1px solid var(--app-border);
@@ -275,10 +283,19 @@
   background: var(--surface-elevated);
   box-shadow: var(--card-shadow);
 }
+.local-results-shell.is-list-collapsed .local-results-sidebar {
+  display: none;
+}
 .local-results-head,
 .local-results-frame-head {
   padding: 1.05rem 1.15rem;
   border-bottom: 1px solid var(--app-border);
+}
+.local-results-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
 }
 .local-results-head h2,
 .local-results-frame-head h2 {
@@ -321,6 +338,11 @@
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+  align-items: center;
+}
+.local-results-frame-actions {
+  display: flex;
+  gap: 0.7rem;
   align-items: center;
 }
 .local-results-frame {
@@ -372,6 +394,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const localViewerTitle = document.getElementById("localViewerTitle");
   const localViewerFrame = document.getElementById("localViewerFrame");
   const localOpenStandalone = document.getElementById("localOpenStandalone");
+  const toggleLocalProjectList = document.getElementById("toggleLocalProjectList");
   let activeObjectUrls = [];
 
   function setStatus(message, type = "") {
@@ -440,6 +463,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (index === 0) {
         activateEntry(entry, button);
       }
+    });
+  }
+
+  if (toggleLocalProjectList && localShell) {
+    toggleLocalProjectList.addEventListener("click", () => {
+      const collapsed = localShell.classList.toggle("is-list-collapsed");
+      toggleLocalProjectList.textContent = collapsed ? "Show list" : "Collapse list";
     });
   }
 
