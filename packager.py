@@ -39,6 +39,7 @@ RUNTIME_LSF_FILES = [
 
 RUNTIME_TOOL_DIRS = [
     "AutoDockTools_py3",
+    "viewer_templates",
 ]
 
 RUNTIME_SOURCE_ALIASES = {

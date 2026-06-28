@@ -64,6 +64,25 @@
   </article>
 </section>
 
+<section class="results-acknowledgements">
+  <article class="results-card results-card-ack">
+    <div class="results-card-top">
+      <span class="results-eyebrow">Acknowledgements</span>
+      <h2>Original viewer inspiration and source contributions</h2>
+      <p>
+        This results-viewer workflow builds on ideas and source materials from Cristian R. Munteanu, PhD,
+        Professor of Computer Science, University of A Coruna, RNASA-IMEDIR. We gratefully acknowledge his
+        contribution to the docking visualization concepts adapted here for AutoDock-Vina PrepServer.
+      </p>
+    </div>
+    <div class="results-ack-links">
+      <a href="https://github.com/muntisa/VinaDock-Viz" target="_blank" rel="noreferrer">muntisa/VinaDock-Viz</a>
+      <a href="https://github.com/muntisa/py-VinaScope-Docking-Viewer" target="_blank" rel="noreferrer">muntisa/py-VinaScope-Docking-Viewer</a>
+      <a href="https://muntisa.github.io/VinaDock-Viz/VinaDock_Viz.html" target="_blank" rel="noreferrer">Original VinaDock Viz web viewer</a>
+    </div>
+  </article>
+</section>
+
 <section id="localResultsViewer" class="local-results-shell d-none">
   <aside class="local-results-sidebar">
     <div class="local-results-head">
@@ -213,6 +232,35 @@
 }
 .results-steps li + li {
   margin-top: 0.45rem;
+}
+.results-acknowledgements {
+  margin-top: 1.2rem;
+}
+.results-card-ack {
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255,255,255,0.95), var(--surface-elevated));
+}
+.results-ack-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.results-ack-links a {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--app-brand);
+  text-decoration: none;
+  font-weight: 600;
+}
+.results-ack-links a:hover {
+  border-color: var(--app-brand);
+  background: color-mix(in srgb, var(--app-brand) 8%, white);
 }
 .local-results-shell {
   display: grid;

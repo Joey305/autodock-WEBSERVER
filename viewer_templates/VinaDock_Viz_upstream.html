@@ -1,0 +1,2036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VinaDock Viz — AutoDock Vina Molecular Docking Viewer</title>
+<script src="https://3Dmol.org/build/3Dmol-min.js"></script>
+<style>
+  /* ═══════════════════════════════════════════
+     VinaDock Viz — Minimalist Scientific UI
+     ═══════════════════════════════════════════ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-primary:    #0d1117;
+    --bg-secondary:  #161b22;
+    --bg-tertiary:   #1c2333;
+    --bg-card:       #1a1f2e;
+    --border:        #30363d;
+    --text-primary:  #e6edf3;
+    --text-secondary:#8b949e;
+    --text-muted:    #6e7681;
+    --accent:        #58a6ff;
+    --accent-green:  #3fb950;
+    --accent-orange: #d29922;
+    --accent-red:    #f85149;
+    --accent-purple: #bc8cff;
+    --radius:        8px;
+    --radius-sm:     5px;
+    --shadow:        0 2px 8px rgba(0,0,0,.35);
+    --transition:    .2s ease;
+  }
+
+  html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, Oxygen, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
+  }
+
+  /* ── App Layout ────────────────────────── */
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  /* ── Header ────────────────────────────── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    z-index: 10;
+    flex-shrink: 0;
+  }
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .header-brand svg {
+    width: 28px; height: 28px;
+  }
+  .header-brand h1 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -.3px;
+  }
+  .header-brand h1 span {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .header-info {
+    display: flex; gap: 16px; align-items: center;
+    flex-wrap: wrap;
+  }
+  .header-badge {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .header-badge.loaded { color: var(--accent-green); border-color: #264d30; }
+
+  /* ── Main Content ──────────────────────── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar (Left) ───────────────────── */
+  .sidebar {
+    width: 310px;
+    min-width: 310px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar::-webkit-scrollbar { width: 5px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Right Panel (Interactions) ───────── */
+  .right-panel {
+    width: 370px;
+    min-width: 370px;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .right-panel::-webkit-scrollbar { width: 5px; }
+  .right-panel::-webkit-scrollbar-track { background: transparent; }
+  .right-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .panel-section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-section:last-child { border-bottom: none; }
+
+  .section-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  /* ── File Upload ───────────────────────── */
+  .upload-zone {
+    position: relative;
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    text-align: center;
+    cursor: pointer;
+    transition: all var(--transition);
+    background: var(--bg-tertiary);
+    margin-bottom: 10px;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(88,166,255,.04);
+  }
+  .upload-zone input[type="file"] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  }
+  .upload-zone .icon {
+    font-size: 22px;
+    margin-bottom: 6px;
+    display: block;
+  }
+  .upload-zone .label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .upload-zone .label strong {
+    color: var(--accent);
+  }
+  .upload-zone.loaded {
+    border-color: var(--accent-green);
+    background: rgba(63,185,80,.06);
+  }
+  .upload-zone.loaded .label strong { color: var(--accent-green); }
+
+  /* ── Pose List ─────────────────────────── */
+  .pose-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .pose-list::-webkit-scrollbar { width: 4px; }
+  .pose-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .pose-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition);
+    border: 1px solid transparent;
+  }
+  .pose-item:hover { background: var(--bg-tertiary); }
+  .pose-item.active {
+    background: rgba(88,166,255,.08);
+    border-color: rgba(88,166,255,.25);
+  }
+  .pose-item .pose-id {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+  .pose-item.active .pose-id {
+    background: var(--accent);
+    color: #fff;
+  }
+  .pose-item.best .pose-id {
+    background: var(--accent-green);
+    color: #fff;
+  }
+  .pose-item .pose-info {
+    flex: 1; min-width: 0;
+  }
+  .pose-item .pose-affinity {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .pose-item .pose-rmsd {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+  .pose-item .pose-check {
+    width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: var(--accent);
+  }
+
+  /* ── Display Controls ──────────────────── */
+  .control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+  }
+  .control-row label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .control-row select, .control-row input[type="range"] {
+    font-size: 11px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px;
+    outline: none;
+  }
+  .control-row select:focus { border-color: var(--accent); }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    border: none !important;
+    padding: 0 !important;
+    width: 120px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  /* Toggle switch */
+  .toggle {
+    position: relative;
+    width: 36px; height: 20px;
+    cursor: pointer;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider {
+    position: absolute; inset: 0;
+    background: var(--border);
+    border-radius: 10px;
+    transition: var(--transition);
+  }
+  .toggle .slider::before {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    left: 3px; bottom: 3px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: var(--transition);
+  }
+  .toggle input:checked + .slider { background: var(--accent); }
+  .toggle input:checked + .slider::before { transform: translateX(16px); background: #fff; }
+
+  /* ── Buttons ──────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+    width: 100%;
+  }
+  .btn:hover { background: var(--bg-card); color: var(--text-primary); border-color: var(--text-muted); }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .btn-primary:hover { background: #79c0ff; border-color: #79c0ff; }
+  .btn-row {
+    display: flex; gap: 6px;
+  }
+  .btn-row .btn { flex: 1; }
+
+  /* ── Viewer Container ──────────────────── */
+  .viewer-wrapper {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-primary);
+  }
+  #viewer-container {
+    width: 100%;
+    height: 100%;
+  }
+  #viewer-container canvas {
+    display: block;
+  }
+
+  /* ── Empty State ───────────────────────── */
+  .empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .empty-state.hidden { display: none; }
+  .empty-state .icon-big {
+    font-size: 56px;
+    margin-bottom: 16px;
+    opacity: .5;
+  }
+  .empty-state h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .empty-state p {
+    font-size: 13px;
+    color: var(--text-muted);
+    max-width: 320px;
+    line-height: 1.5;
+  }
+
+  /* ── Info Overlay ─────────────────────── */
+  .info-overlay {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    display: flex;
+    gap: 10px;
+    z-index: 5;
+    flex-wrap: wrap;
+  }
+  .info-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(22,27,34,.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .info-chip .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+
+  /* ── Viewer toolbar ───────────────────── */
+  .viewer-toolbar {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    gap: 6px;
+    z-index: 5;
+  }
+  .toolbar-btn {
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(22,27,34,.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 14px;
+    transition: var(--transition);
+  }
+  .toolbar-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
+  .toolbar-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(88,166,255,.1);
+  }
+
+  /* ── Toast ──────────────────────────────── */
+  .toast-container {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .toast {
+    padding: 10px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 12px;
+    color: var(--text-primary);
+    box-shadow: var(--shadow);
+    animation: toastIn .3s ease;
+    max-width: 340px;
+  }
+  .toast.success { border-color: var(--accent-green); }
+  .toast.error { border-color: var(--accent-red); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+
+  /* ── Legend bar ─────────────────────────── */
+  .legend-bar {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 10px; color: var(--text-muted);
+  }
+  .legend-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+
+  /* ── Interactions Table ──────────────── */
+  .int-summary {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+  }
+  .int-chip {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: 600;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+  .int-chip .cdot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  .int-table-wrap {
+    max-height: 260px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .int-table-wrap::-webkit-scrollbar { width: 4px; }
+  .int-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .int-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  .int-table thead { position: sticky; top: 0; z-index: 2; }
+  .int-table th {
+    padding: 6px 8px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+  }
+  .int-table td {
+    padding: 5px 8px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid rgba(48,54,61,.4);
+    white-space: nowrap;
+  }
+  .int-table tr:hover td { background: rgba(88,166,255,.04); }
+  .int-table .type-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .2px;
+  }
+  .type-badge.hbond   { background: rgba(88,166,255,.15); color: #58a6ff; }
+  .type-badge.hydroph  { background: rgba(63,185,80,.15); color: #3fb950; }
+  .type-badge.pipi     { background: rgba(188,140,255,.15); color: #bc8cff; }
+  .type-badge.catpi    { background: rgba(188,140,255,.15); color: #bc8cff; }
+  .type-badge.salt     { background: rgba(210,153,34,.15); color: #d29922; }
+  .type-badge.halogen  { background: rgba(248,81,73,.15); color: #f85149; }
+  .type-badge.vdw      { background: rgba(139,148,158,.1); color: #8b949e; }
+  .int-table .dist { font-variant-numeric: tabular-nums; text-align: right; }
+  .int-empty {
+    padding: 20px; text-align: center; color: var(--text-muted); font-size: 12px;
+  }
+
+  /* ── Cutoff Info Box ──────────────────── */
+  .cutoff-info {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.7;
+  }
+  .cutoff-info .cutoff-title {
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: 6px;
+  }
+  .cutoff-info .cutoff-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 1px 0;
+  }
+  .cutoff-info .cutoff-row .cutoff-name {
+    color: var(--text-secondary);
+  }
+  .cutoff-info .cutoff-row .cutoff-val {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .cutoff-info .cutoff-ref {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+    font-style: italic;
+    line-height: 1.5;
+    font-size: 9px;
+  }
+
+  /* ── Footer / Credits ─────────────────── */
+  .footer-credits {
+    padding: 14px 16px;
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+  }
+  .footer-credits .credit-line {
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-bottom: 4px;
+  }
+  .footer-credits .credit-line:last-child { margin-bottom: 0; }
+  .footer-credits a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .footer-credits a:hover {
+    text-decoration: underline;
+  }
+
+  /* ── Privacy Notice ────────────────────── */
+  .privacy-notice {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-tertiary);
+  }
+  .privacy-notice .privacy-text {
+    font-size: 9px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .privacy-notice .privacy-icon {
+    font-size: 11px;
+    margin-right: 4px;
+  }
+
+  /* ── Scrollbar for entire page ────────── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-brand">
+      <svg viewBox="0 0 28 28" fill="none">
+        <circle cx="14" cy="14" r="12" stroke="#58a6ff" stroke-width="1.5"/>
+        <circle cx="14" cy="10" r="3" fill="#58a6ff" opacity=".7"/>
+        <circle cx="9" cy="18" r="2.5" fill="#3fb950" opacity=".7"/>
+        <circle cx="19" cy="18" r="2.5" fill="#d29922" opacity=".7"/>
+        <line x1="14" y1="12" x2="10" y2="16" stroke="#8b949e" stroke-width="1"/>
+        <line x1="14" y1="12" x2="18" y2="16" stroke="#8b949e" stroke-width="1"/>
+        <line x1="11" y1="18" x2="17" y2="18" stroke="#8b949e" stroke-width="1" stroke-dasharray="2 2"/>
+      </svg>
+      <h1><span>VinaDock</span> Viz</h1>
+    </div>
+    <div class="header-info">
+      <div class="header-badge" id="badge-receptor">Receptor: —</div>
+      <div class="header-badge" id="badge-results">Vina Results: —</div>
+      <div class="header-badge" id="badge-poses">Poses: 0</div>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+
+      <!-- File Upload -->
+      <div class="panel-section">
+        <div class="section-title">Input Files</div>
+        <div class="upload-zone" id="zone-receptor">
+          <input type="file" id="file-receptor" accept=".pdbqt,.pdb,.mol2,.sdf">
+          <span class="icon">🧬</span>
+          <div class="label"><strong>Receptor</strong> (.pdbqt)</div>
+        </div>
+        <div class="upload-zone" id="zone-poses">
+          <input type="file" id="file-poses" accept=".pdbqt,.pdb,.mol2,.sdf">
+          <span class="icon">💊</span>
+          <div class="label"><strong>Vina Ligand Poses</strong> (.pdbqt)</div>
+        </div>
+      </div>
+
+      <!-- Pose Selector -->
+      <div class="panel-section" id="pose-section" style="display:none;">
+        <div class="section-title">Binding Poses</div>
+        <div class="pose-list" id="pose-list"></div>
+        <div style="margin-top:10px;">
+          <div class="btn-row">
+            <button class="btn" id="btn-show-all" title="Show all poses simultaneously">Show All</button>
+            <button class="btn" id="btn-animate" title="Animate through all poses">Animate</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Receptor Display -->
+      <div class="panel-section" id="receptor-section" style="display:none;">
+        <div class="section-title">Receptor Display</div>
+        <div class="control-row">
+          <label>Style</label>
+          <select id="receptor-style">
+            <option value="cartoon">Cartoon</option>
+            <option value="surface">Surface</option>
+            <option value="stick">Stick</option>
+            <option value="line">Line</option>
+            <option value="sphere">Sphere</option>
+            <option value="cross">Cross</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label>Color</label>
+          <select id="receptor-color">
+            <option value="spectrum">Spectrum (Chain)</option>
+            <option value="ss">Secondary Structure</option>
+            <option value="residue">Residue (AA)</option>
+            <option value="bfactor">B-Factor</option>
+            <option value="chain">Chain</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label>Opacity</label>
+          <input type="range" id="receptor-opacity" min="0.1" max="1" step="0.05" value="1">
+        </div>
+        <div class="control-row">
+          <label>Surface (transparent)</label>
+          <label class="toggle">
+            <input type="checkbox" id="receptor-surface-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="control-row" id="surf-opacity-row" style="display:none;">
+          <label>Surface opacity</label>
+          <input type="range" id="surface-opacity" min="0.05" max="0.6" step="0.05" value="0.3">
+        </div>
+      </div>
+
+      <!-- Ligand Display -->
+      <div class="panel-section" id="ligand-section" style="display:none;">
+        <div class="section-title">Ligand Display</div>
+        <div class="control-row">
+          <label>Style</label>
+          <select id="ligand-style">
+            <option value="stick">Stick</option>
+            <option value="sphere">Ball &amp; Stick</option>
+            <option value="line">Line</option>
+            <option value="cartoon">Cartoon</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label>Color</label>
+          <select id="ligand-color">
+            <option value="element">Element (CPK)</option>
+            <option value="chain">Single Color</option>
+            <option value="spectrum">Spectrum</option>
+            <option value="affinity">By Affinity</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label>Show H-bonds</label>
+          <label class="toggle">
+            <input type="checkbox" id="hbond-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="control-row">
+          <label>Show polar contacts</label>
+          <label class="toggle">
+            <input type="checkbox" id="polar-toggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="panel-section" id="actions-section" style="display:none;">
+        <div class="section-title">Actions</div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn" id="btn-reset-view">⟲ Focus on Ligand</button>
+          <button class="btn" id="btn-screenshot">📷 Save as Image</button>
+        </div>
+        <div class="legend-bar" style="margin-top:12px;">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent-green);"></div>Best pose</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent);"></div>Selected</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent-orange);"></div>Other poses</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent-purple);"></div>π-π / Cat-π</div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- Viewer (Center) -->
+    <div class="viewer-wrapper">
+      <div id="viewer-container"></div>
+
+      <!-- Empty State -->
+      <div class="empty-state" id="empty-state">
+        <div class="icon-big">🔬</div>
+        <h2>VinaDock Viz</h2>
+        <p>Load your receptor (.pdbqt) and ligand poses (.pdbqt) from AutoDock Vina to explore binding interactions in 3D.</p>
+      </div>
+
+      <!-- Info Overlay -->
+      <div class="info-overlay" id="info-overlay" style="display:none;">
+        <div class="info-chip">
+          <div class="dot" style="background:var(--accent);"></div>
+          <span id="info-pose">Pose 1 / 1</span>
+        </div>
+        <div class="info-chip">
+          <div class="dot" style="background:var(--accent-green);"></div>
+          <span id="info-affinity">Affinity: — kcal/mol</span>
+        </div>
+        <div class="info-chip">
+          <div class="dot" style="background:var(--accent-orange);"></div>
+          <span id="info-rmsd">RMSD: — Å</span>
+        </div>
+        <div class="info-chip">
+          <div class="dot" style="background:var(--accent-purple);"></div>
+          <span id="info-atoms">Atoms: —</span>
+        </div>
+      </div>
+
+      <!-- Viewer Toolbar -->
+      <div class="viewer-toolbar" id="viewer-toolbar" style="display:none;">
+        <div class="toolbar-btn" id="btn-spin" title="Toggle spin">⟳</div>
+        <div class="toolbar-btn" id="btn-zoom-in" title="Zoom in">＋</div>
+        <div class="toolbar-btn" id="btn-zoom-out" title="Zoom out">－</div>
+        <div class="toolbar-btn" id="btn-rock" title="Rock rotation">↔</div>
+      </div>
+    </div>
+
+    <!-- Right Panel (Interactions + Credits) -->
+    <aside class="right-panel" id="right-panel" style="display:none;">
+
+      <!-- Interactions Panel -->
+      <div class="panel-section" id="interactions-section">
+        <div class="section-title">Ligand–Receptor Interactions</div>
+        <div class="control-row">
+          <label>Cutoff distance</label>
+          <select id="int-cutoff">
+            <option value="4.5">4.5 Å (strict)</option>
+            <option value="5.0" selected>5.0 Å (default)</option>
+            <option value="6.0">6.0 Å (relaxed)</option>
+          </select>
+        </div>
+        <div class="int-summary" id="int-summary"></div>
+        <div class="int-table-wrap" id="int-table-wrap">
+          <table class="int-table" id="int-table">
+            <thead>
+              <tr>
+                <th>Lig Atom</th>
+                <th>Residue</th>
+                <th>Rec Atom</th>
+                <th>Type</th>
+                <th>Dist (Å)</th>
+              </tr>
+            </thead>
+            <tbody id="int-tbody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
+          <button class="btn btn-primary" id="btn-analyze">🔬 Analyze Interactions</button>
+          <button class="btn" id="btn-export-csv">⬇ Export All Poses (CSV)</button>
+        </div>
+        <div class="legend-bar" style="margin-top:10px;">
+          <div class="legend-item"><div class="legend-dot" style="background:#58a6ff;"></div>H-bond</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#3fb950;"></div>Hydrophobic</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#bc8cff;"></div>π-π Stack</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#d29922;"></div>Salt Bridge</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f85149;"></div>Halogen</div>
+        </div>
+
+        <!-- Cutoff Reference Info -->
+        <div class="cutoff-info">
+          <div class="cutoff-title">Interaction Cutoffs</div>
+          <div class="cutoff-row"><span class="cutoff-name">Hydrogen Bond</span><span class="cutoff-val">≤ 3.5 Å</span></div>
+          <div class="cutoff-row"><span class="cutoff-name">Salt Bridge</span><span class="cutoff-val">≤ 4.0 Å</span></div>
+          <div class="cutoff-row"><span class="cutoff-name">Halogen Bond</span><span class="cutoff-val">≤ 3.5 Å</span></div>
+          <div class="cutoff-row"><span class="cutoff-name">π-π Stacking</span><span class="cutoff-val">≤ 5.0 Å</span></div>
+          <div class="cutoff-row"><span class="cutoff-name">Cation-π</span><span class="cutoff-val">≤ 5.0 Å</span></div>
+          <div class="cutoff-row"><span class="cutoff-name">Hydrophobic</span><span class="cutoff-val">≤ 4.0 Å</span></div>
+          <div class="cutoff-row"><span class="cutoff-name">Van der Waals</span><span class="cutoff-val">rA+rB+0.8 Å</span></div>
+          <div class="cutoff-ref">
+            References: Jeffrey (1997) "An Introduction to H-Bonding"; Barlow &amp; Thornton (1983); Cavallo et al. (2016) Chem. Rev. 116, 2478; Hunter &amp; Sanders (1990) JACS 112, 5525; Dougherty (1996) Science 271, 163; Bondi (1964) JPC 68, 441; PLIP (Adasme et al. 2021).
+          </div>
+        </div>
+      </div>
+
+      <!-- Credits -->
+      <div class="footer-credits">
+        <div class="credit-line">
+          AI-powered tool made with <a href="https://chat.z.ai" target="_blank" rel="noopener noreferrer">GLM-5-Turbo</a> agent
+        </div>
+        <div class="credit-line">
+          Code developed by <a href="https://github.com/muntisa" target="_blank" rel="noopener noreferrer">@muntisa</a><br>
+          <span style="color:var(--text-muted);">c.munteanu@udc.es</span><br>
+          <span style="color:var(--text-muted);">RNASA-IMEDIR, CITIC, FIC<br>University of A Coruña, Spain</span>
+        </div>
+      </div>
+
+      <!-- Privacy Notice -->
+      <div class="privacy-notice">
+        <div class="privacy-text">
+          <span class="privacy-icon">🔒</span>
+          <strong>100% Private:</strong> Your files stay on your computer. No data is uploaded anywhere. You can download/copy this HTML file and run it locally without internet connection (3D viewer requires CDN for first load).
+        </div>
+      </div>
+
+    </aside>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  VinaDock Viz — Molecular Docking Visualization Engine
+// ═══════════════════════════════════════════════════════
+
+(function() {
+  'use strict';
+
+  // ── State ────────────────────────────────
+  var $3DmolViewer = null;
+  var receptorData = null;   // raw PDBQT string
+  var posesData = null;      // parsed array of pose models
+  var posesRaw = '';         // raw PDBQT string for poses
+  var posesFileName = '';    // file name of the poses file
+  var currentPose = 0;
+  var showAllPoses = false;
+  var isAnimating = false;
+  var animInterval = null;
+
+  // ── Init ─────────────────────────────────
+  document.addEventListener('DOMContentLoaded', init);
+
+  function init() {
+    $3DmolViewer = $3Dmol.createViewer('viewer-container', {
+      backgroundColor: '#0d1117',
+      antialias: true,
+      defaultColors: $3Dmol.elementColors.defaultRasmol,
+    });
+    $3DmolViewer.setHoverable({}, true,
+      function(atom) {
+        if (atom) {
+          $3DmolViewer.addLabel(
+            atom.resn + ' ' + atom.resi + ':' + atom.atom,
+            { position: atom, backgroundColor: 'rgba(22,27,34,0.9)', fontColor: '#e6edf3', fontSize: 11, borderRadius: 5, padding: 4 }
+          );
+        }
+      },
+      function(atom) {
+        $3DmolViewer.removeAllLabels();
+      }
+    );
+    $3DmolViewer.setClickable({}, true,
+      function(atom) {
+        if (atom) {
+          showToast(atom.resn + ' ' + atom.resi + ':' + atom.atom + ' | ' + atom.serial, 'info');
+        }
+      }
+    );
+    $3DmolViewer.render();
+
+    setupFileUploads();
+    setupControls();
+    setupKeyboardShortcuts();
+  }
+
+  // ── Toast ─────────────────────────────────
+  function showToast(msg, type) {
+    var c = document.getElementById('toast-container');
+    var t = document.createElement('div');
+    t.className = 'toast' + (type === 'success' ? ' success' : type === 'error' ? ' error' : '');
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(function() { t.remove(); }, 3200);
+  }
+
+  // ── File Upload ──────────────────────────
+  function setupFileUploads() {
+    var frEl = document.getElementById('file-receptor');
+    var fpEl = document.getElementById('file-poses');
+    var zr = document.getElementById('zone-receptor');
+    var zp = document.getElementById('zone-poses');
+
+    setupDragDrop(zr, frEl);
+    setupDragDrop(zp, fpEl);
+
+    frEl.addEventListener('change', function(e) { loadReceptor(e.target.files[0]); });
+    fpEl.addEventListener('change', function(e) { loadPoses(e.target.files[0]); });
+  }
+
+  function setupDragDrop(zone, input) {
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', function() { zone.classList.remove('dragover'); });
+    zone.addEventListener('drop', function(e) {
+      e.preventDefault();
+      zone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        input.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  // ── Load Receptor ────────────────────────
+  function loadReceptor(file) {
+    if (!file) return;
+    var zone = document.getElementById('zone-receptor');
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      receptorData = e.target.result;
+      zone.classList.add('loaded');
+      var badge = document.getElementById('badge-receptor');
+      badge.textContent = 'Receptor: ' + file.name;
+      badge.classList.add('loaded');
+      showToast('Receptor loaded: ' + file.name, 'success');
+      document.getElementById('receptor-section').style.display = '';
+      document.getElementById('actions-section').style.display = '';
+      // Show right panel if poses already loaded
+      if (posesData && posesData.length > 0) {
+        document.getElementById('right-panel').style.display = '';
+      }
+      // Clear cached receptor atoms
+      parsedReceptorAtoms = null;
+      refreshView();
+    };
+    reader.readAsText(file);
+  }
+
+  // ── Load Poses ───────────────────────────
+  function loadPoses(file) {
+    if (!file) return;
+    var zone = document.getElementById('zone-poses');
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      posesRaw = e.target.result;
+      posesFileName = file.name;
+      posesData = parseVinaPoses(posesRaw);
+      zone.classList.add('loaded');
+      var badge = document.getElementById('badge-poses');
+      badge.textContent = 'Poses: ' + posesData.length;
+      badge.classList.add('loaded');
+      // Update Vina Results badge
+      var badgeResults = document.getElementById('badge-results');
+      badgeResults.textContent = 'Vina Results: ' + file.name;
+      badgeResults.classList.add('loaded');
+      document.getElementById('pose-section').style.display = '';
+      document.getElementById('ligand-section').style.display = '';
+      document.getElementById('actions-section').style.display = '';
+      // Show right panel only if both receptor and poses are loaded
+      if (receptorData) {
+        document.getElementById('right-panel').style.display = '';
+      }
+      // Clear cached receptor atoms when poses change
+      parsedReceptorAtoms = null;
+      allPosesInteractions = {};
+      buildPoseList();
+      currentPose = 0;
+      showAllPoses = false;
+      showToast('Loaded ' + posesData.length + ' poses from ' + file.name, 'success');
+      refreshView();
+    };
+    reader.readAsText(file);
+  }
+
+  // ── Parse Vina PDBQT ─────────────────────
+  function parseVinaPoses(text) {
+    var models = [];
+    var lines = text.split('\n');
+    var current = null;
+    for (var i = 0; i < lines.length; i++) {
+      var trimmed = lines[i].trim();
+      if (trimmed === 'ROOT' || trimmed === 'ENDROOT' ||
+          trimmed.startsWith('BRANCH') || trimmed.startsWith('ENDBRANCH') ||
+          trimmed.startsWith('TORSDOF')) {
+        continue;
+      }
+      if (trimmed.startsWith('MODEL')) {
+        current = { modelIndex: parseInt(trimmed.split(/\s+/)[1]) || models.length + 1, remark: '', atoms: [] };
+      } else if (trimmed.startsWith('REMARK VINA RESULT:')) {
+        if (current) {
+          var parts = trimmed.match(/REMARK VINA RESULT:\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)/);
+          if (parts) {
+            current.affinity = parseFloat(parts[1]);
+            current.rmsd_lb = parseFloat(parts[2]);
+            current.rmsd_ub = parseFloat(parts[3]);
+          }
+        }
+      } else if (trimmed.startsWith('REMARK') && current) {
+        current.remark += trimmed + '\n';
+      } else if (trimmed.startsWith('ATOM') || trimmed.startsWith('HETATM')) {
+        if (current) {
+          current.atoms.push(lines[i]);
+        }
+      } else if (trimmed.startsWith('ENDMDL')) {
+        if (current) {
+          var pdbLines = [];
+          pdbLines.push('HEADER    VINA POSE ' + current.modelIndex);
+          for (var j = 0; j < current.atoms.length; j++) {
+            pdbLines.push(current.atoms[j]);
+          }
+          pdbLines.push('END');
+          current.pdbStr = pdbLines.join('\n');
+          current.atomCount = current.atoms.length;
+          models.push(current);
+          console.log('[VinaDock] Pose ' + current.modelIndex + ' parsed: ' + current.atomCount + ' atoms, affinity=' + current.affinity);
+        }
+        current = null;
+      }
+    }
+    // Handle single model (no MODEL/ENDMDL keywords)
+    if (models.length === 0 && lines.length > 0) {
+      var hasAtoms = false;
+      for (var k = 0; k < lines.length; k++) {
+        var t = lines[k].trim();
+        if (t === 'ROOT' || t === 'ENDROOT' || t.startsWith('BRANCH') || t.startsWith('ENDBRANCH') || t.startsWith('TORSDOF')) continue;
+        if (t.startsWith('ATOM') || t.startsWith('HETATM')) { hasAtoms = true; break; }
+      }
+      if (hasAtoms) {
+        current = { modelIndex: 1, remark: '', atoms: [], affinity: 0, rmsd_lb: 0, rmsd_ub: 0 };
+        for (var m = 0; m < lines.length; m++) {
+          var ln = lines[m].trim();
+          if (ln === 'ROOT' || ln === 'ENDROOT' || ln.startsWith('BRANCH') || ln.startsWith('ENDBRANCH') || ln.startsWith('TORSDOF')) continue;
+          if (ln.startsWith('REMARK VINA RESULT:')) {
+            var prts = ln.match(/REMARK VINA RESULT:\s+([\d.\-]+)\s+([\d.\-]+)\s+([\d.\-]+)/);
+            if (prts) {
+              current.affinity = parseFloat(prts[1]);
+              current.rmsd_lb = parseFloat(prts[2]);
+              current.rmsd_ub = parseFloat(prts[3]);
+            }
+          } else if (ln.startsWith('ATOM') || ln.startsWith('HETATM')) {
+            current.atoms.push(lines[m]);
+          }
+        }
+        var pdbArr = ['HEADER    VINA POSE 1'];
+        for (var n = 0; n < current.atoms.length; n++) {
+          pdbArr.push(current.atoms[n]);
+        }
+        pdbArr.push('END');
+        current.pdbStr = pdbArr.join('\n');
+        current.atomCount = current.atoms.length;
+        models.push(current);
+      }
+    }
+    console.log('[VinaDock] Total poses parsed: ' + models.length);
+    return models;
+  }
+
+  // ── Build Pose List UI ───────────────────
+  function buildPoseList() {
+    var container = document.getElementById('pose-list');
+    container.innerHTML = '';
+    var bestAffinity = -Infinity;
+    for (var i = 0; i < posesData.length; i++) {
+      if (posesData[i].affinity < bestAffinity) bestAffinity = posesData[i].affinity;
+    }
+    for (var j = 0; j < posesData.length; j++) {
+      (function(idx) {
+        var pose = posesData[idx];
+        var div = document.createElement('div');
+        div.className = 'pose-item' + (idx === 0 ? ' active' : '') + (pose.affinity === bestAffinity ? ' best' : '');
+        div.innerHTML =
+          '<div class="pose-id">' + (pose.affinity === bestAffinity ? '\u2605' : (idx + 1)) + '</div>' +
+          '<div class="pose-info">' +
+            '<div class="pose-affinity">' + pose.affinity.toFixed(1) + ' kcal/mol</div>' +
+            '<div class="pose-rmsd">RMSD: ' + pose.rmsd_lb.toFixed(1) + ' / ' + pose.rmsd_ub.toFixed(1) + ' \u00C5</div>' +
+          '</div>' +
+          (idx === currentPose ? '<div class="pose-check">\u25CF</div>' : '');
+        div.addEventListener('click', function() {
+          selectPose(idx);
+        });
+        container.appendChild(div);
+      })(j);
+    }
+  }
+
+  function selectPose(idx) {
+    currentPose = idx;
+    showAllPoses = false;
+    updatePoseListUI();
+    refreshView();
+  }
+
+  function updatePoseListUI() {
+    var items = document.querySelectorAll('.pose-item');
+    items.forEach(function(item, i) {
+      item.classList.toggle('active', i === currentPose);
+      var check = item.querySelector('.pose-check');
+      if (i === currentPose && !check) {
+        var c = document.createElement('div');
+        c.className = 'pose-check';
+        c.textContent = '\u25CF';
+        item.appendChild(c);
+      } else if (i !== currentPose && check) {
+        check.remove();
+      }
+    });
+  }
+
+  // ── Refresh View ─────────────────────────
+  function refreshView() {
+    $3DmolViewer.removeAllModels();
+    $3DmolViewer.removeAllSurfaces();
+    $3DmolViewer.removeAllLabels();
+    $3DmolViewer.removeAllShapes();
+
+    var hasContent = false;
+
+    // ── Draw Receptor ───────────────────
+    if (receptorData) {
+      hasContent = true;
+      var recModel = $3DmolViewer.addModel(receptorData, 'pdbqt');
+      var recStyle = document.getElementById('receptor-style').value;
+      var recColor = document.getElementById('receptor-color').value;
+      var recOpacity = parseFloat(document.getElementById('receptor-opacity').value);
+
+      var styleConfig = {};
+      var isCartoonType = (recStyle === 'cartoon' || recStyle === 'surface');
+
+      if (recStyle === 'cartoon') {
+        styleConfig = { cartoon: { opacity: recOpacity } };
+      } else if (recStyle === 'surface') {
+        styleConfig = { cartoon: { opacity: 0.3 } };
+      } else if (recStyle === 'stick') {
+        styleConfig = { stick: { radius: 0.12, opacity: recOpacity } };
+      } else if (recStyle === 'line') {
+        styleConfig = { line: { opacity: recOpacity, linewidth: 1 } };
+      } else if (recStyle === 'sphere') {
+        styleConfig = { sphere: { scale: 0.25, opacity: recOpacity } };
+      } else if (recStyle === 'cross') {
+        styleConfig = { cross: { linewidth: 2, opacity: recOpacity } };
+      }
+
+      if (recColor === 'spectrum') {
+        if (isCartoonType) { styleConfig.cartoon.color = 'spectrum'; }
+        else { styleConfig.color = 'spectrum'; }
+      } else if (recColor === 'ss') {
+        if (isCartoonType) { styleConfig.cartoon.colorscheme = 'ssJmol'; }
+        else { styleConfig.color = 'chain'; }
+      } else if (recColor === 'residue') {
+        if (isCartoonType) { styleConfig.cartoon.colorscheme = 'amino'; }
+        else { styleConfig.colorscheme = 'amino'; }
+      } else if (recColor === 'bfactor') {
+        if (isCartoonType) { styleConfig.cartoon.colorscheme = {prop: 'b', gradient: 'roygb', min: 0, max: 100}; }
+        else { styleConfig.colorscheme = {prop: 'b', gradient: 'roygb', min: 0, max: 100}; }
+      } else if (recColor === 'chain') {
+        if (isCartoonType) { styleConfig.cartoon.color = 'chain'; }
+        else { styleConfig.color = 'chain'; }
+      }
+
+      recModel.setStyle({}, styleConfig);
+
+      if (recStyle === 'surface') {
+        $3DmolViewer.addSurface($3Dmol.SurfaceType.VDW, {
+          opacity: recOpacity,
+          colorscheme: recColor === 'spectrum' ? {prop:'resi', gradient:'roygb'} :
+                       recColor === 'chain' ? {prop:'chain'} :
+                       recColor === 'bfactor' ? {prop:'b', gradient:'roygb'} :
+                       {prop:'resi', gradient:'roygb'},
+        }, recModel);
+      }
+
+      if (document.getElementById('receptor-surface-toggle').checked && recStyle !== 'surface') {
+        var surfOp = parseFloat(document.getElementById('surface-opacity').value);
+        $3DmolViewer.addSurface($3Dmol.SurfaceType.VDW, {
+          opacity: surfOp,
+          colorscheme: recColor === 'spectrum' ? {prop:'resi',gradient:'roygb'} :
+                       recColor === 'chain' ? {prop:'chain'} :
+                       recColor === 'bfactor' ? {prop:'b', gradient:'roygb'} :
+                       {prop:'resi',gradient:'roygb'},
+          background: true,
+        }, recModel);
+      }
+    }
+
+    // ── Draw Ligand Pose(s) ─────────────
+    if (posesData && posesData.length > 0) {
+      hasContent = true;
+      var ligStyle = document.getElementById('ligand-style').value;
+      var ligColorScheme = document.getElementById('ligand-color').value;
+
+      if (showAllPoses) {
+        for (var p = 0; p < posesData.length; p++) {
+          var poseMol = $3DmolViewer.addModel(posesData[p].pdbStr, 'pdb');
+          var isActive = (p === currentPose);
+          var opacity = isActive ? 1.0 : 0.35;
+          var sclr = isActive ? '#58a6ff' : '#d29922';
+          applyLigandStyle(poseMol, ligStyle, ligColorScheme, opacity, sclr, posesData[p].affinity, p);
+        }
+      } else {
+        var mol = $3DmolViewer.addModel(posesData[currentPose].pdbStr, 'pdb');
+        applyLigandStyle(mol, ligStyle, ligColorScheme, 1.0, '#58a6ff', posesData[currentPose].affinity, currentPose);
+      }
+
+      // ── Draw H-bonds & polar contacts (real computation) ──
+      if (receptorData) {
+        var poseIdx = showAllPoses ? currentPose : currentPose;
+        var ligAtoms = parsePoseAtoms(posesData[poseIdx]);
+        var recAtoms = parseReceptorAtoms(receptorData);
+
+        if (document.getElementById('hbond-toggle').checked) {
+          drawRealHydrogenBonds(ligAtoms, recAtoms);
+        }
+        if (document.getElementById('polar-toggle').checked) {
+          drawRealPolarContacts(ligAtoms, recAtoms);
+        }
+      }
+
+      document.getElementById('info-overlay').style.display = '';
+      updateInfoOverlay(currentPose);
+    }
+
+    // Toggle UI elements
+    document.getElementById('empty-state').classList.toggle('hidden', hasContent);
+    document.getElementById('info-overlay').style.display = hasContent && posesData ? '' : 'none';
+    document.getElementById('viewer-toolbar').style.display = hasContent ? '' : 'none';
+
+    // Zoom to fit all content
+    $3DmolViewer.zoomTo();
+    $3DmolViewer.render();
+  }
+
+  // ── Draw real H-bonds as dashed lines in 3D ──
+  function drawRealHydrogenBonds(ligAtoms, recAtoms) {
+    var count = 0;
+    for (var li = 0; li < ligAtoms.length; li++) {
+      var lig = ligAtoms[li];
+      if (!canLigandHBDonor(lig.element) && !canLigandHBAcceptor(lig.element)) continue;
+      for (var ri = 0; ri < recAtoms.length; ri++) {
+        var rec = recAtoms[ri];
+        // Quick bounding-box pre-filter
+        var dx = Math.abs(lig.x - rec.x);
+        if (dx > 4.5) continue;
+        var dy = Math.abs(lig.y - rec.y);
+        if (dy > 4.5) continue;
+        var dz = Math.abs(lig.z - rec.z);
+        if (dz > 4.5) continue;
+        var dist = atomDist(lig, rec);
+        if (dist > 3.5) continue;
+        // Check H-bond criteria
+        var isHB = false;
+        if (canLigandHBDonor(lig.element) && isHBAcceptor(rec)) isHB = true;
+        if (canLigandHBAcceptor(lig.element) && isHBDonor(rec)) isHB = true;
+        if (isHB) {
+          $3DmolViewer.addLine({
+            start: new $3Dmol.Vector3(lig.x, lig.y, lig.z),
+            end: new $3Dmol.Vector3(rec.x, rec.y, rec.z),
+            dashed: true,
+            dashSize: 0.3,
+            gapSize: 0.15,
+            color: '#58a6ff',
+            radius: 0.04,
+            opacity: 0.7
+          });
+          count++;
+        }
+      }
+    }
+    if (count > 0) {
+      console.log('[VinaDock] Drew ' + count + ' H-bond lines in 3D');
+    }
+  }
+
+  // ── Draw real polar contacts (N/O/S contacts within 4.0 A) ──
+  function drawRealPolarContacts(ligAtoms, recAtoms) {
+    var polarElems = {N: true, O: true, S: true};
+    var count = 0;
+    for (var li = 0; li < ligAtoms.length; li++) {
+      var lig = ligAtoms[li];
+      if (!polarElems[lig.element]) continue;
+      for (var ri = 0; ri < recAtoms.length; ri++) {
+        var rec = recAtoms[ri];
+        if (!polarElems[rec.element]) continue;
+        // Quick bounding-box pre-filter
+        var dx = Math.abs(lig.x - rec.x);
+        if (dx > 5.0) continue;
+        var dy = Math.abs(lig.y - rec.y);
+        if (dy > 5.0) continue;
+        var dz = Math.abs(lig.z - rec.z);
+        if (dz > 5.0) continue;
+        var dist = atomDist(lig, rec);
+        if (dist > 4.0) continue;
+        $3DmolViewer.addLine({
+          start: new $3Dmol.Vector3(lig.x, lig.y, lig.z),
+          end: new $3Dmol.Vector3(rec.x, rec.y, rec.z),
+          dashed: true,
+          dashSize: 0.2,
+          gapSize: 0.1,
+          color: '#3fb950',
+          radius: 0.03,
+          opacity: 0.4
+        });
+        count++;
+      }
+    }
+    if (count > 0) {
+      console.log('[VinaDock] Drew ' + count + ' polar contact lines in 3D');
+    }
+  }
+
+  // ── Zoom to Ligand Binding Site ─────────
+  function zoomToLigand(poseIdx) {
+    try {
+      // Select ligand atoms by resn (PDBQT ligands typically have resn UNK or LIG)
+      // Try common residue names for PDBQT ligands
+      var zoomed = false;
+      var tryNames = ['UNL', 'LIG', 'UNK'];
+      for (var i = 0; i < tryNames.length; i++) {
+        try {
+          $3DmolViewer.zoomTo({resn: tryNames[i]});
+          zoomed = true;
+          break;
+        } catch(e) { /* try next */ }
+      }
+      if (!zoomed) {
+        // Fallback: zoom to fit all
+        $3DmolViewer.zoomTo();
+      }
+      $3DmolViewer.render();
+      showToast('Focused on Pose ' + (poseIdx + 1) + ' binding site', 'success');
+    } catch(e) {
+      $3DmolViewer.zoomTo();
+      $3DmolViewer.render();
+    }
+  }
+
+  // ── Zoom to Fit All ─────────
+  function zoomToAll() {
+    $3DmolViewer.zoomTo();
+    $3DmolViewer.render();
+    showToast('Camera reset \u2014 showing all molecules', 'success');
+  }
+
+  function applyLigandStyle(model, style, colorScheme, opacity, singleColor, affinity, idx) {
+    var styleObj = {};
+    if (style === 'stick') {
+      styleObj = { stick: { radius: 0.15, opacity: opacity } };
+    } else if (style === 'sphere') {
+      styleObj = { stick: { radius: 0.1, opacity: opacity }, sphere: { scale: 0.3, opacity: opacity } };
+    } else if (style === 'line') {
+      styleObj = { line: { opacity: opacity } };
+    } else {
+      styleObj = { cartoon: { opacity: opacity } };
+    }
+
+    if (colorScheme === 'element') {
+      // Default: CPK
+    } else if (colorScheme === 'chain') {
+      styleObj.color = singleColor;
+    } else if (colorScheme === 'spectrum') {
+      styleObj.color = 'spectrum';
+    } else if (colorScheme === 'affinity') {
+      if (posesData && posesData.length > 1) {
+        var best = Infinity, worst = -Infinity;
+        for (var i = 0; i < posesData.length; i++) {
+          if (posesData[i].affinity < best) best = posesData[i].affinity;
+          if (posesData[i].affinity > worst) worst = posesData[i].affinity;
+        }
+        var t = worst !== best ? (affinity - best) / (worst - best) : 0;
+        var r = Math.round(255 * t);
+        var g = Math.round(255 * (1 - t));
+        styleObj.color = 'rgb(' + r + ',' + g + ',0)';
+      } else {
+        styleObj.color = '#3fb950';
+      }
+    }
+
+    model.setStyle({}, styleObj);
+  }
+
+  function updateInfoOverlay(poseIdx) {
+    if (!posesData || poseIdx >= posesData.length) return;
+    var pose = posesData[poseIdx];
+    document.getElementById('info-pose').textContent = 'Pose ' + (poseIdx + 1) + ' / ' + posesData.length;
+    document.getElementById('info-affinity').textContent = 'Affinity: ' + pose.affinity.toFixed(1) + ' kcal/mol';
+    document.getElementById('info-rmsd').textContent = 'RMSD: ' + pose.rmsd_lb.toFixed(1) + ' / ' + pose.rmsd_ub.toFixed(1) + ' \u00C5';
+    document.getElementById('info-atoms').textContent = 'Atoms: ' + (pose.atomCount || pose.atoms.length);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  Interaction Analysis Engine
+  // ═══════════════════════════════════════════════════════════
+
+  // Cached parsed receptor atoms
+  var parsedReceptorAtoms = null;
+  // All-pose interaction results (for CSV export)
+  var allPosesInteractions = {};
+
+  // ── Parse ATOM line into structured object ──
+  function parseAtomLine(line) {
+    var rec  = line.substring(0, 6).trim();
+    var ser  = line.substring(6, 11).trim();
+    var name = line.substring(12, 16).trim();
+    var rName = line.substring(17, 20).trim();
+    var chain = line.substring(21, 22).trim();
+    var rSeq = line.substring(22, 26).trim();
+    var x = parseFloat(line.substring(30, 38));
+    var y = parseFloat(line.substring(38, 46));
+    var z = parseFloat(line.substring(46, 54));
+    if (isNaN(x) || isNaN(y) || isNaN(z)) return null;
+
+    var element = '';
+    if (line.length >= 78) {
+      var typeCol = line.substring(76, 78).trim();
+      if (typeCol.length >= 1) {
+        var fc = typeCol.charAt(0).toUpperCase();
+        if ('CNOSPFIB'.indexOf(fc) >= 0 || typeCol.length === 2) {
+          element = fc;
+          if (typeCol.length === 2 && 'CNOS'.indexOf(typeCol.charAt(1).toUpperCase()) < 0) {
+            element = typeCol.charAt(0).toUpperCase();
+          } else if (typeCol.length === 2 && /[A-Za-z]/.test(typeCol.charAt(1))) {
+            var sec = typeCol.charAt(1).toUpperCase();
+            if (sec === 'L') element = 'Cl';
+            else if (sec === 'E') element = 'Fe';
+            else if (sec === 'N') element = 'Zn';
+            else element = fc;
+          }
+        }
+      }
+    }
+    if (!element) {
+      var nm = name.replace(/[0-9]/g, '');
+      if (nm.length === 0) element = 'C';
+      else if (nm.charAt(0) >= 'A' && nm.charAt(0) <= 'Z' && nm.charAt(0) !== 'H') {
+        element = nm.charAt(0);
+        if (nm.length >= 2 && nm.charAt(1) >= 'a' && nm.charAt(1) <= 'z') {
+          element = nm.substring(0, 2);
+        }
+      } else {
+        element = nm.charAt(0).toUpperCase();
+      }
+    }
+    if (element === 'H' || element === 'HD' || element === 'HS') return null;
+
+    return {
+      record: rec, serial: ser, name: name,
+      resName: rName, chain: chain, resSeq: rSeq,
+      x: x, y: y, z: z, element: element
+    };
+  }
+
+  // ── Parse all heavy atoms from receptor PDBQT ──
+  function parseReceptorAtoms(data) {
+    if (parsedReceptorAtoms) return parsedReceptorAtoms;
+    parsedReceptorAtoms = [];
+    var lines = data.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i];
+      if (ln.substring(0, 4).trim() === 'ATOM' || ln.substring(0, 6).trim() === 'HETATM') {
+        var atom = parseAtomLine(ln);
+        if (atom) parsedReceptorAtoms.push(atom);
+      }
+    }
+    console.log('[VinaDock] Receptor parsed: ' + parsedReceptorAtoms.length + ' heavy atoms');
+    return parsedReceptorAtoms;
+  }
+
+  // ── Parse all heavy atoms from a pose ──
+  function parsePoseAtoms(pose) {
+    var atoms = [];
+    for (var i = 0; i < pose.atoms.length; i++) {
+      var ln = pose.atoms[i];
+      if (ln.substring(0, 4).trim() === 'ATOM' || ln.substring(0, 6).trim() === 'HETATM') {
+        var atom = parseAtomLine(ln);
+        if (atom) atoms.push(atom);
+      }
+    }
+    return atoms;
+  }
+
+  // ── Distance between two atoms ──
+  function atomDist(a, b) {
+    var dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+    return Math.sqrt(dx*dx + dy*dy + dz*dz);
+  }
+
+  // ── Interaction classification constants ──
+  var VDW_RADII = { H:1.20, C:1.70, N:1.55, O:1.52, S:1.80, P:1.80, F:1.47, Cl:1.75, Br:1.85, I:1.98, Fe:1.80, Zn:1.39, MG:1.73, CA:1.99, MN:1.39 };
+  var HYDROPHOBIC_ELEMENTS = { C: true, S: true };
+  var AROMATIC_RESIDUES = { PHE: true, TYR: true, TRP: true, HIS: true };
+  var HBDONOR_ATOMS_IN_RES = {
+    'N': true,
+    'OG': true,  'OG1': true, 'OG2': true,
+    'OH': true,
+    'ND1': true, 'ND2': true, 'NE': true, 'NE2': true, 'NH1': true, 'NH2': true,
+    'NZ': true,
+    'SD': true
+  };
+  var HBACCEPTOR_ATOMS_IN_RES = {
+    'O': true,
+    'OD1': true, 'OD2': true,
+    'OE1': true, 'OE2': true,
+    'OG': true, 'OG1': true,
+    'OH': true,
+    'ND1': true, 'ND2': true, 'NE': true, 'NE2': true,
+    'SD': true
+  };
+  var POSITIVE_RESIDUES = { LYS: true, ARG: true, HIS: true };
+  var NEGATIVE_RESIDUES = { ASP: true, GLU: true };
+
+  function isHBDonor(atom) { return HBDONOR_ATOMS_IN_RES[atom.name] || false; }
+  function isHBAcceptor(atom) { return HBACCEPTOR_ATOMS_IN_RES[atom.name] || false; }
+  function canLigandHBDonor(elem) { return elem === 'N' || elem === 'O'; }
+  function canLigandHBAcceptor(elem) { return elem === 'N' || elem === 'O' || elem === 'S'; }
+  function isHydrophobic(atom) {
+    if (HYDROPHOBIC_ELEMENTS[atom.element]) {
+      if (atom.element === 'C' && (atom.name === 'O' || atom.name === 'OD1' || atom.name === 'OD2' || atom.name === 'OE1' || atom.name === 'OE2')) return false;
+      return true;
+    }
+    return false;
+  }
+  function isAromaticResidue(resName) { return AROMATIC_RESIDUES[resName] || false; }
+  function isHalogen(elem) { return elem === 'F' || elem === 'Cl' || elem === 'Br' || elem === 'I'; }
+
+  // ── Classify interaction between ligand atom and receptor atom ──
+  function classifyInteraction(lig, rec, dist, cutoff) {
+    var types = [];
+
+    // 1. Hydrogen Bond (3.5 A cutoff)
+    if (dist <= 3.5) {
+      if (canLigandHBDonor(lig.element) && isHBAcceptor(rec)) {
+        types.push({ type: 'Hydrogen Bond', cls: 'hbond', priority: 0 });
+      }
+      if (canLigandHBAcceptor(lig.element) && isHBDonor(rec)) {
+        types.push({ type: 'Hydrogen Bond', cls: 'hbond', priority: 0 });
+      }
+      if (canLigandHBAcceptor(lig.element) && canLigandHBDonor(lig.element) &&
+          isHBDonor(rec) && isHBAcceptor(rec)) {
+        types.push({ type: 'Hydrogen Bond', cls: 'hbond', priority: 0 });
+      }
+    }
+
+    // 2. Salt Bridge (4.0 A, opposite charges)
+    if (dist <= 4.0) {
+      if ((lig.element === 'N') && NEGATIVE_RESIDUES[rec.resName]) {
+        types.push({ type: 'Salt Bridge', cls: 'salt', priority: 1 });
+      }
+      if ((lig.element === 'O' || lig.element === 'S') && POSITIVE_RESIDUES[rec.resName]) {
+        types.push({ type: 'Salt Bridge', cls: 'salt', priority: 1 });
+      }
+    }
+
+    // 3. Halogen Bond (3.5 A, halogen near N/O/S acceptor)
+    if (dist <= 3.5 && isHalogen(lig.element) && (rec.element === 'N' || rec.element === 'O' || rec.element === 'S')) {
+      types.push({ type: 'Halogen Bond', cls: 'halogen', priority: 1 });
+    }
+
+    // 4. pi-pi Stacking / Cation-pi (per-atom cutoffs)
+    if (dist <= 5.0 && isAromaticResidue(rec.resName)) {
+      if (lig.element === 'C' || lig.element === 'N') {
+        if (POSITIVE_RESIDUES[rec.resName]) {
+          types.push({ type: 'Cation-\u03C0', cls: 'catpi', priority: 2 });
+        } else {
+          types.push({ type: '\u03C0-\u03C0 Stacking', cls: 'pipi', priority: 2 });
+        }
+      }
+    }
+
+    // 5. Hydrophobic (4.0 A)
+    if (dist <= 4.0 && isHydrophobic(lig) && isHydrophobic(rec)) {
+      types.push({ type: 'Hydrophobic', cls: 'hydroph', priority: 3 });
+    }
+
+    // 6. Van der Waals (fallback: contact within sum of radii + 0.8 A)
+    if (dist <= cutoff) {
+      var rLig = VDW_RADII[lig.element] || 1.70;
+      var rRec = VDW_RADII[rec.element] || 1.70;
+      if (dist <= rLig + rRec + 0.8) {
+        types.push({ type: 'Van der Waals', cls: 'vdw', priority: 9 });
+      }
+    }
+
+    if (types.length === 0) return null;
+    types.sort(function(a, b) { return a.priority - b.priority; });
+    return types[0];
+  }
+
+  // ── Run interaction analysis for one pose ──
+  function analyzePoseInteractions(poseIdx, cutoff) {
+    if (!receptorData || !posesData || poseIdx >= posesData.length) return [];
+    var recAtoms = parseReceptorAtoms(receptorData);
+    var ligAtoms = parsePoseAtoms(posesData[poseIdx]);
+    if (recAtoms.length === 0 || ligAtoms.length === 0) return [];
+
+    var interactions = [];
+
+    for (var li = 0; li < ligAtoms.length; li++) {
+      var lig = ligAtoms[li];
+      for (var ri = 0; ri < recAtoms.length; ri++) {
+        var rec = recAtoms[ri];
+        var dx = Math.abs(lig.x - rec.x);
+        if (dx > cutoff + 1) continue;
+        var dy = Math.abs(lig.y - rec.y);
+        if (dy > cutoff + 1) continue;
+        var dz = Math.abs(lig.z - rec.z);
+        if (dz > cutoff + 1) continue;
+
+        var dist = atomDist(lig, rec);
+        if (dist > cutoff) continue;
+
+        var intType = classifyInteraction(lig, rec, dist, cutoff);
+        if (intType) {
+          interactions.push({
+            pose: poseIdx,
+            ligAtom: lig.name,
+            ligElement: lig.element,
+            ligSerial: lig.serial,
+            resName: rec.resName,
+            resChain: rec.chain,
+            resSeq: rec.resSeq,
+            recAtom: rec.name,
+            recElement: rec.element,
+            recSerial: rec.serial,
+            type: intType.type,
+            typeCls: intType.cls,
+            distance: dist,
+            ligX: lig.x, ligY: lig.y, ligZ: lig.z,
+            recX: rec.x, recY: rec.y, recZ: rec.z
+          });
+        }
+      }
+    }
+
+    var typeOrder = { 'Hydrogen Bond': 0, 'Salt Bridge': 1, 'Halogen Bond': 2, 'Cation-\u03C0': 3, '\u03C0-\u03C0 Stacking': 4, 'Hydrophobic': 5, 'Van der Waals': 6 };
+    interactions.sort(function(a, b) {
+      var pa = typeOrder[a.type] !== undefined ? typeOrder[a.type] : 99;
+      var pb = typeOrder[b.type] !== undefined ? typeOrder[b.type] : 99;
+      if (pa !== pb) return pa - pb;
+      return a.distance - b.distance;
+    });
+
+    return interactions;
+  }
+
+  // ── Render interaction table for current pose ──
+  function renderInteractionTable(interactions) {
+    var tbody = document.getElementById('int-tbody');
+    var summary = document.getElementById('int-summary');
+    tbody.innerHTML = '';
+
+    if (interactions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="int-empty">No interactions found within cutoff</td></tr>';
+      summary.innerHTML = '';
+      return;
+    }
+
+    var counts = {};
+    for (var i = 0; i < interactions.length; i++) {
+      var t = interactions[i].type;
+      counts[t] = (counts[t] || 0) + 1;
+    }
+
+    var typeColors = {
+      'Hydrogen Bond': '#58a6ff',
+      'Hydrophobic': '#3fb950',
+      '\u03C0-\u03C0 Stacking': '#bc8cff',
+      'Cation-\u03C0': '#bc8cff',
+      'Salt Bridge': '#d29922',
+      'Halogen Bond': '#f85149',
+      'Van der Waals': '#8b949e'
+    };
+
+    var html = '';
+    for (var type in counts) {
+      html += '<div class="int-chip"><div class="cdot" style="background:' + (typeColors[type] || '#8b949e') + ';"></div>' + counts[type] + ' ' + type + '</div>';
+    }
+    html += '<div class="int-chip" style="border-color:var(--accent);color:var(--accent);">' + interactions.length + ' total</div>';
+    summary.innerHTML = html;
+
+    for (var j = 0; j < interactions.length; j++) {
+      var int = interactions[j];
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + int.ligAtom + ' <span style="color:var(--text-muted);font-size:9px;">(' + int.ligElement + ')</span></td>' +
+        '<td>' + int.resName + '<span style="color:var(--text-muted);font-size:9px;"> ' + int.resChain + ':' + int.resSeq + '</span></td>' +
+        '<td>' + int.recAtom + ' <span style="color:var(--text-muted);font-size:9px;">(' + int.recElement + ')</span></td>' +
+        '<td><span class="type-badge ' + int.typeCls + '">' + int.type + '</span></td>' +
+        '<td class="dist">' + int.distance.toFixed(2) + '</td>';
+      tbody.appendChild(tr);
+    }
+  }
+
+  // ── Analyze button handler ──
+  function analyzeCurrentPose() {
+    if (!receptorData || !posesData || posesData.length === 0) {
+      showToast('Load receptor and poses first', 'error');
+      return;
+    }
+    var cutoff = parseFloat(document.getElementById('int-cutoff').value);
+    console.log('[VinaDock] Analyzing interactions for pose ' + (currentPose + 1) + ', cutoff=' + cutoff + ' \u00C5');
+    var t0 = performance.now();
+    var interactions = analyzePoseInteractions(currentPose, cutoff);
+    var elapsed = (performance.now() - t0).toFixed(1);
+
+    allPosesInteractions[currentPose] = interactions;
+    renderInteractionTable(interactions);
+    showToast('Pose ' + (currentPose + 1) + ': ' + interactions.length + ' interactions (' + elapsed + ' ms)', 'success');
+
+    // Draw interaction lines in 3D
+    $3DmolViewer.removeAllShapes();
+    drawInteractionLines(interactions);
+  }
+
+  // ── Analyze all poses ──
+  function analyzeAllPosesInteractions() {
+    if (!receptorData || !posesData || posesData.length === 0) return;
+    var cutoff = parseFloat(document.getElementById('int-cutoff').value);
+    allPosesInteractions = {};
+    for (var i = 0; i < posesData.length; i++) {
+      allPosesInteractions[i] = analyzePoseInteractions(i, cutoff);
+    }
+    return allPosesInteractions;
+  }
+
+  // ── Export all interactions as CSV ──
+  function exportCSV() {
+    if (!receptorData || !posesData || posesData.length === 0) {
+      showToast('Load receptor and poses first', 'error');
+      return;
+    }
+    analyzeAllPosesInteractions();
+
+    var lines = [];
+    lines.push('Pose,Affinity (kcal/mol),RMSD_lb (A),RMSD_ub (A),Ligand Atom,Ligand Element,Ligand Serial,Receptor Residue,Receptor Chain,Receptor ResSeq,Receptor Atom,Receptor Element,Interaction Type,Distance (A)');
+
+    for (var p = 0; p < posesData.length; p++) {
+      var pose = posesData[p];
+      var ints = allPosesInteractions[p] || [];
+      if (ints.length === 0) {
+        lines.push((p+1) + ',' + pose.affinity.toFixed(1) + ',' + pose.rmsd_lb.toFixed(3) + ',' + pose.rmsd_ub.toFixed(3) + ',,,,,,,,,,');
+      }
+      for (var j = 0; j < ints.length; j++) {
+        var int = ints[j];
+        lines.push(
+          (p+1) + ',' +
+          pose.affinity.toFixed(1) + ',' +
+          pose.rmsd_lb.toFixed(3) + ',' +
+          pose.rmsd_ub.toFixed(3) + ',' +
+          '"' + int.ligAtom + '",' +
+          int.ligElement + ',' +
+          int.ligSerial + ',' +
+          '"' + int.resName + '",' +
+          int.resChain + ',' +
+          int.resSeq + ',' +
+          '"' + int.recAtom + '",' +
+          int.recElement + ',' +
+          '"' + int.type + '",' +
+          int.distance.toFixed(3)
+        );
+      }
+    }
+
+    var csvContent = lines.join('\n');
+    var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'vinadock_interactions_all_poses.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+
+    var totalInts = 0;
+    for (var k in allPosesInteractions) totalInts += allPosesInteractions[k].length;
+    showToast('CSV exported: ' + posesData.length + ' poses, ' + totalInts + ' interactions', 'success');
+  }
+
+  // ── Draw interaction lines in 3D viewer ──
+  function drawInteractionLines(interactions) {
+    if (!interactions || interactions.length === 0) return;
+    for (var i = 0; i < interactions.length; i++) {
+      var int = interactions[i];
+      if (int.typeCls === 'vdw' || int.typeCls === 'hydroph') continue;
+      var color = '#58a6ff';
+      if (int.typeCls === 'salt') color = '#d29922';
+      else if (int.typeCls === 'halogen') color = '#f85149';
+      else if (int.typeCls === 'pipi' || int.typeCls === 'catpi') color = '#bc8cff';
+
+      var start = new $3Dmol.Vector3(int.ligX, int.ligY, int.ligZ);
+      var end   = new $3Dmol.Vector3(int.recX, int.recY, int.recZ);
+      $3DmolViewer.addLine({
+        start: start,
+        end: end,
+        dashed: true,
+        dashSize: 0.3,
+        gapSize: 0.15,
+        color: color,
+        radius: 0.04,
+        opacity: 0.8
+      });
+    }
+    $3DmolViewer.render();
+  }
+
+  // ── Controls ──────────────────────────────
+  function setupControls() {
+    // Receptor style
+    document.getElementById('receptor-style').addEventListener('change', refreshView);
+    document.getElementById('receptor-color').addEventListener('change', refreshView);
+    document.getElementById('receptor-opacity').addEventListener('input', refreshView);
+
+    // Surface toggle
+    document.getElementById('receptor-surface-toggle').addEventListener('change', function() {
+      document.getElementById('surf-opacity-row').style.display = this.checked ? '' : 'none';
+      refreshView();
+    });
+    document.getElementById('surface-opacity').addEventListener('input', refreshView);
+
+    // Ligand style
+    document.getElementById('ligand-style').addEventListener('change', refreshView);
+    document.getElementById('ligand-color').addEventListener('change', refreshView);
+    document.getElementById('hbond-toggle').addEventListener('change', refreshView);
+    document.getElementById('polar-toggle').addEventListener('change', refreshView);
+
+    // Interaction analysis
+    document.getElementById('btn-analyze').addEventListener('click', function() {
+      analyzeCurrentPose();
+    });
+    document.getElementById('btn-export-csv').addEventListener('click', function() {
+      exportCSV();
+    });
+    document.getElementById('int-cutoff').addEventListener('change', function() {
+      if (document.getElementById('int-tbody').children.length > 0) {
+        analyzeCurrentPose();
+      }
+    });
+
+    // Show all
+    document.getElementById('btn-show-all').addEventListener('click', function() {
+      showAllPoses = !showAllPoses;
+      this.textContent = showAllPoses ? 'Single Pose' : 'Show All';
+      refreshView();
+    });
+
+    // Animate
+    document.getElementById('btn-animate').addEventListener('click', function() {
+      if (isAnimating) {
+        clearInterval(animInterval);
+        isAnimating = false;
+        this.textContent = 'Animate';
+        return;
+      }
+      if (!posesData || posesData.length < 2) {
+        showToast('Need at least 2 poses to animate', 'error');
+        return;
+      }
+      showAllPoses = false;
+      isAnimating = true;
+      this.textContent = '\u23F8 Stop';
+      var self = this;
+      var idx = currentPose;
+      animInterval = setInterval(function() {
+        idx = (idx + 1) % posesData.length;
+        currentPose = idx;
+        updatePoseListUI();
+        refreshView();
+      }, 1500);
+    });
+
+    // Focus on ligand binding site
+    document.getElementById('btn-reset-view').addEventListener('click', function() {
+      if (posesData && posesData.length > 0 && receptorData) {
+        zoomToLigand(currentPose);
+      } else {
+        zoomToAll();
+      }
+    });
+
+    // Save as Image
+    document.getElementById('btn-screenshot').addEventListener('click', function() {
+      var canvasEl = document.querySelector('#viewer-container canvas');
+      if (!canvasEl) {
+        showToast('Viewer not ready yet', 'error');
+        return;
+      }
+      try {
+        var dataURI = canvasEl.toDataURL('image/png');
+        var link = document.createElement('a');
+        link.href = dataURI;
+        link.download = 'vinadock_viz_pose' + (currentPose + 1) + '.png';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        showToast('Image saved as PNG', 'success');
+      } catch(e) {
+        showToast('Error saving image: ' + e.message, 'error');
+      }
+    });
+
+    // Toolbar
+    document.getElementById('btn-spin').addEventListener('click', function() {
+      this.classList.toggle('active');
+      $3DmolViewer.spin(this.classList.contains('active'));
+    });
+    document.getElementById('btn-zoom-in').addEventListener('click', function() {
+      $3DmolViewer.zoom(1.3);
+    });
+    document.getElementById('btn-zoom-out').addEventListener('click', function() {
+      $3DmolViewer.zoom(0.7);
+    });
+    document.getElementById('btn-rock').addEventListener('click', function() {
+      this.classList.toggle('active');
+      $3DmolViewer.rotate(300, 'y', this.classList.contains('active'));
+    });
+  }
+
+  // ── Keyboard shortcuts ───────────────────
+  function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', function(e) {
+      if (!posesData || posesData.length === 0) return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        currentPose = (currentPose + 1) % posesData.length;
+        updatePoseListUI();
+        refreshView();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        currentPose = (currentPose - 1 + posesData.length) % posesData.length;
+        updatePoseListUI();
+        refreshView();
+      } else if (e.key === 'a' || e.key === 'A') {
+        showAllPoses = !showAllPoses;
+        document.getElementById('btn-show-all').textContent = showAllPoses ? 'Single Pose' : 'Show All';
+        refreshView();
+      } else if (e.key === 'r' || e.key === 'R') {
+        if (posesData && posesData.length > 0 && receptorData) {
+          zoomToLigand(currentPose);
+        } else {
+          zoomToAll();
+        }
+      } else if (e.key === 's' || e.key === 'S') {
+        document.getElementById('btn-screenshot').click();
+      }
+    });
+  }
+
+})();
+</script>
+</body>
+</html>
