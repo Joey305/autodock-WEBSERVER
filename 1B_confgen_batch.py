@@ -55,7 +55,7 @@ def sanitize_name(p: str) -> str:
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Build per-target LSF jobs + a master submitter for 1_ConformerGeneration.py (CSV / folder of SDF|SMILES / single SDF)."
+        description="Build per-target LSF jobs + a master submitter for 1_ConformerGeneration.py (CSV / folder of SDF|SMILES / single SDF / folder containing CSV)."
     )
     # Common knobs
     p.add_argument("--poses", type=int, default=64, help="Poses per molecule (default: 64)")
@@ -67,10 +67,24 @@ def parse_args():
     p.add_argument("--email", default="jxs794@miami.edu", help="Email for notifications")
     p.add_argument("--env-activate", default=DEFAULT_ENV, help="Shell line to activate conda/env")
     p.add_argument("--obabel-bin", default="", help="Path to obabel (optional). Empty → PATH/OBABEL_BIN.")
+    p.add_argument("--enumerate-protomers", action="store_true",
+                   help="Pass through to 1_ConformerGeneration.py to enumerate protonation states with Dimorphite-DL.")
+    p.add_argument("--ph-min", type=float, default=6.8,
+                   help="Minimum pH for protomer enumeration (default: 6.8)")
+    p.add_argument("--ph-max", type=float, default=7.4,
+                   help="Maximum pH for protomer enumeration (default: 7.4)")
+    p.add_argument("--ph-precision", type=float, default=0.5,
+                   help="Dimorphite precision parameter (default: 0.5)")
+    p.add_argument("--max-protomers", type=int, default=4,
+                   help="Maximum protomer states to keep per ligand (default: 4)")
+    p.add_argument("--max-tautomers", type=int, default=4,
+                   help="Maximum tautomer states to keep per protomer (default: 4)")
+    p.add_argument("--max-transforms", type=int, default=200,
+                   help="RDKit tautomer transform cap (default: 200)")
 
     # Non-interactive fast-path (still supported)
-    p.add_argument("--mode", choices=["1","2","3"], help="1=CSV, 2=Folder, 3=Single SDF")
-    p.add_argument("--targets", default="", help="Comma-separated paths (CSV files for mode1; folders for mode2; SDF files for mode3).")
+    p.add_argument("--mode", choices=["1","2","3","4"], help="1=CSV, 2=Folder, 3=Single SDF, 4=Folder containing CSV")
+    p.add_argument("--targets", default="", help="Comma-separated paths (CSV files for mode1; folders for mode2; SDF files for mode3; folders for mode4).")
     p.add_argument("--filetype", choices=["sdf","smiles"], help="Required for mode=2 to indicate folder contents.")
     p.add_argument("--csv-smiles-col", help="CSV SMILES column (mode=1)")
     p.add_argument("--csv-id-col", help="CSV ID column (mode=1)")
@@ -89,6 +103,15 @@ def discover_folders(filetype: str) -> list[str]:
         else:
             if any(d.glob("*.smiles")):
                 out.append(d.name)
+    return out
+
+def discover_csv_folders() -> list[str]:
+    out = []
+    for d in sorted(Path(".").iterdir()):
+        if not d.is_dir():
+            continue
+        if any(d.glob("*.csv")):
+            out.append(d.name)
     return out
 
 def list_with_indices(items: list[str], title: str):
@@ -125,8 +148,23 @@ def parse_index_list(s: str, n: int) -> list[int]:
                     picks.add(k - 1)
     return sorted(picks)
 
+def build_state_flags(args) -> str:
+    flags = [
+        f" --ph-min {args.ph_min}",
+        f" --ph-max {args.ph_max}",
+        f" --ph-precision {args.ph_precision}",
+        f" --max-protomers {args.max_protomers}",
+        f" --max-tautomers {args.max_tautomers}",
+        f" --max-transforms {args.max_transforms}",
+    ]
+    if args.enumerate_protomers:
+        flags.append(" --enumerate-protomers")
+    return "".join(flags)
+
 def build_run_cmd(mode: str, target: str, poses: int, workers: int,
-                  filetype: str | None, csv_smiles_col: str | None, csv_id_col: str | None) -> str:
+                  filetype: str | None, csv_smiles_col: str | None, csv_id_col: str | None,
+                  args) -> str:
+    state_flags = build_state_flags(args)
     if mode == "1":
         csv_flags = ""
         if csv_smiles_col:
@@ -135,18 +173,28 @@ def build_run_cmd(mode: str, target: str, poses: int, workers: int,
             csv_flags += f" --id-col {csv_id_col}"
         return (
             '"$PYBIN" 1_ConformerGeneration.py'
-            f" --mode 1 --csv \"{target}\"{csv_flags} --num-confs {poses} --workers {workers}\n"
+            f" --mode 1 --csv \"{target}\"{csv_flags} --num-confs {poses} --workers {workers}{state_flags}\n"
         )
     elif mode == "2":
         ft = filetype or "sdf"
         return (
             '"$PYBIN" 1_ConformerGeneration.py'
-            f" --mode 2 --folder \"{target}\" --filetype {ft} --num-confs {poses} --workers {workers}\n"
+            f" --mode 2 --folder \"{target}\" --filetype {ft} --num-confs {poses} --workers {workers}{state_flags}\n"
         )
-    else:
+    elif mode == "3":
         return (
             '"$PYBIN" 1_ConformerGeneration.py'
-            f" --mode 3 --sdf \"{target}\" --num-confs {poses} --workers {workers}\n"
+            f" --mode 3 --sdf \"{target}\" --num-confs {poses} --workers {workers}{state_flags}\n"
+        )
+    else:
+        csv_flags = ""
+        if csv_smiles_col:
+            csv_flags += f" --smiles-col {csv_smiles_col}"
+        if csv_id_col:
+            csv_flags += f" --id-col {csv_id_col}"
+        return (
+            '"$PYBIN" 1_ConformerGeneration.py'
+            f" --mode 4 --folder \"{target}\"{csv_flags} --num-confs {poses} --workers {workers}{state_flags}\n"
         )
 
 def write_lsf(name: str, run_cmd: str, args) -> Path:
@@ -182,8 +230,9 @@ def prompt_mode_block():
     print(" [1] CSV file(s)  (mode=1)")
     print(" [2] Directory(ies) of Ligands  (mode=2: SDF or SMILES)")
     print(" [3] Single SDF file(s) (mode=3)")
-    mode = input("Choose 1/2/3: ").strip()
-    if mode not in ("1","2","3"):
+    print(" [4] Directory containing CSV file(s) (mode=4)")
+    mode = input("Choose 1/2/3/4: ").strip()
+    if mode not in ("1","2","3","4"):
         print("❌ Invalid choice."); sys.exit(2)
 
     targets = []
@@ -236,7 +285,7 @@ def prompt_mode_block():
                 print("❌ No indices selected."); sys.exit(2)
             targets = [candidates[i] for i in idxs]
 
-    else:
+    elif mode == "3":
         print("\nRun scope?")
         print(" [1] One SDF file")
         print(" [2] Multiple SDF files (comma-separated)")
@@ -247,6 +296,32 @@ def prompt_mode_block():
         else:
             t = input("SDF file paths (comma-separated): ").strip()
             targets = [x.strip() for x in t.split(",") if x.strip()]
+
+    else:
+        print("\nRun scope?")
+        print(" [1] One folder containing a CSV")
+        print(" [2] Multiple folders containing CSVs (choose by indices)")
+        scope = input("Choose 1/2: ").strip()
+        candidates = discover_csv_folders()
+        if candidates:
+            list_with_indices(candidates, title="Available CSV Folders:")
+        if scope == "1":
+            if candidates:
+                s = input("Enter index of the folder to use, or type a path: ").strip()
+                idxs = parse_index_list(s, len(candidates))
+                targets = [candidates[idxs[0]]] if len(idxs) == 1 else [s]
+            else:
+                targets = [input("Folder path containing CSV: ").strip()]
+        else:
+            if candidates:
+                s = input("Enter comma-separated indices (supports ranges, e.g., 1,3,5-7), or type paths separated by commas: ").strip()
+                idxs = parse_index_list(s, len(candidates))
+                targets = [candidates[i] for i in idxs] if idxs else [x.strip() for x in s.split(",") if x.strip()]
+            else:
+                s = input("Folder paths containing CSVs (comma-separated): ").strip()
+                targets = [x.strip() for x in s.split(",") if x.strip()]
+        csv_smiles_col = input("CSV SMILES column name: ").strip()
+        csv_id_col = input("CSV ID column name: ").strip()
 
     return mode, targets, filetype, csv_smiles_col, csv_id_col
 
@@ -290,6 +365,13 @@ def main():
             if filetype == "smiles" and not any(p.glob("*.smiles")):
                 print(f"⚠️ Skipping (no .smiles in dir): {t}")
                 continue
+        elif mode == "4":
+            if not p.is_dir():
+                print(f"⚠️ Skipping (not a directory): {t}")
+                continue
+            if not any(p.glob("*.csv")):
+                print(f"⚠️ Skipping (no .csv in dir): {t}")
+                continue
         else:
             if not p.is_file() or p.suffix.lower() != ".sdf":
                 print(f"⚠️ Skipping (not an .sdf file): {t}")
@@ -303,7 +385,7 @@ def main():
     lsf_paths = []
     for t in valid:
         name = sanitize_name(t)
-        run_cmd = build_run_cmd(mode, t, args.poses, args.workers, filetype, args.csv_smiles_col, args.csv_id_col)
+        run_cmd = build_run_cmd(mode, t, args.poses, args.workers, filetype, args.csv_smiles_col, args.csv_id_col, args)
         lsf = write_lsf(name, run_cmd, args)
         lsf_paths.append(lsf)
         print(f"✅ Wrote {lsf.name}")
