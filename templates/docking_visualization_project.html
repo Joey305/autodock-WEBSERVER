@@ -16,12 +16,15 @@
   <p class="mb-0">{{ manifest.attribution.author }}<br>{{ manifest.attribution.affiliation }}</p>
 </section>
 
-<section class="viz-shell">
+<section id="vizShell" class="viz-shell">
   <aside class="viz-sidebar">
     <div class="viz-sidebar-head">
-      <div class="viz-kicker">Project</div>
-      <h2>{{ manifest.project_name }}</h2>
-      <p>{{ manifest.entry_count }} viewer{{ "" if manifest.entry_count == 1 else "s" }} generated from {{ manifest.source_csv }}</p>
+      <div>
+        <div class="viz-kicker">Project</div>
+        <h2>{{ manifest.project_name }}</h2>
+        <p>{{ manifest.entry_count }} viewer{{ "" if manifest.entry_count == 1 else "s" }} generated from {{ manifest.source_csv }}</p>
+      </div>
+      <button id="toggleVizList" type="button" class="btn btn-outline-primary btn-sm">Collapse list</button>
     </div>
     <div class="viz-entry-list">
       {% for entry in entries %}
@@ -45,9 +48,12 @@
         <div class="viz-kicker">Embedded Viewer</div>
         <h2 id="vizTitle">{{ entries[0].ligand if entries else "No generated viewers found" }}</h2>
       </div>
-      {% if entries %}
-      <a class="btn btn-outline-primary" id="vizOpenStandalone" href="{{ entries[0].viewer_url }}" target="_blank" rel="noreferrer">Open standalone</a>
-      {% endif %}
+      <div class="viz-frame-actions">
+        <button id="toggleVizListInline" type="button" class="btn btn-outline-primary btn-sm">Collapse list</button>
+        {% if entries %}
+        <a class="btn btn-outline-primary" id="vizOpenStandalone" href="{{ entries[0].viewer_url }}" target="_blank" rel="noreferrer">Open standalone</a>
+        {% endif %}
+      </div>
     </div>
     {% if entries %}
     <iframe id="vizFrame" class="viz-frame" src="{{ entries[0].viewer_url }}" title="Docking viewer"></iframe>
@@ -68,6 +74,9 @@
   gap: 1.25rem;
   align-items: start;
 }
+.viz-shell.is-list-collapsed {
+  grid-template-columns: 1fr;
+}
 .viz-sidebar,
 .viz-frame-panel {
   background: var(--surface-elevated);
@@ -80,10 +89,19 @@
   position: sticky;
   top: 1rem;
 }
+.viz-shell.is-list-collapsed .viz-sidebar {
+  display: none;
+}
 .viz-sidebar-head,
 .viz-frame-head {
   padding: 1.1rem 1.15rem 1rem;
   border-bottom: 1px solid var(--app-border);
+}
+.viz-sidebar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
 }
 .viz-sidebar-head h2,
 .viz-frame-head h2 {
@@ -139,6 +157,11 @@
   gap: 1rem;
   align-items: center;
 }
+.viz-frame-actions {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+}
 .viz-frame {
   width: 100%;
   min-height: 78vh;
@@ -165,10 +188,33 @@
 {% block extra_scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", () => {
+  const shell = document.getElementById("vizShell");
   const frame = document.getElementById("vizFrame");
   const title = document.getElementById("vizTitle");
   const openLink = document.getElementById("vizOpenStandalone");
+  const toggleButtons = [
+    document.getElementById("toggleVizList"),
+    document.getElementById("toggleVizListInline"),
+  ].filter(Boolean);
   const buttons = [...document.querySelectorAll(".viz-entry")];
+
+  function syncVizToggleButtons() {
+    if (!shell || !toggleButtons.length) return;
+    const collapsed = shell.classList.contains("is-list-collapsed");
+    toggleButtons.forEach((button) => {
+      button.textContent = collapsed ? "Show list" : "Collapse list";
+    });
+  }
+
+  toggleButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!shell) return;
+      shell.classList.toggle("is-list-collapsed");
+      syncVizToggleButtons();
+    });
+  });
+
+  syncVizToggleButtons();
 
   buttons.forEach((button) => {
     button.addEventListener("click", () => {

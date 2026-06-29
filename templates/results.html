@@ -110,6 +110,7 @@
         <h2 id="localViewerTitle">Viewer</h2>
       </div>
       <div class="local-results-frame-actions">
+        <button id="toggleLocalProjectListInline" type="button" class="btn btn-outline-primary btn-sm">Collapse list</button>
         <a id="localOpenStandalone" class="btn btn-outline-primary d-none" target="_blank" rel="noreferrer">Open standalone</a>
       </div>
     </div>
@@ -425,8 +426,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const localViewerTitle = document.getElementById("localViewerTitle");
   const localViewerFrame = document.getElementById("localViewerFrame");
   const localOpenStandalone = document.getElementById("localOpenStandalone");
-  const toggleLocalProjectList = document.getElementById("toggleLocalProjectList");
+  const toggleLocalProjectButtons = [
+    document.getElementById("toggleLocalProjectList"),
+    document.getElementById("toggleLocalProjectListInline"),
+  ].filter(Boolean);
   let activeObjectUrls = [];
+
+  function syncLocalToggleButtons() {
+    if (!localShell || !toggleLocalProjectButtons.length) return;
+    const collapsed = localShell.classList.contains("is-list-collapsed");
+    toggleLocalProjectButtons.forEach((button) => {
+      button.textContent = collapsed ? "Show list" : "Collapse list";
+    });
+  }
 
   function setStatus(message, type = "") {
     if (!resultsStatus) return;
@@ -497,12 +509,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (toggleLocalProjectList && localShell) {
-    toggleLocalProjectList.addEventListener("click", () => {
+  if (toggleLocalProjectButtons.length && localShell) {
+    toggleLocalProjectButtons.forEach((button) => button.addEventListener("click", () => {
       const collapsed = localShell.classList.toggle("is-list-collapsed");
-      toggleLocalProjectList.textContent = collapsed ? "Show list" : "Collapse list";
-    });
+      syncLocalToggleButtons();
+    }));
   }
+
+  syncLocalToggleButtons();
 
   async function collectFromEntry(entry, prefix = "") {
     if (entry.isFile) {
