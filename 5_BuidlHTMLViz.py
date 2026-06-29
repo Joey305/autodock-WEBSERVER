@@ -358,21 +358,32 @@ def build_viewer_html(
         """.hud-unit{font-size:8.5px;color:var(--txt-muted);margin-left:2px}
 .hud-pose{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--txt)}
 .hud-card{pointer-events:auto}
-.hud-interaction-card{min-width:176px}
+.hud-interaction-card{width:132px}
 .hud-interaction-toggle{
   width:100%;margin-top:8px;padding:7px 10px;border-radius:8px;
   border:1px solid var(--border);background:rgba(13,148,136,.08);
   color:var(--accent);font:600 10px var(--font);letter-spacing:.04em;cursor:pointer;
 }
 .hud-interaction-toggle.is-off{background:transparent;color:var(--txt-muted)}
-.interaction-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.hud-interaction-collapse{
+  width:100%;margin-top:6px;padding:5px 8px;border-radius:8px;
+  border:1px solid var(--border);background:transparent;
+  color:var(--txt-muted);font:600 9px var(--font);letter-spacing:.04em;cursor:pointer;
+}
+.interaction-legend{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.interaction-legend.is-collapsed{display:none}
 .interaction-chip{
-  display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border-radius:999px;
+  display:inline-flex;align-items:center;gap:6px;padding:5px 8px;border-radius:12px;
   border:1px solid var(--border);background:rgba(255,255,255,.94);color:var(--txt);
   font:600 9px var(--font);letter-spacing:.03em;cursor:pointer;
 }
 .interaction-chip.is-off{opacity:.45;background:rgba(255,255,255,.72)}
 .interaction-chip-swatch{width:8px;height:8px;border-radius:999px;display:inline-block}
+.palette-select{
+  width:100%;margin-top:6px;padding:6px 8px;border-radius:8px;
+  border:1px solid var(--border);background:#fff;color:var(--txt);
+  font:500 10px var(--font);
+}
 """,
         1,
     )
@@ -404,6 +415,7 @@ def build_viewer_html(
       <div class="hud-card hud-interaction-card">
         <div class="hud-lbl">Interaction Lines</div>
         <button id="toggle-interaction-lines" class="hud-interaction-toggle" type="button">Lines On</button>
+        <button id="toggle-interaction-legend" class="hud-interaction-collapse" type="button">Hide Legend</button>
         <div id="interaction-legend" class="interaction-legend"></div>
       </div>
     </div>
@@ -447,6 +459,59 @@ def build_viewer_html(
 
       <div class="divider"></div>""",
         binding_pocket_controls,
+        1,
+    )
+    template = template.replace(
+        """          <div class="btn-row" id="rec-color-btns">
+            <button class="btn active" data-v="spectrum">Spectrum</button>
+            <button class="btn" data-v="chain">Chain</button>
+            <button class="btn" data-v="ss">Struct</button>
+          </div>
+        </div>""",
+        """          <div class="btn-row" id="rec-color-btns">
+            <button class="btn active" data-v="spectrum">Spectrum</button>
+            <button class="btn" data-v="chain">Chain</button>
+            <button class="btn" data-v="ss">Struct</button>
+            <button class="btn" data-v="palette">Palette</button>
+          </div>
+          <select id="rec-palette-select" class="palette-select">
+            <option value="0">Electric White (Default)</option>
+            <option value="1">Seafoam (Spectrum)</option>
+            <option value="2">Secondary Structure</option>
+            <option value="3">Residue Type</option>
+            <option value="4">Electric Green</option>
+            <option value="5">Electric Blue</option>
+            <option value="6">Electric Yellow</option>
+            <option value="7">Cyborg</option>
+            <option value="8">Tron</option>
+            <option value="9">Futuro</option>
+            <option value="10">Pasado</option>
+          </select>
+        </div>""",
+        1,
+    )
+    template = template.replace(
+        """          <div class="btn-row" id="lig-color-btns">
+            <button class="btn active" data-v="pose">Pose rank</button>
+            <button class="btn" data-v="element">Element</button>
+          </div>
+        </div>""",
+        """          <div class="btn-row" id="lig-color-btns">
+            <button class="btn" data-v="pose">Pose rank</button>
+            <button class="btn" data-v="element">Element</button>
+            <button class="btn active" data-v="palette">Palette</button>
+          </div>
+          <select id="lig-palette-select" class="palette-select">
+            <option value="5">Electric Blue</option>
+            <option value="4">Electric Green</option>
+            <option value="6">Electric Yellow</option>
+            <option value="7">Knight (Black)</option>
+            <option value="8">Light (White)</option>
+            <option value="9">Fire (Red)</option>
+            <option value="10" selected>Aqua (Cyan)</option>
+            <option value="11">Miami Mode</option>
+          </select>
+        </div>""",
         1,
     )
 
@@ -534,12 +599,35 @@ const NEG  = { ASP:new Set(["OD1","OD2"]), GLU:new Set(["OE1","OE2"]) };
 const POS  = { LYS:new Set(["NZ"]), ARG:new Set(["NH1","NH2","NE"]), HIS:new Set(["ND1","NE2"]) };
 const INTERACTION_COLORS = {
   "H-bond": "#14b8a6",
-  "Hydrophobic": "#f59e0b",
   "π-stacking": "#8b5cf6",
   "Salt bridge": "#ef4444",
   "Van der Waals": "#64748b"
 };
-const INTERACTION_ORDER = ["H-bond", "Hydrophobic", "π-stacking", "Salt bridge", "Van der Waals"];
+const INTERACTION_ORDER = ["H-bond", "π-stacking", "Salt bridge", "Van der Waals"];
+const ELEM_MAP = {H:1,C:6,N:7,O:8,F:9,P:15,S:16,Cl:17,Br:35,I:53};
+const LIGAND_PALETTES = {
+  "4": {1:"#CCCCCC",6:"#39FF14",7:"#00BFFF",8:"#FF007F",9:"#00FFFF",15:"#FFAA00",16:"#FFFF00",17:"#32CD32",35:"#FF4500",53:"#9400D3"},
+  "5": {1:"#CCCCCC",6:"#00FFFF",7:"#1E90FF",8:"#FF00FF",9:"#00FF80",15:"#FFD700",16:"#40E0D0",17:"#4682B4",35:"#008B8B",53:"#9370DB"},
+  "6": {1:"#CCCCCC",6:"#FFFF33",7:"#4169E1",8:"#FF1493",9:"#7FFF00",15:"#FFA500",16:"#FFD700",17:"#F0E68C",35:"#FF8C00",53:"#DAA520"},
+  "7": {1:"#CCCCCC",6:"#000000",7:"#4444FF",8:"#FF2222",9:"#00FFFF",15:"#FFD700",16:"#AAAA00",17:"#00FF00",35:"#FF8C00",53:"#9370DB"},
+  "8": {1:"#CCCCCC",6:"#FFFFFF",7:"#AADDFF",8:"#FFBBBB",9:"#DDFFDD",15:"#FFFFCC",16:"#FFFF99",17:"#CCFFCC",35:"#DDDDDD",53:"#EEEEEE"},
+  "9": {1:"#CCCCCC",6:"#FF0000",7:"#0000FF",8:"#FFA500",9:"#FFFF00",15:"#FF69B4",16:"#FFD700",17:"#00FF00",35:"#FF4500",53:"#8A2BE2"},
+  "10":{1:"#CCCCCC",6:"#00FFFF",7:"#0077FF",8:"#FF99FF",9:"#00FF80",15:"#FFD700",16:"#40E0D0",17:"#4682B4",35:"#20B2AA",53:"#9370DB"},
+  "11":{1:"#CCCCCC",6:"#FFB6C1",7:"#B0E0E6",8:"#FF1493",9:"#AEEEEE",15:"#FFDAB9",16:"#FAFAD2",17:"#E6E6FA",35:"#F4A460",53:"#D8BFD8"}
+};
+const RECEPTOR_PALETTES = {
+  "0": {cartoon:"#f3f4f6", carbon:"#d1d5db"},
+  "1": {cartoon:"#6ee7b7", carbon:"#34d399"},
+  "2": {cartoon:"#7dd3fc", carbon:"#38bdf8"},
+  "3": {cartoon:"#a78bfa", carbon:"#8b5cf6"},
+  "4": {cartoon:"#84cc16", carbon:"#39FF14"},
+  "5": {cartoon:"#22d3ee", carbon:"#00FFFF"},
+  "6": {cartoon:"#facc15", carbon:"#FFFF33"},
+  "7": {cartoon:"#67e8f9", carbon:"#00FFFF"},
+  "8": {cartoon:"#e879f9", carbon:"#ff00ff"},
+  "9": {cartoon:"#fbbf24", carbon:"#ffb000"},
+  "10": {cartoon:"#34d399", carbon:"#10b981"}
+};
 
 const TYPE_CSS = {
 """,
@@ -581,6 +669,45 @@ const TYPE_CSS = {
         1,
     )
     template = template.replace(
+        """      const d = dist3(la,ra);
+      if (d>5.5) continue;
+      const type = classifyPair(la,ra,d);
+      if (!type) continue;
+""",
+        """      const d = dist3(la,ra);
+      if (d>5.5) continue;
+      const type = classifyPair(la,ra,d);
+      if (!type || type==="Hydrophobic") continue;
+""",
+        1,
+    )
+    template = template.replace(
+        """function classifyPair(la, ra, d) {
+  const lt=la.adtype, rt=ra.adtype;
+  /* H-bond — heavy-atom donor/acceptor pairs (≤3.5 Å) */
+  if (d<=3.5) {
+    const laAcc=ACC.has(lt), raAcc=ACC.has(rt);
+    const laDon=(lt==="N"||laAcc), raDon=(rt==="N"||raAcc);
+    if ((laAcc&&raDon)||(raAcc&&laDon)) return "H-bond";
+  }
+  /* H-bond — HD hydrogen to acceptor (≤2.5 Å) */
+  if (d<=2.5 && lt==="HD" && ACC.has(rt)) return "H-bond";
+  if (d<=2.5 && rt==="HD" && ACC.has(lt)) return "H-bond";
+""",
+        """function classifyPair(la, ra, d) {
+  const lt=la.adtype, rt=ra.adtype;
+  /* H-bond — heavy-atom donor/acceptor pairs only (≤3.5 Å)
+     We intentionally draw to visible heavy atoms rather than HD
+     hydrogens so the interaction line always terminates on-screen. */
+  if (d<=3.5) {
+    const laAcc=ACC.has(lt), raAcc=ACC.has(rt);
+    const laDon=(lt==="N"||laAcc), raDon=(rt==="N"||raAcc);
+    if ((laAcc&&raDon)||(raAcc&&laDon)) return "H-bond";
+  }
+""",
+        1,
+    )
+    template = template.replace(
         """  const recModel = viewer.addModel(receptorPDB,"pdb");
 
   let recStyle="cartoon", recColor="spectrum", recSurfObj=null, surfObj=null, surfOn=false;
@@ -593,17 +720,19 @@ const TYPE_CSS = {
   let pocketSurfObj=null;
   let interactionLinesOn = true;
   let interactionShapes = [];
-  const interactionFilters = Object.fromEntries(INTERACTION_ORDER.map(type => [type, true]));
+  const interactionFilters = Object.fromEntries(INTERACTION_ORDER.map(type => [type, type !== "Van der Waals"]));
+  let ligPaletteMode="10", recPaletteMode="0";
 """,
         1,
     )
     template = template.replace(
         """  function applyRecStyle() {
     viewer.setStyle({model:recModel.getID()},{});
-    const cs = recColor==="chain"?"chain": recColor==="ss"?"ssJmol": undefined;
+    const effectiveRecColor = recColor==="palette" ? "spectrum" : recColor;
+    const cs = effectiveRecColor==="chain"?"chain": effectiveRecColor==="ss"?"ssJmol": undefined;
     if (recSurfObj) { viewer.removeSurface(recSurfObj); recSurfObj = null; }
     if (recStyle==="cartoon")
-      viewer.setStyle({model:recModel.getID()},{cartoon:{color:recColor==="spectrum"?"spectrum":undefined,colorscheme:cs}});
+      viewer.setStyle({model:recModel.getID()},{cartoon:{color:effectiveRecColor==="spectrum"?"spectrum":undefined,colorscheme:cs}});
     else if (recStyle==="surface") {
       viewer.setStyle({model:recModel.getID()},{line:{colorscheme:cs??"element",linewidth:0.3}});
       recSurfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.88,colorscheme:$3Dmol.elementColors.rasmol},{model:recModel.getID()});
@@ -620,6 +749,16 @@ const TYPE_CSS = {
         """  function applyRecStyle() {
     viewer.setStyle({model:recModel.getID()},{});
     const cs = recColor==="chain"?"chain": recColor==="ss"?"ssJmol": undefined;
+    const pocketPalette = RECEPTOR_PALETTES[recPaletteMode] || RECEPTOR_PALETTES["0"];
+    const pocketColorFunc = (atom) => {
+      const elem = atom.elem || atom.atom || "";
+      if (elem === "C") return pocketPalette.carbon;
+      if (elem === "N") return "#a5b4fc";
+      if (elem === "O") return "#ef4444";
+      if (elem === "S") return "#facc15";
+      if (elem === "P") return "#f97316";
+      return "#d1d5db";
+    };
     if (typeof viewer.removeAllSurfaces === "function") viewer.removeAllSurfaces();
     recSurfObj = null;
     surfObj = null;
@@ -642,13 +781,13 @@ const TYPE_CSS = {
       if (pocketStyle==="sphere")
         viewer.setStyle(pocketSel,{sphere:{color:POCKET_HIGHLIGHT,radius:1.15,opacity:0.98}});
       else if (pocketStyle==="surface") {
-        viewer.setStyle(pocketSel,{stick:{colorscheme:"element",radius:0.1,opacity:0.2}});
+        viewer.setStyle(pocketSel,{stick:{colorfunc:pocketColorFunc,radius:0.12,opacity:0.28}});
         pocketSurfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{color:POCKET_HIGHLIGHT,opacity:0.72},pocketSel);
       }
       else if (pocketStyle==="line")
-        viewer.setStyle(pocketSel,{line:{colorscheme:"element",linewidth:3}});
+        viewer.setStyle(pocketSel,{line:{colorfunc:pocketColorFunc,linewidth:3.6}});
       else
-        viewer.setStyle(pocketSel,{stick:{colorscheme:"element",radius:0.2,opacity:0.98}});
+        viewer.setStyle(pocketSel,{stick:{colorfunc:pocketColorFunc,radius:0.22,opacity:0.98}});
     }
   }
   
@@ -665,7 +804,8 @@ const TYPE_CSS = {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "interaction-chip" + (interactionFilters[type] ? "" : " is-off");
-      chip.innerHTML = `<span class="interaction-chip-swatch" style="background:${INTERACTION_COLORS[type]}"></span><span>${type}</span>`;
+      const label = type === "Van der Waals" ? "VDW" : type;
+      chip.innerHTML = `<span class="interaction-chip-swatch" style="background:${INTERACTION_COLORS[type]}"></span><span>${label}</span>`;
       chip.addEventListener("click", () => {
         interactionFilters[type] = !interactionFilters[type];
         chip.classList.toggle("is-off", !interactionFilters[type]);
@@ -682,14 +822,83 @@ const TYPE_CSS = {
     rows.forEach((row) => {
       if (!interactionFilters[row.type]) return;
       const color = INTERACTION_COLORS[row.type] || "#94a3b8";
-      const shape = viewer.addLine({
-        start: {x: row.ligand_x, y: row.ligand_y, z: row.ligand_z},
-        end: {x: row.receptor_x, y: row.receptor_y, z: row.receptor_z},
-        color,
-        dashed: true,
-        linewidth: 2.4
-      });
-      interactionShapes.push(shape);
+      const start = {x: row.ligand_x, y: row.ligand_y, z: row.ligand_z};
+      const end = {x: row.receptor_x, y: row.receptor_y, z: row.receptor_z};
+      const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+      const ux = dx / dist, uy = dy / dist, uz = dz / dist;
+      const dash = row.type === "Van der Waals" ? 0.22 : 0.3;
+      const gap = row.type === "Van der Waals" ? 0.2 : 0.26;
+      const radius = row.type === "Van der Waals" ? 0.08 : 0.11;
+      const opacity = row.type === "Van der Waals" ? 0.68 : 0.88;
+      const inset = row.type === "Van der Waals" ? 0.24 : 0.33;
+      const usable = Math.max(0, dist - inset * 2);
+      const segmentCount = Math.max(1, Math.floor((usable + gap) / (dash + gap)));
+      const patternLen = segmentCount * dash + Math.max(0, segmentCount - 1) * gap;
+      let cursor = inset + Math.max(0, (usable - patternLen) / 2);
+      for (let segIdx = 0; segIdx < segmentCount; segIdx += 1) {
+        const segStart = cursor;
+        const segEnd = Math.min(cursor + dash, dist - inset);
+        const shape = viewer.addCylinder({
+          start: {x: start.x + ux * segStart, y: start.y + uy * segStart, z: start.z + uz * segStart},
+          end: {x: start.x + ux * segEnd, y: start.y + uy * segEnd, z: start.z + uz * segEnd},
+          color,
+          radius,
+          opacity,
+          fromCap: 2,
+          toCap: 2
+        });
+        interactionShapes.push(shape);
+        cursor += dash + gap;
+      }
+    });
+  }
+""",
+        1,
+    )
+    template = template.replace(
+        """  const poseMdls   = poses.map(p=>viewer.addModel(poseToPDB(p),"pdb"));
+  const poseVis    = poses.map(()=>true);
+  let curPose=0, ligStyle="stick", ligColor="pose", showAll=true;
+
+  function applyLigStyles() {
+    poseMdls.forEach((mdl,i)=>{
+      const vis=poseVis[i]&&(showAll||i===curPose);
+      const active=i===curPose, hex=poseHex(i), op=vis?(active?1:.55):0;
+      if (!vis) { viewer.setStyle({model:mdl.getID()},{}); return; }
+      const cs=ligColor==="element"?{colorscheme:"element"}:{color:hex};
+      const r=active?.22:.13;
+      if (ligStyle==="sphere")
+        viewer.setStyle({model:mdl.getID()},{sphere:{...cs,radius:active?.5:.35,opacity:op}});
+      else if (ligStyle==="ball")
+        viewer.setStyle({model:mdl.getID()},{stick:{...cs,radius:r,opacity:op},sphere:{...cs,radius:.3,opacity:op}});
+      else
+        viewer.setStyle({model:mdl.getID()},{stick:{...cs,radius:r,opacity:op}});
+    });
+  }
+""",
+        """  const poseMdls   = poses.map(p=>viewer.addModel(poseToPDB(p),"pdb"));
+  const poseVis    = poses.map(()=>true);
+  let curPose=0, ligStyle="stick", ligColor="palette", showAll=true;
+
+  function applyLigStyles() {
+    const ligPalette = LIGAND_PALETTES[ligPaletteMode] || LIGAND_PALETTES["10"];
+    poseMdls.forEach((mdl,i)=>{
+      const vis=poseVis[i]&&(showAll||i===curPose);
+      const active=i===curPose, hex=poseHex(i), op=vis?(active?1:.55):0;
+      if (!vis) { viewer.setStyle({model:mdl.getID()},{}); return; }
+      const paletteColorFunc = (atom) => {
+        const eNum = ELEM_MAP[atom.elem] || 0;
+        return ligPalette[eNum] || "#CCCCCC";
+      };
+      const cs=ligColor==="element"?{colorscheme:"element"}:(ligColor==="palette"?{colorfunc:paletteColorFunc}:{color:hex});
+      const r=active?.22:.13;
+      if (ligStyle==="sphere")
+        viewer.setStyle({model:mdl.getID()},{sphere:{...cs,radius:active?.5:.35,opacity:op}});
+      else if (ligStyle==="ball")
+        viewer.setStyle({model:mdl.getID()},{stick:{...cs,radius:r,opacity:op},sphere:{...cs,radius:.3,opacity:op}});
+      else
+        viewer.setStyle({model:mdl.getID()},{stick:{...cs,radius:r,opacity:op}});
     });
   }
 """,
@@ -701,7 +910,70 @@ const TYPE_CSS = {
     computeInteractions(parseAtoms(poseToPDB(poses[i])), recAtoms)
   );
 """,
-        """  const recAtoms      = parseAtoms(receptorPDB);
+        """  function clearInteractionShapes() {
+    interactionShapes.forEach(shape => viewer.removeShape(shape));
+    interactionShapes = [];
+  }
+
+  function renderInteractionLegend() {
+    const legend = document.getElementById("interaction-legend");
+    if (!legend) return;
+    legend.innerHTML = "";
+    INTERACTION_ORDER.forEach((type) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "interaction-chip" + (interactionFilters[type] ? "" : " is-off");
+      const label = type === "Van der Waals" ? "VDW" : type;
+      chip.innerHTML = `<span class="interaction-chip-swatch" style="background:${INTERACTION_COLORS[type]}"></span><span>${label}</span>`;
+      chip.addEventListener("click", () => {
+        interactionFilters[type] = !interactionFilters[type];
+        chip.classList.toggle("is-off", !interactionFilters[type]);
+        renderInteractionShapes(allInteractions[curPose] || []);
+        viewer.render();
+      });
+      legend.appendChild(chip);
+    });
+  }
+
+  function renderInteractionShapes(rows) {
+    clearInteractionShapes();
+    if (!interactionLinesOn || !rows || !rows.length) return;
+    rows.forEach((row) => {
+      if (!interactionFilters[row.type]) return;
+      const color = INTERACTION_COLORS[row.type] || "#94a3b8";
+      const start = {x: row.ligand_x, y: row.ligand_y, z: row.ligand_z};
+      const end = {x: row.receptor_x, y: row.receptor_y, z: row.receptor_z};
+      const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+      const ux = dx / dist, uy = dy / dist, uz = dz / dist;
+      const dash = row.type === "Van der Waals" ? 0.22 : 0.3;
+      const gap = row.type === "Van der Waals" ? 0.2 : 0.26;
+      const radius = row.type === "Van der Waals" ? 0.08 : 0.11;
+      const opacity = row.type === "Van der Waals" ? 0.68 : 0.88;
+      const inset = row.type === "Van der Waals" ? 0.24 : 0.33;
+      const usable = Math.max(0, dist - inset * 2);
+      const segmentCount = Math.max(1, Math.floor((usable + gap) / (dash + gap)));
+      const patternLen = segmentCount * dash + Math.max(0, segmentCount - 1) * gap;
+      let cursor = inset + Math.max(0, (usable - patternLen) / 2);
+      for (let segIdx = 0; segIdx < segmentCount; segIdx += 1) {
+        const segStart = cursor;
+        const segEnd = Math.min(cursor + dash, dist - inset);
+        const shape = viewer.addCylinder({
+          start: {x: start.x + ux * segStart, y: start.y + uy * segStart, z: start.z + uz * segStart},
+          end: {x: start.x + ux * segEnd, y: start.y + uy * segEnd, z: start.z + uz * segEnd},
+          color,
+          radius,
+          opacity,
+          fromCap: 2,
+          toCap: 2
+        });
+        interactionShapes.push(shape);
+        cursor += dash + gap;
+      }
+    });
+  }
+
+  const recAtoms      = parseAtoms(receptorPDB);
   const ligandAtomsByPose = poses.map((_,i)=>parseAtoms(poseToPDB(poses[i])));
   const allInteractions = poses.map((_,i)=>
     computeInteractions(ligandAtomsByPose[i], recAtoms)
@@ -784,6 +1056,21 @@ const TYPE_CSS = {
     renderInteractionShapes(allInteractions[curPose] || []);
     viewer.render();
   });
+  document.getElementById("toggle-interaction-legend").addEventListener("click",()=>{
+    const legend = document.getElementById("interaction-legend");
+    const collapsed = legend.classList.toggle("is-collapsed");
+    document.getElementById("toggle-interaction-legend").textContent = collapsed ? "Show Legend" : "Hide Legend";
+  });
+  document.getElementById("rec-palette-select").addEventListener("change",(e)=>{
+    recPaletteMode = e.target.value;
+    applyRecStyle(); viewer.render();
+  });
+  document.getElementById("lig-palette-select").addEventListener("change",(e)=>{
+    ligPaletteMode = e.target.value;
+    ligColor = "palette";
+    document.querySelectorAll("#lig-color-btns .btn").forEach((btn)=>btn.classList.toggle("active", btn.dataset.v==="palette"));
+    applyLigStyles(); viewer.render();
+  });
 """,
         1,
     )
@@ -804,6 +1091,102 @@ const TYPE_CSS = {
   viewer.render();
 """,
         1,
+    )
+    template = re.sub(
+        r"""  function applyRecStyle\(\) \{\n.*?\n  \}\n""",
+        """  function applyRecStyle() {
+    viewer.setStyle({model:recModel.getID()},{});
+    const effectiveRecColor = recColor==="palette" ? "spectrum" : recColor;
+    const cs = effectiveRecColor==="chain"?"chain": effectiveRecColor==="ss"?"ssJmol": undefined;
+    const pocketPalette = RECEPTOR_PALETTES[recPaletteMode] || RECEPTOR_PALETTES["0"];
+    const pocketColorFunc = (atom) => {
+      const elem = atom.elem || atom.atom || "";
+      if (elem === "C") return pocketPalette.carbon;
+      if (elem === "N") return "#a5b4fc";
+      if (elem === "O") return "#ef4444";
+      if (elem === "S") return "#facc15";
+      if (elem === "P") return "#f97316";
+      return "#d1d5db";
+    };
+    if (typeof viewer.removeAllSurfaces === "function") viewer.removeAllSurfaces();
+    recSurfObj = null;
+    surfObj = null;
+    pocketSurfObj = null;
+    if (recStyle==="cartoon")
+      viewer.setStyle({model:recModel.getID()},{cartoon:{color:effectiveRecColor==="spectrum"?"spectrum":undefined,colorscheme:cs}});
+    else if (recStyle==="surface") {
+      viewer.setStyle({model:recModel.getID()},{line:{colorscheme:cs??"element",linewidth:0.3}});
+      recSurfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.88,colorscheme:$3Dmol.elementColors.rasmol},{model:recModel.getID()});
+    }
+    else if (recStyle==="line")
+      viewer.setStyle({model:recModel.getID()},{line:{colorscheme:cs??"element",linewidth:1.5}});
+    else
+      viewer.setStyle({model:recModel.getID()},{stick:{colorscheme:cs??"element",radius:0.12}});
+    if (surfOn)
+      surfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.35,color:"#0a2040"},{model:recModel.getID()});
+
+    if (pocketOn && pocketSelection.length) {
+      const pocketSel = {model:recModel.getID(), serial:pocketSelection};
+      if (pocketStyle==="sphere")
+        viewer.setStyle(pocketSel,{sphere:{color:POCKET_HIGHLIGHT,radius:1.15,opacity:0.98}});
+      else if (pocketStyle==="surface") {
+        viewer.setStyle(pocketSel,{stick:{colorfunc:pocketColorFunc,radius:0.12,opacity:0.28}});
+        pocketSurfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{color:POCKET_HIGHLIGHT,opacity:0.72},pocketSel);
+      }
+      else if (pocketStyle==="line")
+        viewer.setStyle(pocketSel,{line:{colorfunc:pocketColorFunc,linewidth:3.6}});
+      else
+        viewer.setStyle(pocketSel,{stick:{colorfunc:pocketColorFunc,radius:0.22,opacity:0.98}});
+    }
+  }
+""",
+        template,
+        count=1,
+        flags=re.S,
+    )
+    template = re.sub(
+        r"""  function renderInteractionShapes\(rows\) \{\n.*?\n  \}\n""",
+        """  function renderInteractionShapes(rows) {
+    clearInteractionShapes();
+    if (!interactionLinesOn || !rows || !rows.length) return;
+    rows.forEach((row) => {
+      if (!interactionFilters[row.type]) return;
+      const color = INTERACTION_COLORS[row.type] || "#94a3b8";
+      const start = {x: row.ligand_x, y: row.ligand_y, z: row.ligand_z};
+      const end = {x: row.receptor_x, y: row.receptor_y, z: row.receptor_z};
+      const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
+      const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+      const ux = dx / dist, uy = dy / dist, uz = dz / dist;
+      const dash = row.type === "Van der Waals" ? 0.22 : 0.3;
+      const gap = row.type === "Van der Waals" ? 0.2 : 0.26;
+      const radius = row.type === "Van der Waals" ? 0.08 : 0.11;
+      const opacity = row.type === "Van der Waals" ? 0.68 : 0.88;
+      const inset = row.type === "Van der Waals" ? 0.24 : 0.33;
+      const usable = Math.max(0, dist - inset * 2);
+      const segmentCount = Math.max(1, Math.floor((usable + gap) / (dash + gap)));
+      const patternLen = segmentCount * dash + Math.max(0, segmentCount - 1) * gap;
+      let cursor = inset + Math.max(0, (usable - patternLen) / 2);
+      for (let segIdx = 0; segIdx < segmentCount; segIdx += 1) {
+        const segStart = cursor;
+        const segEnd = Math.min(cursor + dash, dist - inset);
+        const shape = viewer.addCylinder({
+          start: {x: start.x + ux * segStart, y: start.y + uy * segStart, z: start.z + uz * segStart},
+          end: {x: start.x + ux * segEnd, y: start.y + uy * segEnd, z: start.z + uz * segEnd},
+          color,
+          radius,
+          opacity,
+          fromCap: 2,
+          toCap: 2
+        });
+        interactionShapes.push(shape);
+        cursor += dash + gap;
+      }
+    });
+  }
+""",
+        template,
+        count=1,
+        flags=re.S,
     )
     template = template.replace(
         """  // Dismiss loading overlay, then auto-export CSV

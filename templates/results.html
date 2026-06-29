@@ -46,6 +46,13 @@
     <div class="results-note">
       <strong>Expected output:</strong> the generated project folder should contain <code>manifest.json</code>, <code>index.html</code>, and <code>viewers/*.html</code>.
     </div>
+    <div class="results-example-callout">
+      <div>
+        <strong>Want to try it first?</strong>
+        <span>Open a bundled DR7 example project instantly before loading your own folder.</span>
+      </div>
+      <a class="btn btn-outline-primary" href="{{ example_project_url }}">Open Example</a>
+    </div>
     <div id="resultsStatus" class="results-status d-none"></div>
   </article>
 
@@ -215,6 +222,26 @@
   background: var(--surface-subtle);
   color: var(--text-secondary);
 }
+.results-example-callout {
+  margin-top: 1rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--app-brand) 22%, var(--app-border));
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at right center, rgba(79, 195, 247, 0.12), transparent 38%),
+    var(--surface-elevated);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+.results-example-callout strong,
+.results-example-callout span {
+  display: block;
+}
+.results-example-callout span {
+  color: var(--text-secondary);
+}
 .results-status {
   margin-top: 0.9rem;
   padding: 0.9rem 1rem;
@@ -375,6 +402,10 @@
   .results-drop-copy strong,
   .results-drop-copy span {
     display: block;
+  }
+  .results-example-callout {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

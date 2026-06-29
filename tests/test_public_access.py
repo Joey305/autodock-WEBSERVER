@@ -42,6 +42,12 @@ class PublicAccessTests(unittest.TestCase):
         self.assertIn(b"AutoDock-Vina PrepServer", response.data)
         self.assertNotIn(b"Sign in", response.data)
 
+    def test_results_page_offers_example_button(self):
+        response = self.client.get("/results")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Open Example", response.data)
+        self.assertIn(b"/viz/example", response.data)
+
     def test_login_route_redirects_to_home(self):
         response = self.client.get("/auth/login", follow_redirects=False)
         self.assertEqual(response.status_code, 302)
@@ -143,6 +149,12 @@ class PublicAccessTests(unittest.TestCase):
         )
         self.assertEqual(inline.status_code, 200)
         self.assertIn(b"viewer", inline.data)
+
+    def test_public_example_visualization_project_renders(self):
+        response = self.client.get("/viz/example")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Docking Visualization Project", response.data)
+        self.assertIn(b"Open standalone", response.data)
 
     def test_ligand_zip_upload_flattens_nested_ligands_folder(self):
         workspace = self.client.post("/api/workspace").get_json()

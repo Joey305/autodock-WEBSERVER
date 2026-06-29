@@ -356,7 +356,7 @@ def create_app() -> Flask:
 
     @app.get("/results")
     def results():
-        return render_template("results.html")
+        return render_template("results.html", example_project_url=url_for("docking_visualization_example"))
 
     @app.get("/modules")
     def modules():
@@ -425,6 +425,39 @@ def create_app() -> Flask:
                         jobname=jobname,
                         rel=str((Path(rel).parent / viewer_rel).as_posix()),
                     ),
+                }
+            )
+        return render_template("docking_visualization_project.html", manifest=manifest, entries=entries)
+
+    @app.get("/viz/example")
+    def docking_visualization_example():
+        example_root = Path(current_app.static_folder or "static") / "data" / "examples" / "dr7"
+        manifest_path = example_root / "Docking_HTML_Viz_Project" / "manifest.json"
+        if not manifest_path.exists():
+            return ("example manifest not found", 404)
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return ("example manifest is invalid", 400)
+
+        base_dir = manifest_path.parent
+        entries = []
+        for entry in manifest.get("entries", []):
+            viewer_rel = (entry.get("viewer_file") or "").strip()
+            if not viewer_rel:
+                continue
+            viewer_path = (base_dir / viewer_rel).resolve()
+            try:
+                viewer_path.relative_to(base_dir.resolve())
+            except ValueError:
+                continue
+            if not viewer_path.exists():
+                continue
+            viewer_static_rel = viewer_path.relative_to(Path(current_app.static_folder or "static")).as_posix()
+            entries.append(
+                {
+                    **entry,
+                    "viewer_url": url_for("static", filename=viewer_static_rel),
                 }
             )
         return render_template("docking_visualization_project.html", manifest=manifest, entries=entries)

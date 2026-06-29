@@ -1,0 +1,62 @@
+{
+  "project_name": "Docking_HTML_Viz_Project",
+  "page_title": "Docking Visualization Project",
+  "created_at": "2026-06-29T01:08:27.070463+00:00",
+  "source_csv": "/Users/jxs794/Downloads/job 2/Docking_Results_Receptors_Ligands_Ligands_PDBQT_1Poses_20260627_1618_9Poses_2026-06-28_11-09-45_2026-06-28_11-24-50_vina_docking_scores_sorted.csv",
+  "top_ligands": 25,
+  "top_poses": 3,
+  "entry_count": 4,
+  "entries": [
+    {
+      "receptor": "3eky",
+      "ligand": "3el9_C_DR7",
+      "ligand_variant": "3el9_C_DR7_p01_t04_c001",
+      "best_affinity": "-9.93",
+      "source_outfile": "/Users/jxs794/Downloads/job 2/Docking_Results_Receptors_Ligands_Ligands_PDBQT_1Poses_20260627_1618_9Poses_2026-06-28_11-09-45/3eky/3el9_C_DR7_p01_t04_c001/out.pdbqt",
+      "receptor_file": "/Users/jxs794/Downloads/job 2/Receptors/3eky.pdbqt",
+      "viewer_file": "viewers/3eky_3el9_C_DR7_p01_t04_c001.html",
+      "receptor_copy": "inputs/3eky_3el9_C_DR7_p01_t04_c001_receptor.pdbqt",
+      "pose_copy": "inputs/3eky_3el9_C_DR7_p01_t04_c001_poses.pdbqt"
+    },
+    {
+      "receptor": "3eky",
+      "ligand": "3el9_C_DR7",
+      "ligand_variant": "3el9_C_DR7_p01_t03_c001",
+      "best_affinity": "-9.57",
+      "source_outfile": "/Users/jxs794/Downloads/job 2/Docking_Results_Receptors_Ligands_Ligands_PDBQT_1Poses_20260627_1618_9Poses_2026-06-28_11-09-45/3eky/3el9_C_DR7_p01_t03_c001/out.pdbqt",
+      "receptor_file": "/Users/jxs794/Downloads/job 2/Receptors/3eky.pdbqt",
+      "viewer_file": "viewers/3eky_3el9_C_DR7_p01_t03_c001.html",
+      "receptor_copy": "inputs/3eky_3el9_C_DR7_p01_t03_c001_receptor.pdbqt",
+      "pose_copy": "inputs/3eky_3el9_C_DR7_p01_t03_c001_poses.pdbqt"
+    },
+    {
+      "receptor": "3eky",
+      "ligand": "3el9_C_DR7",
+      "ligand_variant": "3el9_C_DR7_p01_t02_c001",
+      "best_affinity": "-9.29",
+      "source_outfile": "/Users/jxs794/Downloads/job 2/Docking_Results_Receptors_Ligands_Ligands_PDBQT_1Poses_20260627_1618_9Poses_2026-06-28_11-09-45/3eky/3el9_C_DR7_p01_t02_c001/out.pdbqt",
+      "receptor_file": "/Users/jxs794/Downloads/job 2/Receptors/3eky.pdbqt",
+      "viewer_file": "viewers/3eky_3el9_C_DR7_p01_t02_c001.html",
+      "receptor_copy": "inputs/3eky_3el9_C_DR7_p01_t02_c001_receptor.pdbqt",
+      "pose_copy": "inputs/3eky_3el9_C_DR7_p01_t02_c001_poses.pdbqt"
+    },
+    {
+      "receptor": "3eky",
+      "ligand": "3el9_C_DR7",
+      "ligand_variant": "3el9_C_DR7_p01_t01_c001",
+      "best_affinity": "-8.17",
+      "source_outfile": "/Users/jxs794/Downloads/job 2/Docking_Results_Receptors_Ligands_Ligands_PDBQT_1Poses_20260627_1618_9Poses_2026-06-28_11-09-45/3eky/3el9_C_DR7_p01_t01_c001/out.pdbqt",
+      "receptor_file": "/Users/jxs794/Downloads/job 2/Receptors/3eky.pdbqt",
+      "viewer_file": "viewers/3eky_3el9_C_DR7_p01_t01_c001.html",
+      "receptor_copy": "inputs/3eky_3el9_C_DR7_p01_t01_c001_receptor.pdbqt",
+      "pose_copy": "inputs/3eky_3el9_C_DR7_p01_t01_c001_poses.pdbqt"
+    }
+  ],
+  "missing_entries": [],
+  "attribution": {
+    "repo": "https://github.com/muntisa/py-VinaScope-Docking-Viewer",
+    "viewer": "https://muntisa.github.io/VinaDock-Viz/VinaDock_Viz.html",
+    "author": "Cristian R. Munteanu, PhD",
+    "affiliation": "Professor of Computer Science, University of A Coruna, RNASA-IMEDIR"
+  }
+}
