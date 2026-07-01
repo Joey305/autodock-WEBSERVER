@@ -246,9 +246,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const chip = doc.getElementById("ligand-label");
     if (!chip) return;
 
-    const sidebarHeader = chip.parentElement;
-    if (!sidebarHeader) return;
-
     const styleId = "codex-ligand-switcher-style";
     if (!doc.getElementById(styleId)) {
       const style = doc.createElement("style");
@@ -267,7 +264,9 @@ document.addEventListener("DOMContentLoaded", () => {
         #codex-ligand-menu {
           position: absolute;
           left: 0;
-          right: 0;
+          min-width: 100%;
+          width: max-content;
+          max-width: 240px;
           top: calc(100% + 6px);
           display: none;
           flex-direction: column;
@@ -320,7 +319,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!menu) {
       menu = doc.createElement("div");
       menu.id = "codex-ligand-menu";
-      sidebarHeader.appendChild(menu);
+      chip.appendChild(menu);
     }
     menu.innerHTML = "";
 
