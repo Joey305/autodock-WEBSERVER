@@ -3,6 +3,7 @@
 {% block meta_description %}Browse packaged HTML docking viewers generated from AutoDock Vina results and adapted from the VinaScope visualization flow.{% endblock %}
 {% block og_description %}Browse packaged HTML docking viewers generated from AutoDock Vina results and adapted from the VinaScope visualization flow.{% endblock %}
 {% block content %}
+{% set initial_entry = selected_entry if selected_entry else (entries[0] if entries else None) %}
 <section class="page-hero compact">
   <div class="page-hero-copy">
     <span class="hero-kicker">Docking Visualization</span>
@@ -16,7 +17,7 @@
   <p class="mb-0">{{ manifest.attribution.author }}<br>{{ manifest.attribution.affiliation }}</p>
 </section>
 
-<section id="vizShell" class="viz-shell">
+<section id="vizShell" class="viz-shell{% if standalone_mode %} viz-shell-standalone{% endif %}">
   <aside class="viz-sidebar">
     <div class="viz-sidebar-head">
       <div>
@@ -30,8 +31,9 @@
       {% for entry in entries %}
       <button
         type="button"
-        class="viz-entry {% if loop.first %}is-active{% endif %}"
+        class="viz-entry {% if loop.index0 == selected_index %}is-active{% endif %}"
         data-viewer-url="{{ entry.viewer_url }}"
+        data-project-url="{{ entry.project_view_url }}"
         data-title="{{ entry.ligand }}"
       >
         <span class="viz-entry-top">{{ entry.receptor }}</span>
@@ -46,17 +48,17 @@
     <div class="viz-frame-head">
       <div>
         <div class="viz-kicker">Embedded Viewer</div>
-        <h2 id="vizTitle">{{ entries[0].ligand if entries else "No generated viewers found" }}</h2>
+        <h2 id="vizTitle">{{ initial_entry.ligand if initial_entry else "No generated viewers found" }}</h2>
       </div>
       <div class="viz-frame-actions">
         <button id="toggleVizListInline" type="button" class="btn btn-outline-primary btn-sm">Collapse list</button>
-        {% if entries %}
-        <a class="btn btn-outline-primary" id="vizOpenStandalone" href="{{ entries[0].viewer_url }}" target="_blank" rel="noreferrer">Open standalone</a>
+        {% if initial_entry %}
+        <a class="btn btn-outline-primary" id="vizOpenStandalone" href="{{ initial_entry.viewer_url if standalone_mode else initial_entry.project_view_url }}" target="_blank" rel="noreferrer">{{ "Open standalone" if not standalone_mode else "Open raw viewer" }}</a>
         {% endif %}
       </div>
     </div>
-    {% if entries %}
-    <iframe id="vizFrame" class="viz-frame" src="{{ entries[0].viewer_url }}" title="Docking viewer"></iframe>
+    {% if initial_entry %}
+    <iframe id="vizFrame" class="viz-frame" src="{{ initial_entry.viewer_url }}" title="Docking viewer"></iframe>
     {% else %}
     <div class="notice-card">
       <p class="mb-0">This manifest did not include any generated viewer HTML files.</p>
@@ -76,6 +78,9 @@
 }
 .viz-shell.is-list-collapsed {
   grid-template-columns: 1fr;
+}
+.viz-shell-standalone .viz-frame {
+  min-height: 88vh;
 }
 .viz-sidebar,
 .viz-frame-panel {
@@ -192,6 +197,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const frame = document.getElementById("vizFrame");
   const title = document.getElementById("vizTitle");
   const openLink = document.getElementById("vizOpenStandalone");
+  const standaloneMode = {{ "true" if standalone_mode else "false" }};
   const toggleButtons = [
     document.getElementById("toggleVizList"),
     document.getElementById("toggleVizListInline"),
@@ -227,7 +233,7 @@ document.addEventListener("DOMContentLoaded", () => {
         title.textContent = button.dataset.title || "Docking viewer";
       }
       if (openLink) {
-        openLink.href = button.dataset.viewerUrl;
+        openLink.href = standaloneMode ? button.dataset.viewerUrl : button.dataset.projectUrl;
       }
     });
   });

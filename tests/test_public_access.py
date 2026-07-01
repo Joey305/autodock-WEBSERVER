@@ -142,6 +142,7 @@ class PublicAccessTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Docking Viz", response.data)
         self.assertIn(b"py-VinaScope-Docking-Viewer", response.data)
+        self.assertIn(b'view=full', response.data)
 
         inline = self.client.get(
             "/api/wsinline",
@@ -150,11 +151,19 @@ class PublicAccessTests(unittest.TestCase):
         self.assertEqual(inline.status_code, 200)
         self.assertIn(b"viewer", inline.data)
 
+        standalone = self.client.get(
+            "/viz/project",
+            query_string={"jobname": workspace["jobname"], "rel": "Docking_HTML_Viz_Project/manifest.json", "entry": 0, "view": "full"},
+        )
+        self.assertEqual(standalone.status_code, 200)
+        self.assertIn(b"Open raw viewer", standalone.data)
+
     def test_public_example_visualization_project_renders(self):
         response = self.client.get("/viz/example")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Docking Visualization Project", response.data)
         self.assertIn(b"Open standalone", response.data)
+        self.assertIn(b'view=full', response.data)
 
     def test_ligand_zip_upload_flattens_nested_ligands_folder(self):
         workspace = self.client.post("/api/workspace").get_json()

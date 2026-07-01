@@ -412,7 +412,8 @@ def create_app() -> Flask:
             return ("manifest is invalid", 400)
 
         entries = []
-        for entry in manifest.get("entries", []):
+        raw_entries = manifest.get("entries", [])
+        for idx, entry in enumerate(raw_entries):
             viewer_rel = (entry.get("viewer_file") or "").strip()
             viewer_path = _resolve_workspace_file(ws, str(Path(rel).parent / viewer_rel))
             if viewer_path is None or not _path_within(ws, viewer_path):
@@ -420,14 +421,36 @@ def create_app() -> Flask:
             entries.append(
                 {
                     **entry,
+                    "entry_index": idx,
                     "viewer_url": url_for(
                         "api_wsinline",
                         jobname=jobname,
                         rel=str((Path(rel).parent / viewer_rel).as_posix()),
                     ),
+                    "project_view_url": url_for(
+                        "docking_visualization_project",
+                        jobname=jobname,
+                        rel=rel,
+                        entry=idx,
+                        view="full",
+                    ),
                 }
             )
-        return render_template("docking_visualization_project.html", manifest=manifest, entries=entries)
+        selected_index = request.args.get("entry", default=0, type=int)
+        if not entries:
+            selected_index = 0
+        else:
+            selected_index = max(0, min(selected_index, len(entries) - 1))
+        standalone_mode = request.args.get("view", "").strip().lower() == "full"
+        selected_entry = entries[selected_index] if entries else None
+        return render_template(
+            "docking_visualization_project.html",
+            manifest=manifest,
+            entries=entries,
+            selected_entry=selected_entry,
+            selected_index=selected_index,
+            standalone_mode=standalone_mode,
+        )
 
     @app.get("/viz/example")
     def docking_visualization_example():
@@ -442,7 +465,8 @@ def create_app() -> Flask:
 
         base_dir = manifest_path.parent
         entries = []
-        for entry in manifest.get("entries", []):
+        raw_entries = manifest.get("entries", [])
+        for idx, entry in enumerate(raw_entries):
             viewer_rel = (entry.get("viewer_file") or "").strip()
             if not viewer_rel:
                 continue
@@ -457,10 +481,30 @@ def create_app() -> Flask:
             entries.append(
                 {
                     **entry,
+                    "entry_index": idx,
                     "viewer_url": url_for("static", filename=viewer_static_rel),
+                    "project_view_url": url_for(
+                        "docking_visualization_example",
+                        entry=idx,
+                        view="full",
+                    ),
                 }
             )
-        return render_template("docking_visualization_project.html", manifest=manifest, entries=entries)
+        selected_index = request.args.get("entry", default=0, type=int)
+        if not entries:
+            selected_index = 0
+        else:
+            selected_index = max(0, min(selected_index, len(entries) - 1))
+        standalone_mode = request.args.get("view", "").strip().lower() == "full"
+        selected_entry = entries[selected_index] if entries else None
+        return render_template(
+            "docking_visualization_project.html",
+            manifest=manifest,
+            entries=entries,
+            selected_entry=selected_entry,
+            selected_index=selected_index,
+            standalone_mode=standalone_mode,
+        )
     
 
     # ---------- STATE HELPERS ----------
