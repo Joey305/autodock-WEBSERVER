@@ -234,7 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function installLigandDropdown(index) {
-    if (!standaloneMode || !frame) return;
+    if (!frame || entryModels.length <= 1) return;
     let doc;
     try {
       doc = frame.contentDocument;
