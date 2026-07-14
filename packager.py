@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 RUNTIME_ROOT_FILES = [
+    "0_LIGSPLIT.py",
     "1_ConformerGeneration.py",
     "3_Complete_batch_docking.py",
     "4_ParseScores.py",

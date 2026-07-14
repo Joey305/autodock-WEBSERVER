@@ -15,6 +15,7 @@ Requirements:
 - the Python dependencies required by the bundled scripts
 
 Recommended workflow:
+0. Optional: run `python 0_LIGSPLIT.py` first if you want to break a very large ligand library into batch-sized folders.
 1. Review `run_confgen_local.sh` and adjust the variables near the top if needed.
 2. Run `./run_confgen_local.sh`.
 3. Review `run_vina_local.sh` and adjust the variables if needed.

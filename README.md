@@ -173,6 +173,7 @@ AutoDock-Vina PrepServer is part of a growing structure-guided molecular design 
 │   └── Ligand_SDF/
 │       └── DR7.sdf                # Example ligand used in the walkthrough below
 ├── AutoDockTools_py3/             # Bundled AutoDockTools source tree
+├── 0_LIGSPLIT.py                  # Prompted ligand-library splitter for large batch prep
 ├── 1_ConformerGeneration.py       # Ligand conformer/PDBQT generation
 ├── 2a_PDB2PDBQTbatch.py           # Receptor preparation utility
 ├── 3_Complete_batch_docking.py    # AutoDock Vina batch runner
