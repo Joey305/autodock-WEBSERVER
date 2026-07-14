@@ -1,4 +1,5 @@
 import importlib.util
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ def load_script_module(filename: str, module_name: str):
     spec = importlib.util.spec_from_file_location(module_name, REPO_ROOT / filename)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -65,6 +67,30 @@ class ConfgenBatchTests(unittest.TestCase):
                 os.chdir(original_cwd)
 
         self.assertEqual(found, ["Ligands_CPD_1"])
+
+    def test_discover_folders_finds_split_batch_dirs_and_smi_inputs(self):
+        module = load_script_module("1B_confgen_batch.py", "confgen_batch_split_discovery")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Ligands_split_001").mkdir()
+            (root / "Ligands_split_001" / "ligA.sdf").write_text("demo", encoding="utf-8")
+            (root / "Ligands_split_002").mkdir()
+            (root / "Ligands_split_002" / "ligB.sdf").write_text("demo", encoding="utf-8")
+            (root / "Smiles_batch_001").mkdir()
+            (root / "Smiles_batch_001" / "lig1.smi").write_text("CCO ethanol\n", encoding="utf-8")
+            (root / "empty_dir").mkdir()
+
+            original_cwd = Path.cwd()
+            try:
+                import os
+                os.chdir(root)
+                sdf_found = module.discover_folders("sdf")
+                smiles_found = module.discover_folders("smiles")
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(sdf_found, ["Ligands_split_001", "Ligands_split_002"])
+        self.assertEqual(smiles_found, ["Smiles_batch_001"])
 
 
 if __name__ == "__main__":

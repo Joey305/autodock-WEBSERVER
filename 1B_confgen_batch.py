@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse, os, sys
 from pathlib import Path
 from datetime import datetime
@@ -89,20 +91,17 @@ def parse_args():
     p.add_argument("--csv-smiles-col", help="CSV SMILES column (mode=1)")
     p.add_argument("--csv-id-col", help="CSV ID column (mode=1)")
     p.add_argument("--auto", action="store_true",
-                   help="Auto-discover targets (mode=2 only): folders matching Ligands_CPD* containing *.sdf or *.smiles per --filetype.")
+                   help="Auto-discover targets (mode=2 only): folders in the current directory containing ligand files for the selected --filetype.")
     return p.parse_args()
 
 def discover_folders(filetype: str) -> list[str]:
+    suffixes = ("*.sdf",) if filetype == "sdf" else ("*.smiles", "*.smi")
     out = []
-    for d in sorted(Path(".").glob("Ligands_CPD*")):
+    for d in sorted(Path(".").iterdir()):
         if not d.is_dir():
             continue
-        if filetype == "sdf":
-            if any(d.glob("*.sdf")):
-                out.append(d.name)
-        else:
-            if any(d.glob("*.smiles")):
-                out.append(d.name)
+        if any(any(d.glob(pattern)) for pattern in suffixes):
+            out.append(d.name)
     return out
 
 def discover_csv_folders() -> list[str]:
@@ -362,8 +361,8 @@ def main():
             if filetype == "sdf" and not any(p.glob("*.sdf")):
                 print(f"⚠️ Skipping (no .sdf in dir): {t}")
                 continue
-            if filetype == "smiles" and not any(p.glob("*.smiles")):
-                print(f"⚠️ Skipping (no .smiles in dir): {t}")
+            if filetype == "smiles" and not (any(p.glob("*.smiles")) or any(p.glob("*.smi"))):
+                print(f"⚠️ Skipping (no .smiles or .smi in dir): {t}")
                 continue
         elif mode == "4":
             if not p.is_dir():
