@@ -41,15 +41,16 @@ class LigSplitTests(unittest.TestCase):
 
         result = ligsplit.split_ligands(
             input_path=csv_path,
-            output_root=self.root / "csv_split",
+            output_dir=self.root,
             group_size=2,
             prefix="batch",
         )
 
         self.assertEqual(result["mode"], "csv")
         self.assertEqual(result["group_sizes"], [2, 2, 1])
-        self.assertTrue((self.root / "csv_split" / "batch_001" / "ligands_part_001.csv").exists())
-        self.assertTrue((self.root / "csv_split" / "batch_003" / "ligands_part_003.csv").exists())
+        self.assertTrue((self.root / "batch_001" / "ligands_part_001.csv").exists())
+        self.assertTrue((self.root / "batch_003" / "ligands_part_003.csv").exists())
+        self.assertTrue((self.root / "split_summary.csv").exists())
 
     def test_split_multirecord_sdf_creates_individual_sdf_files(self):
         sdf_path = self.root / "library.sdf"
@@ -62,15 +63,15 @@ class LigSplitTests(unittest.TestCase):
 
         result = ligsplit.split_ligands(
             input_path=sdf_path,
-            output_root=self.root / "sdf_split",
+            output_dir=self.root,
             num_groups=2,
             prefix="group",
         )
 
         self.assertEqual(result["mode"], "sdf")
         self.assertEqual(result["group_sizes"], [2, 1])
-        self.assertTrue((self.root / "sdf_split" / "group_001").exists())
-        written = sorted((self.root / "sdf_split").rglob("*.sdf"))
+        self.assertTrue((self.root / "group_001").exists())
+        written = sorted(self.root.glob("group_*/*.sdf"))
         self.assertEqual(len(written), 3)
 
     def test_split_smiles_file_writes_one_record_per_file(self):
@@ -84,14 +85,14 @@ class LigSplitTests(unittest.TestCase):
 
         result = ligsplit.split_ligands(
             input_path=smiles_path,
-            output_root=self.root / "smiles_split",
+            output_dir=self.root,
             group_size=2,
             prefix="chunk",
         )
 
         self.assertEqual(result["mode"], "smiles")
         self.assertEqual(result["group_sizes"], [2, 1])
-        written = sorted((self.root / "smiles_split").rglob("*.smi"))
+        written = sorted(self.root.glob("chunk_*/*.smi"))
         self.assertEqual(len(written), 3)
 
     def test_mixed_csv_and_sdf_is_rejected(self):
@@ -106,9 +107,29 @@ class LigSplitTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ligsplit.split_ligands(
                 input_path=lig_dir,
-                output_root=self.root / "bad_split",
+                output_dir=self.root,
                 group_size=1,
             )
+
+    def test_overwrite_replaces_only_matching_split_dirs(self):
+        csv_path = self.root / "ligands.csv"
+        csv_path.write_text("smiles,id\nCCO,lig1\nCCC,lig2\n", encoding="utf-8")
+        (self.root / "batch_001").mkdir()
+        (self.root / "batch_001" / "old.csv").write_text("old\n", encoding="utf-8")
+        (self.root / "keep_me").mkdir()
+
+        result = ligsplit.split_ligands(
+            input_path=csv_path,
+            output_dir=self.root,
+            group_size=1,
+            prefix="batch",
+            overwrite=True,
+        )
+
+        self.assertEqual(result["group_sizes"], [1, 1])
+        self.assertFalse((self.root / "batch_001" / "old.csv").exists())
+        self.assertTrue((self.root / "batch_001" / "ligands_part_001.csv").exists())
+        self.assertTrue((self.root / "keep_me").exists())
 
 
 if __name__ == "__main__":

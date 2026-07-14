@@ -14,6 +14,10 @@ Requirements:
 - `vina` available on `PATH` or set with `VINA_EXE`
 - the Python dependencies required by the bundled scripts
 
+Environment setup:
+- Use `./create_vina_env.sh` to create a conda environment named `vina_env` from the bundled `docking.yaml`
+- If the solver fails while installing `vina`, the script retries by creating the environment first and installing `vina` separately
+
 Recommended workflow:
 0. Optional: run `python 0_LIGSPLIT.py` first if you want to break a very large ligand library into batch-sized folders.
 1. Review `run_confgen_local.sh` and adjust the variables near the top if needed.

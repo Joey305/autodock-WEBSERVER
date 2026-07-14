@@ -48,6 +48,8 @@ class PackagingModeTests(unittest.TestCase):
         self.assertTrue((jobroot / "4_ParseScores.py").exists())
         self.assertTrue((jobroot / "4C_ConcatenateScores.py").exists())
         self.assertTrue((jobroot / "7_Graphs.py").exists())
+        self.assertTrue((jobroot / "create_vina_env.sh").exists())
+        self.assertTrue((jobroot / "docking.yaml").exists())
         self.assertTrue((jobroot / "ligand_naming.py").exists())
         self.assertTrue((jobroot / "ligand_manifest.py").exists())
         self.assertTrue((jobroot / "run_confgen_local.sh").exists())

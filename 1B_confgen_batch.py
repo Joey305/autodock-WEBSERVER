@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 
 import argparse, os, sys
+import json
+import csv
 from pathlib import Path
 from datetime import datetime
 import re  # at top
+from typing import Dict, List, Optional, Tuple
 
 
 HERE = Path(__file__).resolve().parent
@@ -90,21 +92,22 @@ def parse_args():
     p.add_argument("--filetype", choices=["sdf","smiles"], help="Required for mode=2 to indicate folder contents.")
     p.add_argument("--csv-smiles-col", help="CSV SMILES column (mode=1)")
     p.add_argument("--csv-id-col", help="CSV ID column (mode=1)")
+    p.add_argument("--csv-column-map", help="Optional JSON file mapping CSV folders/files to smiles/id column names for mode=4.")
     p.add_argument("--auto", action="store_true",
                    help="Auto-discover targets (mode=2 only): folders in the current directory containing ligand files for the selected --filetype.")
     return p.parse_args()
 
-def discover_folders(filetype: str) -> list[str]:
-    suffixes = ("*.sdf",) if filetype == "sdf" else ("*.smiles", "*.smi")
+def discover_folders(filetype: str) -> List[str]:
+    wanted_suffixes = {".sdf"} if filetype == "sdf" else {".smiles", ".smi"}
     out = []
     for d in sorted(Path(".").iterdir()):
         if not d.is_dir():
             continue
-        if any(any(d.glob(pattern)) for pattern in suffixes):
+        if any(p.is_file() and p.suffix.lower() in wanted_suffixes for p in d.rglob("*")):
             out.append(d.name)
     return out
 
-def discover_csv_folders() -> list[str]:
+def discover_csv_folders() -> List[str]:
     out = []
     for d in sorted(Path(".").iterdir()):
         if not d.is_dir():
@@ -113,12 +116,83 @@ def discover_csv_folders() -> list[str]:
             out.append(d.name)
     return out
 
-def list_with_indices(items: list[str], title: str):
+def read_csv_headers(csv_path: Path) -> List[str]:
+    with csv_path.open("r", newline="", encoding="utf-8-sig") as handle:
+        reader = csv.reader(handle)
+        return next(reader, []) or []
+
+def resolve_single_csv_in_folder(folder: Path) -> Path:
+    csv_files = sorted(folder.glob("*.csv"), key=lambda p: p.name.lower())
+    if not csv_files:
+        raise FileNotFoundError(f"No CSV files found in {folder}")
+    if len(csv_files) > 1:
+        raise ValueError(f"Multiple CSV files found in {folder}; expected one")
+    return csv_files[0]
+
+def prompt_csv_columns(headers: List[str], target_label: str,
+                       default_smiles: str = "", default_id: str = "") -> Tuple[str, str]:
+    print(f"\nCSV columns for {target_label}:")
+    for i, header in enumerate(headers):
+        print(f" [{i}] {header}")
+
+    header_lookup = {header.lower(): header for header in headers}
+    guessed_smiles = default_smiles if default_smiles in headers else header_lookup.get("canonical_smiles") or header_lookup.get("smiles") or (headers[0] if headers else "")
+    guessed_id = default_id if default_id in headers else header_lookup.get("molecule_chembl_id") or header_lookup.get("compound_id") or header_lookup.get("id") or (headers[1] if len(headers) > 1 else (headers[0] if headers else ""))
+
+    def _resolve_column(raw_value: str, default_value: str) -> str:
+        value = raw_value.strip()
+        if not value:
+            return default_value
+        if value.isdigit():
+            idx = int(value)
+            if 0 <= idx < len(headers):
+                return headers[idx]
+        return value
+
+    smiles_col = _resolve_column(input(f"Index or name of SMILES column? [{guessed_smiles}]: "), guessed_smiles)
+    id_col = _resolve_column(input(f"Index or name of ID/name column? [{guessed_id}]: "), guessed_id)
+    if smiles_col not in headers:
+        print(f"❌ Column not found in {target_label}: {smiles_col}")
+        sys.exit(2)
+    if id_col not in headers:
+        print(f"❌ Column not found in {target_label}: {id_col}")
+        sys.exit(2)
+    return smiles_col, id_col
+
+def load_csv_column_map(path: str) -> Dict[str, Dict[str, str]]:
+    payload = json.loads(Path(path).read_text())
+    if not isinstance(payload, dict):
+        raise ValueError("CSV column map JSON must be an object.")
+    normalized: Dict[str, Dict[str, str]] = {}
+    for key, value in payload.items():
+        if not isinstance(value, dict):
+            raise ValueError(f"CSV column map entry for {key} must be an object.")
+        smiles_col = str(value.get("smiles_col", "")).strip()
+        id_col = str(value.get("id_col", "")).strip()
+        if not smiles_col or not id_col:
+            raise ValueError(f"CSV column map entry for {key} must include smiles_col and id_col.")
+        normalized[str(key)] = {"smiles_col": smiles_col, "id_col": id_col}
+    return normalized
+
+def csv_columns_for_target(target: str,
+                           global_smiles_col: Optional[str],
+                           global_id_col: Optional[str],
+                           column_map: Optional[Dict[str, Dict[str, str]]] = None) -> Tuple[Optional[str], Optional[str]]:
+    if column_map:
+        target_path = Path(target)
+        keys = [target, target_path.name, str(target_path.resolve())]
+        for key in keys:
+            entry = column_map.get(key)
+            if entry:
+                return entry["smiles_col"], entry["id_col"]
+    return global_smiles_col, global_id_col
+
+def list_with_indices(items: List[str], title: str):
     print(f"\n{title}")
     for i, name in enumerate(items, start=1):  # 1-based indices
         print(f" [{i}] {name}")
 
-def parse_index_list(s: str, n: int) -> list[int]:
+def parse_index_list(s: str, n: int) -> List[int]:
     """
     Parse '1,3,5-7' into [1,3,5,6,7]; 1-based -> return zero-based indices.
     """
@@ -161,7 +235,7 @@ def build_state_flags(args) -> str:
     return "".join(flags)
 
 def build_run_cmd(mode: str, target: str, poses: int, workers: int,
-                  filetype: str | None, csv_smiles_col: str | None, csv_id_col: str | None,
+                  filetype: Optional[str], csv_smiles_col: Optional[str], csv_id_col: Optional[str],
                   args) -> str:
     state_flags = build_state_flags(args)
     if mode == "1":
@@ -215,7 +289,7 @@ def write_lsf(name: str, run_cmd: str, args) -> Path:
     out.write_text(text)
     return out
 
-def write_submitter(paths: list[Path]) -> Path:
+def write_submitter(paths: List[Path]) -> Path:
     sh = HERE / "submit_all_confgen.sh"
     lines = [SUBMITTER_HDR.format(N=len(paths))]
     for p in paths:
@@ -238,6 +312,7 @@ def prompt_mode_block():
     filetype = None
     csv_smiles_col = None
     csv_id_col = None
+    csv_column_map = None
 
     if mode == "1":
         print("\nRun scope?")
@@ -263,7 +338,7 @@ def prompt_mode_block():
         # Discover candidates and present index list
         candidates = discover_folders(filetype)
         if not candidates:
-            print(f"❌ No directories found matching Ligands_CPD* with .{filetype} files."); sys.exit(2)
+            print(f"❌ No directories found containing .{filetype} ligand files."); sys.exit(2)
 
         print("\nRun scope?")
         print(" [1] One Directory of Ligands")
@@ -319,10 +394,29 @@ def prompt_mode_block():
             else:
                 s = input("Folder paths containing CSVs (comma-separated): ").strip()
                 targets = [x.strip() for x in s.split(",") if x.strip()]
-        csv_smiles_col = input("CSV SMILES column name: ").strip()
-        csv_id_col = input("CSV ID column name: ").strip()
+        if not targets:
+            print("❌ No CSV folders selected."); sys.exit(2)
 
-    return mode, targets, filetype, csv_smiles_col, csv_id_col
+        target_paths = [Path(t) for t in targets]
+        if len(target_paths) == 1:
+            csv_path = resolve_single_csv_in_folder(target_paths[0])
+            headers = read_csv_headers(csv_path)
+            csv_smiles_col, csv_id_col = prompt_csv_columns(headers, target_paths[0].name)
+        else:
+            same_for_all = input("Use the same SMILES/ID columns for all selected CSV folders? [Y/n]: ").strip().lower()
+            if same_for_all in ("", "y", "yes"):
+                csv_path = resolve_single_csv_in_folder(target_paths[0])
+                headers = read_csv_headers(csv_path)
+                csv_smiles_col, csv_id_col = prompt_csv_columns(headers, target_paths[0].name)
+            else:
+                csv_column_map = {}
+                for target_path in target_paths:
+                    csv_path = resolve_single_csv_in_folder(target_path)
+                    headers = read_csv_headers(csv_path)
+                    smiles_col, id_col = prompt_csv_columns(headers, target_path.name)
+                    csv_column_map[str(target_path)] = {"smiles_col": smiles_col, "id_col": id_col}
+
+    return mode, targets, filetype, csv_smiles_col, csv_id_col, csv_column_map
 
 
 
@@ -332,6 +426,7 @@ def main():
     # Non-interactive mode stays as before
     if args.mode and (args.targets or args.auto):
         mode = args.mode
+        csv_column_map = load_csv_column_map(args.csv_column_map) if args.csv_column_map else None
         if mode == "2" and args.auto:
             if not args.filetype:
                 print("❌ --auto requires --filetype for mode=2 (sdf|smiles)."); sys.exit(2)
@@ -344,7 +439,7 @@ def main():
         csv_id_col = args.csv_id_col
     else:
         # Interactive path with index picker for folder mode
-        mode, targets, filetype, csv_smiles_col, csv_id_col = prompt_mode_block()
+        mode, targets, filetype, csv_smiles_col, csv_id_col, csv_column_map = prompt_mode_block()
 
     # Validate & filter
     valid = []
@@ -358,10 +453,12 @@ def main():
             if not p.is_dir():
                 print(f"⚠️ Skipping (not a directory): {t}")
                 continue
-            if filetype == "sdf" and not any(p.glob("*.sdf")):
+            if filetype == "sdf" and not any(x.is_file() and x.suffix.lower() == ".sdf" for x in p.rglob("*")):
                 print(f"⚠️ Skipping (no .sdf in dir): {t}")
                 continue
-            if filetype == "smiles" and not (any(p.glob("*.smiles")) or any(p.glob("*.smi"))):
+            if filetype == "smiles" and not any(
+                x.is_file() and x.suffix.lower() in {".smiles", ".smi"} for x in p.rglob("*")
+            ):
                 print(f"⚠️ Skipping (no .smiles or .smi in dir): {t}")
                 continue
         elif mode == "4":
@@ -384,7 +481,11 @@ def main():
     lsf_paths = []
     for t in valid:
         name = sanitize_name(t)
-        run_cmd = build_run_cmd(mode, t, args.poses, args.workers, filetype, args.csv_smiles_col, args.csv_id_col, args)
+        target_smiles_col, target_id_col = csv_columns_for_target(t, csv_smiles_col, csv_id_col, csv_column_map)
+        if mode in ("1", "4") and (not target_smiles_col or not target_id_col):
+            print(f"❌ Missing CSV column settings for target: {t}")
+            sys.exit(2)
+        run_cmd = build_run_cmd(mode, t, args.poses, args.workers, filetype, target_smiles_col, target_id_col, args)
         lsf = write_lsf(name, run_cmd, args)
         lsf_paths.append(lsf)
         print(f"✅ Wrote {lsf.name}")

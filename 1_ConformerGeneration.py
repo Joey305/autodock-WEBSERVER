@@ -1,12 +1,12 @@
 
 #!/usr/bin/env python3
-from __future__ import annotations
 import os, sys, csv, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
 from multiprocessing import Pool, cpu_count
 import argparse
 import re
+from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
 from rdkit import Chem
 from pathlib import Path
@@ -82,7 +82,7 @@ def build_args():
     return p.parse_args()
 
 # ----------------- utils -----------------
-def obabel_path(cli_path: str | None):
+def obabel_path(cli_path: Optional[str]):
     p = cli_path or os.environ.get("OBABEL_BIN") or shutil.which("obabel")
     if not p:
         print("❌ Cannot find 'obabel'. Install via conda-forge:\n"
@@ -98,7 +98,7 @@ def sanitize_id(name: str) -> str:
     return safe.strip("_") or "ligand"
 
 
-def ligand_id_from_source_file(path: Path, record_index: int | None = None, total_records: int | None = None) -> str:
+def ligand_id_from_source_file(path: Path, record_index: Optional[int] = None, total_records: Optional[int] = None) -> str:
     base = sanitize_id(path.stem)
     if record_index is not None:
         width = max(3, len(str(total_records or record_index)))
@@ -106,7 +106,7 @@ def ligand_id_from_source_file(path: Path, record_index: int | None = None, tota
     return base
 
 
-def ensure_unique_ligand_id(ligand_id: str, seen: dict[str, int], context: str = "") -> str:
+def ensure_unique_ligand_id(ligand_id: str, seen: Dict[str, int], context: str = "") -> str:
     ligand_id = sanitize_id(ligand_id)
     count = seen.get(ligand_id, 0)
     if count == 0:
@@ -136,10 +136,10 @@ def _ignore_ligand_dir(name: str) -> bool:
     )
 
 
-def discover_ligand_input_files(folder: Path, suffixes: tuple[str, ...]) -> list[Path]:
+def discover_ligand_input_files(folder: Path, suffixes: Tuple[str, ...]) -> List[Path]:
     folder = Path(folder)
-    found: list[Path] = []
-    seen: set[Path] = set()
+    found: List[Path] = []
+    seen: Set[Path] = set()
     nested_hits = 0
 
     for root, dirnames, filenames in os.walk(folder):
@@ -168,7 +168,7 @@ def discover_ligand_input_files(folder: Path, suffixes: tuple[str, ...]) -> list
     print(f"🔎 Discovered {len(found)} ligand input file(s) under {folder}")
     return found
 
-def create_output_dirs(base_name: str, tag: str) -> tuple[Path, Path]:
+def create_output_dirs(base_name: str, tag: str) -> Tuple[Path, Path]:
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     pdbqt_dir = Path(f"{base_name}_Ligands_PDBQT_{tag}_{ts}")
     tmp_dir   = Path(f"{base_name}_TMP_SDF_{tag}_{ts}")
@@ -177,7 +177,7 @@ def create_output_dirs(base_name: str, tag: str) -> tuple[Path, Path]:
     return pdbqt_dir, tmp_dir
 
 
-def write_manifest_for_outputs(pdbqt_dir: Path, rows: list[dict]) -> Path | None:
+def write_manifest_for_outputs(pdbqt_dir: Path, rows: List[dict]) -> Optional[Path]:
     if not rows:
         return None
     manifest_path = Path(pdbqt_dir) / "ligand_state_manifest.csv"
@@ -188,7 +188,7 @@ def write_manifest_for_outputs(pdbqt_dir: Path, rows: list[dict]) -> Path | None
 
 
 
-def embed_and_optimize(mol: Chem.Mol, num_confs: int) -> tuple[Chem.Mol, list[int]]:
+def embed_and_optimize(mol: Chem.Mol, num_confs: int) -> Tuple[Chem.Mol, List[int]]:
     """
     Generate genuinely distinct RDKit conformers for one tautomer/protomer state.
 
@@ -324,7 +324,7 @@ def is_connected(mol: Chem.Mol) -> bool:
     return len(frags) == 1
 
 
-def crest_conformers(ligand_id: str, sdf_path: Path, tmp_dir: Path, num_confs: int) -> list[Path]:
+def crest_conformers(ligand_id: str, sdf_path: Path, tmp_dir: Path, num_confs: int) -> List[Path]:
     """
     Run CREST on a molecule if RDKit conformer generation fails.
     Input: single conformer SDF
@@ -392,7 +392,7 @@ def crest_conformers(ligand_id: str, sdf_path: Path, tmp_dir: Path, num_confs: i
 
 
 
-def rebuild_from_smiles(mol: Chem.Mol) -> Chem.Mol | None:
+def rebuild_from_smiles(mol: Chem.Mol) -> Optional[Chem.Mol]:
     """
     Rebuild a molecule via SMILES → 3D ETKDG.
     Useful if direct parsing or force field fails.
@@ -414,7 +414,7 @@ def rebuild_from_smiles(mol: Chem.Mol) -> Chem.Mol | None:
 # place them near your other utils
 # =============================
 
-def keep_largest_fragment(mol: Chem.Mol) -> Chem.Mol | None:
+def keep_largest_fragment(mol: Chem.Mol) -> Optional[Chem.Mol]:
     if mol is None:
         return None
     try:
@@ -437,7 +437,7 @@ def mol_key(mol: Chem.Mol) -> str:
             return f"mol_{id(mol)}"
 
 
-def standardize_preserve_state(mol: Chem.Mol) -> Chem.Mol | None:
+def standardize_preserve_state(mol: Chem.Mol) -> Optional[Chem.Mol]:
     """
     Standardize gently, but DO NOT reionize.
     Reionizer would tend to collapse your protomer diversity.
@@ -464,7 +464,7 @@ def enumerate_protomers(
     ph_max: float = 7.4,
     ph_precision: float = 0.5,
     max_protomers: int = 4,
-) -> list[Chem.Mol]:
+) -> List[Chem.Mol]:
     """
     Return one or more protonation/ionization states.
     If enumeration is off, returns a single standardized state.
@@ -526,7 +526,7 @@ def enumerate_tautomers(
     mol: Chem.Mol,
     max_tautomers: int = 4,
     max_transforms: int = 200,
-) -> list[Chem.Mol]:
+) -> List[Chem.Mol]:
     """
     Enumerate tautomers for ONE protomer.
     """
@@ -1111,7 +1111,7 @@ def choose_multi(prompt, options):
             return [options[i] for i in picks]
         print("Invalid selection—try again.")
 
-def parse_index_list(s: str, n: int) -> list[int]:
+def parse_index_list(s: str, n: int) -> List[int]:
     s = s.strip()
     if not s: return []
     picks = set()
@@ -1145,7 +1145,7 @@ def prompt_int(question, default, *, min_value=1):
         print(f"Please enter an integer greater than or equal to {min_value}.")
 
 
-def choose_csv_column(headers: list[str], question: str, default_index: int) -> str:
+def choose_csv_column(headers: List[str], question: str, default_index: int) -> str:
     return headers[prompt_int(question, default_index, min_value=0)]
 
 
@@ -1197,8 +1197,8 @@ def resolve_csv_path_from_folder(args) -> Path:
 def run_csv_mode(csv_path: Path, args, num_confs: int, num_workers: int, OBABEL: str, state_opts: dict):
     base_name = csv_path.stem
 
-    tasks: list[dict[str, str]] = []
-    seen_csv_ids: dict[str, int] = {}
+    tasks: List[Dict[str, str]] = []
+    seen_csv_ids: Dict[str, int] = {}
     with open(csv_path, "r", newline="") as f:
         r = csv.DictReader(f)
         headers = r.fieldnames or []
@@ -1272,7 +1272,7 @@ def run_csv_mode(csv_path: Path, args, num_confs: int, num_workers: int, OBABEL:
     ]
 
     written_total = 0
-    manifest_rows: list[dict] = []
+    manifest_rows: List[dict] = []
     try:
         with Pool(processes=num_workers) as pool:
             for result in pool.imap_unordered(generate_poses, work_items, chunksize=1):
@@ -1290,10 +1290,10 @@ def run_csv_mode(csv_path: Path, args, num_confs: int, num_workers: int, OBABEL:
     write_manifest_for_outputs(pdbqt_dir, manifest_rows)
 
 # ----------------- per-folder runner -----------------
-def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBABEL: str, remove_tmp: bool):
+def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBABEL: str, remove_tmp: bool, state_opts: dict):
     print(f"\n=== Processing folder: {folder} (type={ft}) ===")
 
-    tasks: list[dict[str, str]] = []
+    tasks: List[Dict[str, str]] = []
     base_name = folder.name
 
     # Collect ligands from the folder
@@ -1341,7 +1341,7 @@ def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBAB
     ]
 
     written_total = 0
-    manifest_rows: list[dict] = []
+    manifest_rows: List[dict] = []
     try:
         with Pool(processes=num_workers) as pool:
             for result in pool.imap_unordered(generate_poses, work_items, chunksize=1):
@@ -1425,7 +1425,7 @@ if __name__ == "__main__":
     # --- Mode 2: MULTIPLE folders (sdf OR smiles) ---
     elif mode == "2":
         # Resolve folder list (headless or interactive)
-        folders: list[Path] = []
+        folders: List[Path] = []
         if args.folder:
             # Support both space-separated and a single comma-separated token
             raw = []
@@ -1458,7 +1458,9 @@ if __name__ == "__main__":
         total_written = 0
         outputs = []
         for folder in folders:
-            written, pdbqt_dir, tmp_dir = run_one_folder(folder, ft, num_confs, num_workers, OBABEL, args.remove_tmp)
+            written, pdbqt_dir, tmp_dir = run_one_folder(
+                folder, ft, num_confs, num_workers, OBABEL, args.remove_tmp, state_opts
+            )
             total_written += written
             if pdbqt_dir is not None:
                 outputs.append(pdbqt_dir)
@@ -1490,7 +1492,7 @@ if __name__ == "__main__":
             sdf_path = next(p for p in sdf_files if p.name == pick)
         base_name = sdf_path.stem
 
-        tasks: list[dict[str, str]] = []
+        tasks: List[Dict[str, str]] = []
         for task in iter_mols_from_sdf_file(sdf_path):
             tasks.append(task)
 
@@ -1526,7 +1528,7 @@ if __name__ == "__main__":
         ]
 
         written_total = 0
-        manifest_rows: list[dict] = []
+        manifest_rows: List[dict] = []
         try:
             with Pool(processes=num_workers) as pool:
                 for result in pool.imap_unordered(generate_poses, work_items, chunksize=1):

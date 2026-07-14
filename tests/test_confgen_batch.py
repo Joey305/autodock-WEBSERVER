@@ -1,4 +1,5 @@
 import importlib.util
+import builtins
 import sys
 import tempfile
 import unittest
@@ -91,6 +92,45 @@ class ConfgenBatchTests(unittest.TestCase):
 
         self.assertEqual(sdf_found, ["Ligands_split_001", "Ligands_split_002"])
         self.assertEqual(smiles_found, ["Smiles_batch_001"])
+
+    def test_csv_columns_for_target_uses_per_folder_map(self):
+        module = load_script_module("1B_confgen_batch.py", "confgen_batch_csv_map")
+        column_map = {
+            "Ligands_split_001": {"smiles_col": "canonical_smiles", "id_col": "pref_name"},
+            "Ligands_split_002": {"smiles_col": "smiles", "id_col": "compound_id"},
+        }
+
+        first = module.csv_columns_for_target(
+            "Ligands_split_001",
+            global_smiles_col="fallback_smiles",
+            global_id_col="fallback_id",
+            column_map=column_map,
+        )
+        second = module.csv_columns_for_target(
+            "Ligands_split_003",
+            global_smiles_col="fallback_smiles",
+            global_id_col="fallback_id",
+            column_map=column_map,
+        )
+
+        self.assertEqual(first, ("canonical_smiles", "pref_name"))
+        self.assertEqual(second, ("fallback_smiles", "fallback_id"))
+
+    def test_prompt_csv_columns_accepts_zero_based_indices(self):
+        module = load_script_module("1B_confgen_batch.py", "confgen_batch_prompt_cols")
+        answers = iter(["0", "2"])
+        original_input = builtins.input
+        try:
+            builtins.input = lambda prompt="": next(answers)
+            smiles_col, id_col = module.prompt_csv_columns(
+                ["canonical_smiles", "molecule_chembl_id", "pref_name"],
+                "Ligands_split_001",
+            )
+        finally:
+            builtins.input = original_input
+
+        self.assertEqual(smiles_col, "canonical_smiles")
+        self.assertEqual(id_col, "pref_name")
 
 
 if __name__ == "__main__":

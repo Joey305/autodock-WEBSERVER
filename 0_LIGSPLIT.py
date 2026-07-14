@@ -314,8 +314,8 @@ def write_smiles_groups(files: list[Path], output_root: Path, prefix: str, group
     return summary
 
 
-def write_summary_file(output_root: Path, dataset_mode: str, input_path: Path, summary: list[tuple[str, int]]):
-    summary_path = output_root / "split_summary.csv"
+def write_summary_file(output_dir: Path, dataset_mode: str, input_path: Path, summary: list[tuple[str, int]]):
+    summary_path = output_dir / "split_summary.csv"
     with summary_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["group_folder", "ligand_count", "dataset_mode", "source_input"])
@@ -323,9 +323,18 @@ def write_summary_file(output_root: Path, dataset_mode: str, input_path: Path, s
             writer.writerow([folder_name, count, dataset_mode, str(input_path)])
 
 
+def existing_split_targets(output_dir: Path, prefix: str) -> list[Path]:
+    return sorted(path for path in output_dir.glob(f"{prefix}_*") if path.is_dir())
+
+
+def clear_existing_split_targets(output_dir: Path, prefix: str):
+    for path in existing_split_targets(output_dir, prefix):
+        shutil.rmtree(path)
+
+
 def split_ligands(
     input_path: Path,
-    output_root: Path,
+    output_dir: Path,
     group_size: int | None = None,
     num_groups: int | None = None,
     prefix: str = "Ligands_split",
@@ -336,26 +345,33 @@ def split_ligands(
     total_items = count_items_for_mode(dataset_mode, files)
     group_sizes = plan_groups(total_items, group_size=group_size, num_groups=num_groups)
 
-    output_root = Path(output_root)
-    if output_root.exists():
-        if not overwrite:
-            raise FileExistsError(f"Output folder already exists: {output_root}")
-        shutil.rmtree(output_root)
-    output_root.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(output_dir)
+    if output_dir.exists() and not output_dir.is_dir():
+        raise FileExistsError(f"Output path is not a directory: {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    existing_groups = existing_split_targets(output_dir, prefix)
+    if existing_groups and not overwrite:
+        raise FileExistsError(
+            f"Split folders with prefix {prefix!r} already exist in {output_dir}. "
+            "Use overwrite to replace them."
+        )
+    if existing_groups and overwrite:
+        clear_existing_split_targets(output_dir, prefix)
 
     if dataset_mode == "csv":
-        summary = write_csv_groups(files[0], output_root, prefix, group_sizes)
+        summary = write_csv_groups(files[0], output_dir, prefix, group_sizes)
     elif dataset_mode == "sdf":
-        summary = write_sdf_groups(files, output_root, prefix, group_sizes)
+        summary = write_sdf_groups(files, output_dir, prefix, group_sizes)
     else:
-        summary = write_smiles_groups(files, output_root, prefix, group_sizes)
+        summary = write_smiles_groups(files, output_dir, prefix, group_sizes)
 
-    write_summary_file(output_root, dataset_mode, Path(input_path), summary)
+    write_summary_file(output_dir, dataset_mode, Path(input_path), summary)
     return {
         "mode": dataset_mode,
         "total_items": total_items,
         "group_sizes": group_sizes,
-        "output_root": str(output_root),
+        "output_root": str(output_dir),
         "groups": summary,
     }
 
@@ -423,16 +439,20 @@ def interactive_args() -> argparse.Namespace:
         num_groups = prompt_positive_int("Number of folders", default=min(10, total_items))
 
     group_sizes = plan_groups(total_items, group_size=group_size, num_groups=num_groups)
-    default_output = f"{sanitize_name(input_path.stem if input_path.is_file() else input_path.name, 'Ligands')}_split"
-    output_root = Path(input(f"Output folder [{default_output}]: ").strip() or default_output).expanduser()
+    default_output = "."
+    output_dir = Path(input(f"Destination directory for split folders [{default_output}]: ").strip() or default_output).expanduser()
     prefix = input("Group folder prefix [Ligands_split]: ").strip() or "Ligands_split"
 
     print("\nPlanned split:")
     for idx, size in enumerate(group_sizes, start=1):
         print(f" - group {idx}: {size} ligand(s)")
 
-    overwrite = output_root.exists() and prompt_yes_no(f"{output_root} already exists. Overwrite it?", default=False)
-    if output_root.exists() and not overwrite:
+    existing_groups = existing_split_targets(output_dir, prefix) if output_dir.exists() and output_dir.is_dir() else []
+    overwrite = bool(existing_groups) and prompt_yes_no(
+        f"Found {len(existing_groups)} existing split folder(s) with prefix {prefix} in {output_dir}. Replace them?",
+        default=False,
+    )
+    if existing_groups and not overwrite:
         print("Aborted before writing files.")
         sys.exit(1)
 
@@ -442,7 +462,7 @@ def interactive_args() -> argparse.Namespace:
 
     return argparse.Namespace(
         input=input_path,
-        output=output_root,
+        output=output_dir,
         group_size=group_size,
         num_groups=num_groups,
         prefix=prefix,
@@ -458,7 +478,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--input", help="Ligand file or folder to split")
-    parser.add_argument("--output", help="Destination root folder for split groups")
+    parser.add_argument("--output", default=".", help="Destination directory where split folders will be created")
     parser.add_argument("--group-size", type=int, help="Maximum ligands per output folder")
     parser.add_argument("--num-groups", type=int, help="Number of output folders to create")
     parser.add_argument("--prefix", default="Ligands_split", help="Folder name prefix for each split group")
@@ -471,8 +491,6 @@ def parse_args() -> argparse.Namespace:
 
     if not args.input:
         parser.error("--input is required in non-interactive mode")
-    if not args.output:
-        parser.error("--output is required in non-interactive mode")
     if bool(args.group_size) == bool(args.num_groups):
         parser.error("Provide exactly one of --group-size or --num-groups")
     return args
@@ -500,7 +518,7 @@ def main():
     args = parse_args()
     result = split_ligands(
         input_path=Path(args.input).expanduser(),
-        output_root=Path(args.output).expanduser(),
+        output_dir=Path(args.output).expanduser(),
         group_size=args.group_size,
         num_groups=args.num_groups,
         prefix=args.prefix,

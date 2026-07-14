@@ -25,6 +25,8 @@ RUNTIME_ROOT_FILES = [
     "5C_BuildPymolSesh.py",
     "6_MDpymacs.py",
     "7_Graphs.py",
+    "create_vina_env.sh",
+    "docking.yaml",
     "ligand_naming.py",
     "ligand_manifest.py",
 ]
