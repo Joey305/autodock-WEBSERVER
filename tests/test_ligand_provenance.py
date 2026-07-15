@@ -256,6 +256,32 @@ class ConcatenateScoresTests(unittest.TestCase):
 
 
 class DockingRunnerTests(unittest.TestCase):
+    def test_resolve_receptor_file_accepts_suffix_variants(self):
+        module = load_script_module("3_Complete_batch_docking.py", "docking_runner_module_matcher")
+        receptor_files = [
+            "/tmp/Receptors-Yasara/3eky_receptor.pdbqt",
+            "/tmp/Receptors-Yasara/4abc_cleaned.pdbqt",
+        ]
+
+        match, kind = module._resolve_receptor_file("3eky", receptor_files)
+        self.assertEqual(match, receptor_files[0])
+        self.assertEqual(kind, "fuzzy")
+
+        match, kind = module._resolve_receptor_file("4abc.pdbqt", receptor_files)
+        self.assertEqual(match, receptor_files[1])
+        self.assertIn(kind, {"stem", "normalized", "fuzzy"})
+
+    def test_resolve_receptor_file_does_not_guess_ambiguous_variants(self):
+        module = load_script_module("3_Complete_batch_docking.py", "docking_runner_module_ambiguous")
+        receptor_files = [
+            "/tmp/Receptors-Yasara/3eky_chainA.pdbqt",
+            "/tmp/Receptors-Yasara/3eky_chainB.pdbqt",
+        ]
+
+        match, kind = module._resolve_receptor_file("3eky", receptor_files)
+        self.assertIsNone(match)
+        self.assertEqual(kind, "ambiguous")
+
     def test_build_jobs_preserves_full_ligand_variant(self):
         module = load_script_module("3_Complete_batch_docking.py", "docking_runner_module")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -295,6 +321,30 @@ class DockingRunnerTests(unittest.TestCase):
             self.assertEqual(jobs[0]["ligand"], "obj01_p01_t04_c032")
             self.assertTrue(jobs[0]["output_pdbqt"].endswith("ReceptorA/obj01_p01_t04_c032/out.pdbqt"))
             self.assertEqual(jobs[0]["ligand_metadata"]["LigandVariant"], "obj01_p01_t04_c032")
+
+    def test_build_jobs_matches_center_rows_to_yasara_style_receptors(self):
+        module = load_script_module("3_Complete_batch_docking.py", "docking_runner_module_yasara")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            receptors = root / "Receptors-Yasara"
+            ligands = root / "Ligands"
+            results = root / "Docking_Results_Test"
+            receptors.mkdir()
+            ligands.mkdir()
+            (receptors / "3eky_receptor.pdbqt").write_text("RECEPTOR\n")
+            (ligands / "obj01_p01_t04_c032.pdbqt").write_text("LIGAND\n")
+
+            jobs = module.build_jobs(
+                str(results),
+                str(ligands),
+                str(receptors),
+                [{"PDB_ID": "3eky", "X": "1", "Y": "2", "Z": "3"}],
+                5,
+                "/usr/bin/vina",
+            )
+
+            self.assertEqual(len(jobs), 1)
+            self.assertTrue(jobs[0]["receptor_file"].endswith("3eky_receptor.pdbqt"))
 
     def test_missing_vina_message_is_clear(self):
         module = load_script_module("3_Complete_batch_docking.py", "docking_runner_module_missing")

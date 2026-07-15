@@ -17,6 +17,8 @@ from pathlib import Path
 
 from ligand_manifest import find_ligand_state_manifests, load_ligand_state_manifest, merge_ligand_metadata
 
+RECEPTOR_SUFFIXES = (".pdbqt", ".pdb", ".mol2")
+
 # ---------- UI helpers (only used if flags not provided) ----------
 def choose(prompt, items):
     print(f"\n{prompt}", flush=True)
@@ -57,6 +59,72 @@ def _ligand_tag_from_dir(ligand_dir: str) -> str:
     if m:
         return f"CPD{m.group(1)}"
     return _sanitize_tag(base or "Ligands")
+
+
+def _strip_known_suffix(name: str) -> str:
+    lower = name.lower()
+    for suffix in RECEPTOR_SUFFIXES:
+        if lower.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def _normalize_receptor_key(name: str) -> str:
+    stem = _strip_known_suffix(os.path.basename(name))
+    return re.sub(r"[^a-z0-9]+", "", stem.lower())
+
+
+def _candidate_receptor_keys(name: str) -> set[str]:
+    raw = _strip_known_suffix(os.path.basename(name))
+    variants = {raw, raw.lower(), re.sub(r"[^A-Za-z0-9]+", "", raw)}
+    base = re.split(r"[_-]+", raw, maxsplit=1)[0].strip()
+    if base:
+        variants.update({base, base.lower(), re.sub(r"[^A-Za-z0-9]+", "", base)})
+    return {v for v in variants if v}
+
+
+def _resolve_receptor_file(pdbid: str, receptor_files: list[str]) -> tuple[str | None, str]:
+    requested = (pdbid or "").strip()
+    if not requested:
+        return None, "empty PDB_ID"
+
+    exact_targets = [requested, *[requested + ext for ext in RECEPTOR_SUFFIXES]]
+    by_basename = {os.path.basename(path): path for path in receptor_files}
+    for target in exact_targets:
+        match = by_basename.get(os.path.basename(target))
+        if match:
+            return match, "exact"
+
+    requested_stem = _strip_known_suffix(requested).lower()
+    stem_matches = [
+        path for path in receptor_files
+        if _strip_known_suffix(os.path.basename(path)).lower() == requested_stem
+    ]
+    if len(stem_matches) == 1:
+        return stem_matches[0], "stem"
+
+    requested_norm = _normalize_receptor_key(requested)
+    norm_matches = [
+        path for path in receptor_files
+        if _normalize_receptor_key(os.path.basename(path)) == requested_norm
+    ]
+    if len(norm_matches) == 1:
+        return norm_matches[0], "normalized"
+
+    requested_keys = _candidate_receptor_keys(requested)
+    fuzzy_matches = []
+    for path in receptor_files:
+        file_keys = _candidate_receptor_keys(os.path.basename(path))
+        if any(
+            req == got or req.startswith(got) or got.startswith(req)
+            for req in requested_keys
+            for got in file_keys
+        ):
+            fuzzy_matches.append(path)
+    if len(fuzzy_matches) == 1:
+        return fuzzy_matches[0], "fuzzy"
+
+    return None, "missing" if not fuzzy_matches else "ambiguous"
 
 # ---------- Docking worker ----------
 def run_docking(job):
@@ -155,6 +223,9 @@ def resolve_vina_executable(cli_vina_exe: str | None = None) -> str:
 def build_jobs(results_dir, ligand_dir, receptor_dir, grid_rows, num_modes, vina_exe):
     jobs = []
     ligand_files = glob.glob(os.path.join(ligand_dir, "*.pdbqt"))
+    receptor_files = []
+    for suffix in RECEPTOR_SUFFIXES:
+        receptor_files.extend(glob.glob(os.path.join(receptor_dir, f"*{suffix}")))
     ligand_names = [os.path.splitext(os.path.basename(f))[0] for f in ligand_files]
     manifest_map = {}
     for manifest_path in find_ligand_state_manifests([Path(ligand_dir), Path(ligand_dir).parent]):
@@ -162,23 +233,15 @@ def build_jobs(results_dir, ligand_dir, receptor_dir, grid_rows, num_modes, vina
 
     if not ligand_names:
         raise FileNotFoundError(f"No ligands (*.pdbqt) found in {ligand_dir}")
+    if not receptor_files:
+        raise FileNotFoundError(f"No receptors (*{', *'.join(RECEPTOR_SUFFIXES)}) found in {receptor_dir}")
 
     for row in grid_rows:
         pdbid = row["PDB_ID"]
         cx, cy, cz = row["X"], row["Y"], row["Z"]
-        receptor_file = os.path.join(receptor_dir, pdbid)
-
-        if not os.path.exists(receptor_file):
-            alt = None
-            for ext in (".pdbqt", ".pdb", ".mol2"):
-                cand = receptor_file + ext
-                if os.path.exists(cand):
-                    alt = cand
-                    break
-            if alt:
-                receptor_file = alt
-            else:
-                continue
+        receptor_file, _ = _resolve_receptor_file(pdbid, receptor_files)
+        if not receptor_file:
+            continue
 
         for ligand in ligand_names:
             ligand_file = os.path.join(ligand_dir, f"{ligand}.pdbqt")
@@ -295,15 +358,15 @@ def main():
     run_log = open(run_log_path, "a", encoding="utf-8")
 
     jobs = build_jobs(results_dir, ligand_dir, receptor_dir, grid_rows, num_modes, vina_exe)
+    receptor_files = []
+    for suffix in RECEPTOR_SUFFIXES:
+        receptor_files.extend(glob.glob(os.path.join(receptor_dir, f"*{suffix}")))
     missing_receptor_msgs = []
     for row in grid_rows:
-        receptor_file = os.path.join(receptor_dir, row["PDB_ID"])
-        if not (
-            os.path.exists(receptor_file)
-            or any(os.path.exists(receptor_file + ext) for ext in (".pdbqt", ".pdb", ".mol2"))
-        ):
+        receptor_file, match_kind = _resolve_receptor_file(row["PDB_ID"], receptor_files)
+        if not receptor_file:
             missing_receptor_msgs.append(
-                f"❌ Missing receptor: {receptor_file}(.pdbqt/.pdb/.mol2)"
+                f"❌ Unmatched receptor center: {row['PDB_ID']} (match={match_kind})"
             )
     for msg in missing_receptor_msgs:
         run_log.write(msg + "\n")
@@ -324,7 +387,12 @@ def main():
     total_jobs = len(jobs)
 
     if total_jobs == 0:
-        raise RuntimeError("No jobs prepared. Check receptors/ligands/CSV inputs.")
+        available = ", ".join(sorted(os.path.basename(path) for path in receptor_files)[:10]) or "(none found)"
+        details = "; ".join(missing_receptor_msgs[:5]) if missing_receptor_msgs else "no receptor-center rows matched"
+        raise RuntimeError(
+            "No jobs prepared. Check receptors/ligands/CSV inputs. "
+            f"Available receptors: {available}. Details: {details}"
+        )
 
     # Initial progress bar line
     progress_bar(0, total_jobs, successes=0, failures=0)

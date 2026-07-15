@@ -1,63 +1,81 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import sys
 import os
 import re
 from pathlib import Path
 from datetime import datetime
+from typing import Dict, List
 
 HERE = Path(__file__).resolve().parent
 
-# ---------- cache ----------
-_HAS_PDBQT_CACHE: dict[str, bool] = {}
+def _ignore_candidate_dir(d: Path) -> bool:
+    name = d.name
+    return (
+        not name
+        or name.startswith(".")
+        or name == "__pycache__"
+        or name.startswith("logs")
+        or name.startswith("Ligands_TMP_SDF_")
+    )
 
 # ---------- utilities ----------
-def has_any_pdbqt(d: Path) -> bool:
-    """
-    Fast existence check:
-    returns True as soon as one *.pdbqt file is found.
-    Cached so each directory is scanned at most once.
-    """
-    key = str(d.resolve())
-    if key not in _HAS_PDBQT_CACHE:
-        _HAS_PDBQT_CACHE[key] = any(d.glob("*.pdbqt"))
-    return _HAS_PDBQT_CACHE[key]
-
-def all_dirs_sorted() -> list[Path]:
+def all_dirs_sorted() -> List[Path]:
     return sorted([p for p in Path(".").iterdir() if p.is_dir()], key=lambda x: x.name.lower())
 
-def ligand_dirs_only() -> list[Path]:
+def _ligand_dir_rank(d: Path):
+    name = d.name.lower()
+    return (
+        0 if "_ligands_pdbqt_" in name else 1,
+        0 if "ligand" in name else 1,
+        0 if "batch" in name or "output" in name else 1,
+        name,
+    )
+
+def _receptor_dir_rank(d: Path):
+    name = d.name.lower()
+    return (
+        0 if name.startswith("receptors") else 1,
+        0 if "receptor" in name else 1,
+        name,
+    )
+
+def ligand_dirs_only() -> List[Path]:
     """
-    Only show directories starting with Ligands_ and containing >=1 pdbqt.
+    Show directory names only, ranked so likely ligand output folders appear first.
     """
     return sorted(
         [
             p for p in Path(".").iterdir()
-            if p.is_dir() and p.name.startswith("Ligands_") and has_any_pdbqt(p)
+            if p.is_dir()
+            and not _ignore_candidate_dir(p)
         ],
-        key=lambda x: x.name.lower()
+        key=_ligand_dir_rank,
     )
 
-def receptor_dirs_only() -> list[Path]:
+def receptor_dirs_only() -> List[Path]:
     """
-    Only show directories starting with Receptors and containing >=1 pdbqt.
+    Show directory names only, ranked so likely receptor folders appear first.
     """
     return sorted(
         [
             p for p in Path(".").iterdir()
-            if p.is_dir() and p.name.startswith("Receptors") and has_any_pdbqt(p)
+            if p.is_dir()
+            and not _ignore_candidate_dir(p)
         ],
-        key=lambda x: x.name.lower()
+        key=_receptor_dir_rank,
     )
 
-def list_files(pattern: str) -> list[Path]:
+def list_files(pattern: str) -> List[Path]:
     return sorted([p for p in Path(".").glob(pattern) if p.is_file()], key=lambda x: x.name.lower())
 
-def show_indexed(items: list[Path], title: str):
+def show_indexed(items: List[Path], title: str):
     print(f"\n{title}")
     for i, p in enumerate(items, start=1):
         print(f" [{i}] {p.name}")
 
-def parse_index_list(s: str, n: int) -> list[int]:
+def parse_index_list(s: str, n: int) -> List[int]:
     s = s.strip()
     if not s:
         return []
@@ -185,11 +203,11 @@ def main():
     csv_candidates = list_files("*.csv")
 
     if not lig_candidates:
-        print("❌ No ligand directories with .pdbqt files were found.")
+        print("❌ No candidate ligand directories were found.")
         sys.exit(2)
 
     if not rec_candidates:
-        print("❌ No receptor directories with .pdbqt files were found.")
+        print("❌ No candidate receptor directories were found.")
         sys.exit(2)
 
     if not csv_candidates:

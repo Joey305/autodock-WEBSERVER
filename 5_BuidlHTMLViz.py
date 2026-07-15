@@ -168,6 +168,18 @@ def safe_float(value: Any, default: float = 1e9) -> float:
         return default
 
 
+def unique_output_path(directory: Path, filename: str, used_names: set[str]) -> Path:
+    candidate = filename
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix
+    counter = 2
+    while candidate in used_names:
+        candidate = f"{stem}_{counter}{suffix}"
+        counter += 1
+    used_names.add(candidate)
+    return directory / candidate
+
+
 def load_rows(csv_path: Path) -> List[Dict[str, str]]:
     with csv_path.open("r", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
@@ -1380,6 +1392,8 @@ def build_project(
 
     manifest_entries: List[Dict[str, Any]] = []
     missing_entries: List[Dict[str, Any]] = []
+    receptor_copy_map: Dict[str, str] = {}
+    used_input_names: set[str] = set()
 
     for row in selected_rows:
         receptor_name = row.get("Receptor", "").strip()
@@ -1405,11 +1419,20 @@ def build_project(
         best_affinity = f"{min(affinities):.2f}" if affinities else row.get("Binding_Affinity", "")
         slug = safe_slug(f"{Path(receptor_name).stem}__{ligand_variant}")
 
-        receptor_copy = inputs_dir / f"{slug}_receptor.pdbqt"
+        receptor_key = str(receptor_file.resolve())
+        receptor_copy_rel = receptor_copy_map.get(receptor_key)
+        if receptor_copy_rel is None:
+            receptor_filename = f"{safe_slug(Path(receptor_file).stem)}_receptor{receptor_file.suffix or '.pdbqt'}"
+            receptor_copy = unique_output_path(inputs_dir, receptor_filename, used_input_names)
+            receptor_copy.write_text(receptor_text, encoding="utf-8")
+            receptor_copy_rel = str(receptor_copy.relative_to(project_dir))
+            receptor_copy_map[receptor_key] = receptor_copy_rel
+        else:
+            receptor_copy = project_dir / receptor_copy_rel
+
         ligand_copy = inputs_dir / f"{slug}_poses.pdbqt"
         viewer_file = viewers_dir / f"{slug}.html"
 
-        receptor_copy.write_text(receptor_text, encoding="utf-8")
         ligand_copy.write_text(ligand_text, encoding="utf-8")
         try:
             viewer_html = build_viewer_html(
@@ -1436,7 +1459,7 @@ def build_project(
                 "source_outfile": str(outfile),
                 "receptor_file": str(receptor_file),
                 "viewer_file": str(viewer_file.relative_to(project_dir)),
-                "receptor_copy": str(receptor_copy.relative_to(project_dir)),
+                "receptor_copy": receptor_copy_rel,
                 "pose_copy": str(ligand_copy.relative_to(project_dir)),
             }
         )
