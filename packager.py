@@ -22,6 +22,7 @@ RUNTIME_ROOT_FILES = [
     "4_ParseScores.py",
     "4C_ConcatenateScores.py",
     "5_BuidlHTMLViz.py",
+    "5_CompactedHTMLViz.py",
     "5C_BuildPymolSesh.py",
     "6_MDpymacs.py",
     "7_Graphs.py",
