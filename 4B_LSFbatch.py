@@ -7,36 +7,10 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+from hpc_profiles import packaged_profile_or_default, render_lsf_header, render_setup_block, replace_profile
+
 HERE = Path(__file__).resolve().parent
-
-LSF_TEMPLATE = """#!/bin/bash
-# Auto-generated: {timestamp}
-#BSUB -J parse_{jobtag}
-#BSUB -P {project}
-#BSUB -o logs/parse_{jobtag}_%J.out
-#BSUB -e logs/parse_{jobtag}_%J.err
-#BSUB -W {walltime}
-#BSUB -q {queue}
-#BSUB -n {workers}
-#BSUB -R "span[hosts=1]"
-#BSUB -R "rusage[mem={mem_per_core}]"
-#BSUB -B
-#BSUB -N
-#BSUB -u {email}
-
-set -euo pipefail
-
-cd "$LS_SUBCWD"
-mkdir -p logs
-
-source /nethome/jxs794/miniconda3/etc/profile.d/conda.sh
-conda activate vina_env
-
-python 4_ParseScores.py \\
-  --dir "{results_dir}" \\
-  --workers {workers} \\
-  --heartbeat {heartbeat} {fallback_flag}
-"""
+DEFAULT_PROFILE = packaged_profile_or_default(HERE)
 
 def sanitize_name(s: str) -> str:
     return re.sub(r'[^A-Za-z0-9._-]+', '_', s)
@@ -118,21 +92,32 @@ def write_lsf(results_dir: Path, queue: str, project: str, walltime: str,
               heartbeat: int, fallback_crawl: bool) -> Path:
     suffix = suffix_from_results_dir(results_dir)
     jobtag = sanitize_name(suffix)
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     fallback_flag = "--fallback-crawl" if fallback_crawl else ""
-
-    txt = LSF_TEMPLATE.format(
-        timestamp=ts,
-        jobtag=jobtag,
-        project=project,
-        walltime=walltime,
+    profile = replace_profile(
+        DEFAULT_PROFILE,
         queue=queue,
+        project=project,
         workers=workers,
-        mem_per_core=mem_per_core,
+        mem_per_core_mb=mem_per_core,
         email=email,
-        results_dir=results_dir.name,
-        heartbeat=heartbeat,
-        fallback_flag=fallback_flag
+        setup_commands=render_setup_block(DEFAULT_PROFILE),
+    )
+    txt = (
+        f"#!/bin/bash\n# Auto-generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        + render_lsf_header(
+            profile=profile,
+            jobname=f"parse_{jobtag}",
+            log_prefix=f"parse_{jobtag}",
+            walltime=walltime,
+            workers=workers,
+            mem_per_core_mb=mem_per_core,
+        ).split("\n", 1)[1]
+        + render_setup_block(profile)
+        + f'PYBIN="{profile.python_command}"\nif [ -z "$PYBIN" ]; then\n  echo "No Python command configured"; exit 127\nfi\n'
+        + '"$PYBIN" 4_ParseScores.py \\\n'
+        + f'  --dir "{results_dir.name}" \\\n'
+        + f"  --workers {workers} \\\n"
+        + f"  --heartbeat {heartbeat} {fallback_flag}\n"
     )
 
     out = HERE / f"run_parse_{jobtag}.lsf"
@@ -224,12 +209,12 @@ def main():
         sys.exit(2)
 
     queue = input_default("Queue", "general")
-    project = input_default("Project", "brd")
+    project = input_default("Project", DEFAULT_PROFILE.project)
     walltime = input_default("Walltime", "200:00")
-    workers = int(input_default("Workers", "16"))
-    mem_per_core = int(input_default("Mem per core MB", "2000"))
+    workers = int(input_default("Workers", str(DEFAULT_PROFILE.workers)))
+    mem_per_core = int(input_default("Mem per core MB", str(DEFAULT_PROFILE.mem_per_core_mb)))
     heartbeat = int(input_default("Heartbeat", "1000"))
-    email = input_default("Email", "jxs794@miami.edu")
+    email = input_default("Email", DEFAULT_PROFILE.email)
 
     out_paths = []
     for d in selected:

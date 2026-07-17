@@ -23,6 +23,7 @@ RUNTIME_ROOT_FILES = [
     "4C_ConcatenateScores.py",
     "5_BuidlHTMLViz.py",
     "5_CompactedHTMLViz.py",
+    "5_COMPACTED_SDF_HTML.py",
     "5C_BuildPymolSesh.py",
     "6_MDpymacs.py",
     "7_Graphs.py",
@@ -37,6 +38,7 @@ RUNTIME_LSF_FILES = [
     "3B_ServerDocks.py",
     "3a_PDB2PDBQTbatch.py",
     "4B_LSFbatch.py",
+    "hpc_profiles.py",
     "lsf_templates.py",
     "runDOCKING-tmux.sh",
 ]
@@ -385,7 +387,7 @@ def _stage_runtime_dirs(jobroot: Path, repo_root: Path, warnings: list[str]):
 def stage_runtime_assets(jobroot: Path, repo_root: Path, package_mode: str) -> list[str]:
     warnings: list[str] = []
     _stage_runtime_file_group(jobroot, repo_root, RUNTIME_ROOT_FILES, warnings)
-    if package_mode == "lsf":
+    if package_mode in {"lsf", "joey_lsf", "custom_lsf"}:
         _stage_runtime_file_group(jobroot, repo_root, RUNTIME_LSF_FILES, warnings)
     _stage_runtime_dirs(jobroot, repo_root, warnings)
     return warnings

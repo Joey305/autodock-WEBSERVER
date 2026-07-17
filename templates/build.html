@@ -380,26 +380,60 @@
       </div>
       <div class="col-lg-6">
         <label class="mode-card d-block" id="lsfModeCard">
-          <input type="radio" class="form-check-input me-2" name="packageMode" value="lsf" id="packageModeLsf">
+          <input type="radio" class="form-check-input me-2" name="packageMode" value="joey_lsf" id="packageModeLsf">
           <span class="mode-eyebrow d-block mb-1">Optional</span>
           <span class="fw-semibold d-block">Joey's Docking Server Mode / Include LSF-HPC scripts</span>
           <span class="text-muted small" id="lsfModeHelp">Includes the extra LSF/batch files and preserves the lab HPC workflow.</span>
         </label>
       </div>
+      <div class="col-lg-12">
+        <label class="mode-card d-block" id="customLsfModeCard">
+          <input type="radio" class="form-check-input me-2" name="packageMode" value="custom_lsf" id="packageModeCustomLsf">
+          <span class="mode-eyebrow d-block mb-1">New</span>
+          <span class="fw-semibold d-block">Custom LSF/HPC package for another cluster</span>
+          <span class="text-muted small">Stores your own queue, account, notifications, Python, Conda, and Vina settings only inside the generated ZIP.</span>
+        </label>
+      </div>
     </div>
 
     <div id="lsfPanel" class="lsf-panel mt-3">
-      <div class="small text-muted mb-2">This mode is for LSF/HPC cluster use. These settings only apply when Joey's Docking Server Mode is enabled.</div>
+      <div id="joeyLsfHint" class="small text-muted mb-2">Joey mode keeps the current Miami workflow unchanged. The ZIP includes the existing lab defaults automatically.</div>
+      <div id="customLsfHint" class="small text-muted mb-2 d-none">Custom mode stores these LSF/HPC values inside the generated package so helper scripts can regenerate matching `.lsf` files later.</div>
       <div class="row g-2">
-        <div class="col-md-2"><input id="queue"   class="form-control" value="general"   placeholder="Queue"></div>
-        <div class="col-md-2"><input id="project" class="form-control" value="brd"    placeholder="Project"></div>
-        <div class="col-md-2"><input id="walltime"class="form-control" value="96:00"  placeholder="Walltime"></div>
-        <div class="col-md-2"><input id="workers" class="form-control" value="16"     placeholder="Workers"></div>
-        <div class="col-md-2"><input id="mem"     class="form-control" value="2000"   placeholder="mem/core (MB)"></div>
-        <div class="col-md-2"><input id="vinaPath"class="form-control" placeholder="Optional VINA_EXE"></div>
+        <div class="col-md-3"><input id="lsfEmail" class="form-control custom-lsf-field" placeholder="LSF notification email"></div>
+        <div class="col-md-2"><input id="queue"   class="form-control custom-lsf-field" value="general" placeholder="Queue"></div>
+        <div class="col-md-2"><input id="project" class="form-control custom-lsf-field" placeholder="Project/account (optional)"></div>
+        <div class="col-md-2"><input id="workers" class="form-control custom-lsf-field" value="16" placeholder="Workers"></div>
+        <div class="col-md-3"><input id="mem" class="form-control custom-lsf-field" value="2000" placeholder="mem/core (MB)"></div>
       </div>
       <div class="row g-2 mt-2">
-        <div class="col-md-12"><input id="envLine" class="form-control" placeholder="Env line (conda activate ...)—optional"></div>
+        <div class="col-md-3"><input id="confgenWalltime" class="form-control custom-lsf-field" value="48:00" placeholder="ConfGen walltime"></div>
+        <div class="col-md-3"><input id="vinaWalltime" class="form-control custom-lsf-field" value="96:00" placeholder="Vina walltime"></div>
+        <div class="col-md-3"><input id="condaSh" class="form-control custom-lsf-field" placeholder="Conda init script (optional)"></div>
+        <div class="col-md-3"><input id="condaEnv" class="form-control custom-lsf-field" placeholder="Conda env (optional)"></div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-6"><input id="vinaPath" class="form-control custom-lsf-field" placeholder="VINA_EXE path (optional)"></div>
+        <div class="col-md-6"><input id="pythonCommand" class="form-control custom-lsf-field" value='$(command -v python3 || command -v python)' placeholder="Python command"></div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-3">
+          <label class="form-check">
+            <input id="notifyBegin" class="form-check-input custom-lsf-field" type="checkbox">
+            <span class="form-check-label">Notify on start</span>
+          </label>
+        </div>
+        <div class="col-md-3">
+          <label class="form-check">
+            <input id="notifyEnd" class="form-check-input custom-lsf-field" type="checkbox">
+            <span class="form-check-label">Notify on finish</span>
+          </label>
+        </div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-12">
+          <textarea id="setupCommands" class="form-control custom-lsf-field" rows="3" placeholder="Optional extra setup commands, one per line"></textarea>
+        </div>
       </div>
     </div>
 
@@ -459,28 +493,36 @@ function getSelectedPackageMode(){
   return selected ? selected.value : 'portable';
 }
 function setPackageMode(mode){
-  const normalized = (mode === 'lsf' && ENABLE_LSF_PACKAGE) ? 'lsf' : 'portable';
+  const raw = mode === 'lsf' ? 'joey_lsf' : mode;
+  const normalized = ENABLE_LSF_PACKAGE && ['joey_lsf','custom_lsf'].includes(raw) ? raw : 'portable';
   $('#packageModePortable').checked = normalized === 'portable';
-  $('#packageModeLsf').checked = normalized === 'lsf';
+  $('#packageModeLsf').checked = normalized === 'joey_lsf';
+  $('#packageModeCustomLsf').checked = normalized === 'custom_lsf';
   syncPackageModeUI();
 }
 function syncPackageModeUI(){
   const mode = getSelectedPackageMode();
   const lsfAllowed = ENABLE_LSF_PACKAGE;
   $('#packageModeLsf').disabled = !lsfAllowed;
+  $('#packageModeCustomLsf').disabled = !lsfAllowed;
   $('#lsfModeCard').classList.toggle('disabled', !lsfAllowed);
+  $('#customLsfModeCard').classList.toggle('disabled', !lsfAllowed);
   $('#portableModeCard').classList.toggle('active', mode === 'portable');
-  $('#lsfModeCard').classList.toggle('active', mode === 'lsf');
+  $('#lsfModeCard').classList.toggle('active', mode === 'joey_lsf');
+  $('#customLsfModeCard').classList.toggle('active', mode === 'custom_lsf');
   $('#lsfModeHelp').textContent = lsfAllowed
     ? 'Includes the extra LSF/batch files and preserves the lab HPC workflow.'
     : 'LSF packaging is disabled by server configuration.';
 
-  const showLsf = mode === 'lsf' && lsfAllowed;
+  const showLsf = mode !== 'portable' && lsfAllowed;
+  const customMode = mode === 'custom_lsf' && lsfAllowed;
   $('#lsfPanel').classList.toggle('d-none', !showLsf);
-  ['queue','project','walltime','workers','mem','vinaPath','envLine'].forEach(id => enable($('#'+id), showLsf));
-  $('#btnBuild').textContent = showLsf ? "Build Joey's ZIP" : "Build ZIP";
+  $('#joeyLsfHint').classList.toggle('d-none', customMode || !showLsf);
+  $('#customLsfHint').classList.toggle('d-none', !customMode);
+  $$('.custom-lsf-field').forEach(el => enable(el, customMode));
+  $('#btnBuild').textContent = mode === 'joey_lsf' ? "Build Joey's ZIP" : mode === 'custom_lsf' ? "Build Custom LSF ZIP" : "Build ZIP";
 }
-['packageModePortable','packageModeLsf'].forEach(id=>{
+['packageModePortable','packageModeLsf','packageModeCustomLsf'].forEach(id=>{
   document.addEventListener('DOMContentLoaded', ()=>{
     $('#'+id).addEventListener('change', syncPackageModeUI);
   });
@@ -1342,12 +1384,18 @@ $('#btnBuild').onclick=async()=>{
   const fd=new FormData();
   fd.append('jobname',jobname);
   fd.append('package_mode', packageMode);
-  fd.append('include_lsf', packageMode === 'lsf' ? '1' : '0');
-  if(packageMode === 'lsf'){
+  fd.append('include_lsf', packageMode === 'portable' ? '0' : '1');
+  if(packageMode === 'custom_lsf'){
+    fd.append('lsf_email',$('#lsfEmail').value);
     fd.append('queue',$('#queue').value); fd.append('project',$('#project').value);
-    fd.append('walltime',$('#walltime').value); fd.append('workers',$('#workers').value);
-    fd.append('mem_per_core',$('#mem').value); fd.append('env_line',$('#envLine').value);
+    fd.append('confgen_walltime',$('#confgenWalltime').value); fd.append('vina_walltime',$('#vinaWalltime').value);
+    fd.append('workers',$('#workers').value); fd.append('mem_per_core',$('#mem').value);
+    fd.append('conda_sh',$('#condaSh').value); fd.append('conda_env',$('#condaEnv').value);
     fd.append('vina_path',$('#vinaPath').value);
+    fd.append('python_command',$('#pythonCommand').value);
+    fd.append('setup_commands',$('#setupCommands').value);
+    if($('#notifyBegin').checked) fd.append('notify_begin','1');
+    if($('#notifyEnd').checked) fd.append('notify_end','1');
   }
   fd.append('poses_conf',$('#posesConf').value); fd.append('poses_vina',$('#posesVina').value);
   fd.append('csv_smiles_col', csvSmilesCol); fd.append('csv_id_col', csvIdCol);
@@ -1361,7 +1409,10 @@ $('#btnBuild').onclick=async()=>{
   dl.textContent='Download '+j.zip.split('/').pop();
   const warnings = (j.warnings || []).length ? ` Warnings: ${(j.warnings || []).join(' | ')}` : '';
   $('#buildStatus').textContent=`Ready (${j.package_mode})${warnings}`;
-  $('#buildModeResult').textContent = j.package_mode === 'lsf' ? "Packaged: Joey's Docking Server Mode" : 'Packaged: Portable ZIP';
+  $('#buildModeResult').textContent =
+    j.package_mode === 'joey_lsf' ? "Packaged: Joey's Docking Server Mode"
+    : j.package_mode === 'custom_lsf' ? 'Packaged: Custom LSF/HPC ZIP'
+    : 'Packaged: Portable ZIP';
   $('#buildModeResult').classList.remove('d-none');
 };
 

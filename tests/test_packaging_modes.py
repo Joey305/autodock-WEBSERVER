@@ -27,10 +27,11 @@ class PackagingModeTests(unittest.TestCase):
 
     def test_normalize_package_mode(self):
         self.assertEqual(normalize_package_mode({"package_mode": "portable"}), "portable")
-        self.assertEqual(normalize_package_mode({"package_mode": "lsf"}), "lsf")
-        self.assertEqual(normalize_package_mode({"package_mode": "joey_lsf"}), "lsf")
-        self.assertEqual(normalize_package_mode({"include_lsf": "1"}), "lsf")
-        self.assertEqual(normalize_package_mode({}, default_mode="lsf"), "lsf")
+        self.assertEqual(normalize_package_mode({"package_mode": "lsf"}), "joey_lsf")
+        self.assertEqual(normalize_package_mode({"package_mode": "joey_lsf"}), "joey_lsf")
+        self.assertEqual(normalize_package_mode({"package_mode": "custom_lsf"}), "custom_lsf")
+        self.assertEqual(normalize_package_mode({"include_lsf": "1"}), "joey_lsf")
+        self.assertEqual(normalize_package_mode({}, default_mode="lsf"), "joey_lsf")
         self.assertEqual(normalize_package_mode({"package_mode": "lsf"}, lsf_enabled=False), "portable")
 
     def test_infer_ligand_workflow(self):
@@ -49,6 +50,7 @@ class PackagingModeTests(unittest.TestCase):
         self.assertTrue((jobroot / "4C_ConcatenateScores.py").exists())
         self.assertTrue((jobroot / "7_Graphs.py").exists())
         self.assertTrue((jobroot / "5_CompactedHTMLViz.py").exists())
+        self.assertTrue((jobroot / "5_COMPACTED_SDF_HTML.py").exists())
         self.assertTrue((jobroot / "create_vina_env.sh").exists())
         self.assertTrue((jobroot / "docking.yaml").exists())
         self.assertTrue((jobroot / "ligand_naming.py").exists())
@@ -67,17 +69,29 @@ class PackagingModeTests(unittest.TestCase):
         self.assertIsInstance(warnings, list)
 
     def test_lsf_package_includes_hpc_files(self):
-        jobroot, warnings = assemble_job_tree(self.ws, self.ws / "Receptors", self.ws / "Ligands", package_mode="lsf")
+        jobroot, warnings = assemble_job_tree(self.ws, self.ws / "Receptors", self.ws / "Ligands", package_mode="joey_lsf")
 
         self.assertTrue((jobroot / "3B_ServerDocks.py").exists())
         self.assertTrue((jobroot / "1B_confgen_batch.py").exists())
         self.assertTrue((jobroot / "3a_PDB2PDBQTbatch.py").exists())
         self.assertTrue((jobroot / "4B_LSFbatch.py").exists())
+        self.assertTrue((jobroot / "hpc_profiles.py").exists())
         self.assertTrue((jobroot / "4_ParseScores.py").exists())
         self.assertTrue((jobroot / "4C_ConcatenateScores.py").exists())
         self.assertTrue((jobroot / "5_CompactedHTMLViz.py").exists())
+        self.assertTrue((jobroot / "5_COMPACTED_SDF_HTML.py").exists())
         self.assertTrue((jobroot / "lsf_templates.py").exists())
         self.assertTrue((jobroot / "runDOCKING-tmux.sh").exists())
+        self.assertIsInstance(warnings, list)
+
+    def test_custom_lsf_package_includes_hpc_files(self):
+        jobroot, warnings = assemble_job_tree(self.ws, self.ws / "Receptors", self.ws / "Ligands", package_mode="custom_lsf")
+
+        self.assertTrue((jobroot / "3B_ServerDocks.py").exists())
+        self.assertTrue((jobroot / "1B_confgen_batch.py").exists())
+        self.assertTrue((jobroot / "4B_LSFbatch.py").exists())
+        self.assertTrue((jobroot / "hpc_profiles.py").exists())
+        self.assertTrue((jobroot / "lsf_templates.py").exists())
         self.assertIsInstance(warnings, list)
 
     def test_nested_ligands_workspace_is_flattened_in_package(self):

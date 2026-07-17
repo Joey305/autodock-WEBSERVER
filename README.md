@@ -496,7 +496,7 @@ flask --app app:create_app run --debug --port 5050
 | `PUBLIC_MODE`          | Enables public mode when true                                 |
 | `ENABLE_AUTH`          | Enables login/auth behavior when true                         |
 | `ENABLE_LSF_PACKAGE`   | Allows LSF package generation                                 |
-| `DEFAULT_PACKAGE_MODE` | Default package mode: `portable` or `lsf`                     |
+| `DEFAULT_PACKAGE_MODE` | Default package mode: `portable`, `joey_lsf`, or legacy `lsf` |
 | `BABEL_LIBDIR`         | Open Babel plugin directory, important for some deployments   |
 
 Example local environment:
@@ -1357,9 +1357,9 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
   }'
 ```
 
-### LSF mode
+### Joey LSF mode
 
-LSF mode is intended for lab environments that use an LSF scheduler.
+Joey LSF mode preserves the existing University of Miami workflow and keeps the legacy `lsf` API alias working.
 
 Example build request:
 
@@ -1367,7 +1367,7 @@ Example build request:
 curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
   -H "Content-Type: application/json" \
   -d '{
-    "package_mode":"lsf",
+    "package_mode":"joey_lsf",
     "workers":16,
     "queue":"general",
     "project":"brd",
@@ -1377,7 +1377,30 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
   }'
 ```
 
-Only use LSF mode in environments where the scheduler assumptions match your compute system.
+### Custom LSF mode
+
+Use `custom_lsf` when you want the generated ZIP to carry another cluster's queue, account, Python, Conda, Vina, and notification settings inside the package itself.
+
+```bash
+curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "package_mode":"custom_lsf",
+    "lsf_email":"cluster-user@example.org",
+    "queue":"general",
+    "project":"",
+    "workers":16,
+    "mem_per_core":2000,
+    "confgen_walltime":"48:00",
+    "vina_walltime":"96:00",
+    "python_command":"$(command -v python3 || command -v python)",
+    "conda_sh":"/shared/miniconda3/etc/profile.d/conda.sh",
+    "conda_env":"vina_env",
+    "vina_path":"/shared/miniconda3/envs/vina_env/bin/vina"
+  }'
+```
+
+Only use an LSF mode in environments where the scheduler assumptions match your compute system.
 
 ---
 

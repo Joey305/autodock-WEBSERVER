@@ -8,7 +8,10 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List
 
+from hpc_profiles import packaged_profile_or_default, render_lsf_header, render_setup_block, replace_profile
+
 HERE = Path(__file__).resolve().parent
+DEFAULT_PROFILE = packaged_profile_or_default(HERE)
 
 def _ignore_candidate_dir(d: Path) -> bool:
     name = d.name
@@ -114,41 +117,6 @@ def ligand_tag(name: str) -> str:
 def receptor_tag(name: str) -> str:
     return name[len("Receptors_"):] if name.startswith("Receptors_") else name
 
-LSF_TEMPLATE = """#!/bin/bash
-# Auto-generated: {timestamp}
-#BSUB -J vina_{jobtag}
-#BSUB -P {project}
-#BSUB -o logs/vina_{jobtag}_%J.out
-#BSUB -e logs/vina_{jobtag}_%J.err
-#BSUB -W {walltime}
-#BSUB -q {queue}
-#BSUB -n {workers}
-#BSUB -R "span[hosts=1]"
-#BSUB -R "rusage[mem={mem_per_core}]"
-#BSUB -B
-#BSUB -N
-#BSUB -u {email}
-
-set -euo pipefail
-
-cd "$LS_SUBCWD"
-echo "PWD: $(pwd)"
-mkdir -p logs
-
-# Conda env with vina
-source /nethome/jxs794/miniconda3/etc/profile.d/conda.sh
-conda activate vina_env
-
-# Optional pin
-export VINA_EXE="$HOME/miniconda3/envs/vina_env/bin/vina"
-
-python 3_Complete_batch_docking.py \\
-  --receptors "{receptors}" \\
-  --ligands   "{ligands}" \\
-  --centers_csv "{centers_csv}" \\
-  --poses {poses}
-"""
-
 def write_lsf(
     jobtag: str,
     receptors: str,
@@ -162,20 +130,34 @@ def write_lsf(
     mem_per_core: int,
     email: str
 ) -> Path:
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    txt = LSF_TEMPLATE.format(
-        timestamp=ts,
-        jobtag=jobtag,
-        project=project,
-        walltime=walltime,
+    profile = replace_profile(
+        DEFAULT_PROFILE,
         queue=queue,
+        project=project,
         workers=workers,
-        mem_per_core=mem_per_core,
+        mem_per_core_mb=mem_per_core,
+        vina_walltime=walltime,
         email=email,
-        receptors=receptors,
-        ligands=ligands,
-        centers_csv=centers_csv,
-        poses=poses
+    )
+    vina_pin = f'export VINA_EXE="{profile.vina_executable}"\n' if profile.vina_executable else ""
+    txt = (
+        f"#!/bin/bash\n# Auto-generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        + render_lsf_header(
+            profile=profile,
+            jobname=f"vina_{jobtag}",
+            log_prefix=f"vina_{jobtag}",
+            walltime=walltime,
+            workers=workers,
+            mem_per_core_mb=mem_per_core,
+        ).split("\n", 1)[1]
+        + render_setup_block(profile)
+        + vina_pin
+        + f'PYBIN="{profile.python_command}"\nif [ -z "$PYBIN" ]; then\n  echo "No Python command configured"; exit 127\nfi\n'
+        + '"$PYBIN" 3_Complete_batch_docking.py \\\n'
+        + f'  --receptors "{receptors}" \\\n'
+        + f'  --ligands   "{ligands}" \\\n'
+        + f'  --centers_csv "{centers_csv}" \\\n'
+        + f"  --poses {poses}\n"
     )
     out = HERE / f"run_vina_{jobtag}.lsf"
     out.write_text(txt)
@@ -253,12 +235,12 @@ def main():
     poses = int(input_default("\nDocking poses per ligand", 9))
 
     # Defaults for LSF
-    queue = "general"
-    project = "brd"
-    walltime = "500:00"
-    workers = 16
-    mem_per_core = 2000
-    email = "jxs794@miami.edu"
+    queue = DEFAULT_PROFILE.queue
+    project = DEFAULT_PROFILE.project
+    walltime = DEFAULT_PROFILE.vina_walltime
+    workers = DEFAULT_PROFILE.workers
+    mem_per_core = DEFAULT_PROFILE.mem_per_core_mb
+    email = DEFAULT_PROFILE.email
 
     out_paths = []
 

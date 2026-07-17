@@ -133,10 +133,30 @@ Build a portable package:
 {"package_mode": "portable", "poses_conf": 64, "poses_vina": 9}
 ```
 
-Build LSF package files only when the deployment enables LSF package support:
+Build Joey's legacy-compatible Miami LSF package:
 
 ```json
-{"package_mode": "lsf", "poses_conf": 64, "poses_vina": 9}
+{"package_mode": "joey_lsf", "poses_conf": 64, "poses_vina": 9}
+```
+
+Build a custom LSF package for another cluster:
+
+```json
+{
+  "package_mode": "custom_lsf",
+  "queue": "general",
+  "project": "",
+  "workers": 16,
+  "mem_per_core": 2000,
+  "confgen_walltime": "48:00",
+  "vina_walltime": "96:00",
+  "lsf_email": "cluster-user@example.org",
+  "python_command": "$(command -v python3 || command -v python)",
+  "conda_sh": "/shared/miniconda3/etc/profile.d/conda.sh",
+  "conda_env": "vina_env",
+  "vina_path": "/shared/miniconda3/envs/vina_env/bin/vina",
+  "setup_commands": "module load miniconda3"
+}
 ```
 
 ## Security Note

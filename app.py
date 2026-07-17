@@ -14,6 +14,7 @@ from flask_login import LoginManager, login_required
 
 from models import db, User
 from auth import auth_bp
+from hpc_profiles import normalize_package_mode as normalize_hpc_package_mode, profile_for_mode
 from lsf_templates import build_confgen_lsfs, build_vina_lsfs
 from packager import (
     make_workspace, ensure_subdir, save_uploaded_zip,
@@ -90,23 +91,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def normalize_package_mode(values, default_mode: str = "portable", lsf_enabled: bool = True) -> str:
-    requested = (values.get("package_mode") or "").strip().lower()
-    include_lsf = (values.get("include_lsf") or "").strip().lower()
-
-    if requested in {"lsf", "joey_lsf"}:
-        mode = "lsf"
-    elif requested == "portable":
-        mode = "portable"
-    elif include_lsf in {"1", "true", "yes", "on"}:
-        mode = "lsf"
-    elif include_lsf in {"0", "false", "no", "off"}:
-        mode = "portable"
-    else:
-        mode = default_mode if default_mode in {"portable", "lsf"} else "portable"
-
-    if mode == "lsf" and not lsf_enabled:
-        return "portable"
-    return mode
+    return normalize_hpc_package_mode(values, default_mode=default_mode, lsf_enabled=lsf_enabled)
 
 
 def infer_ligand_workflow(ligand_info: Dict[str, Any]) -> tuple[str, str, Optional[str]]:
@@ -1529,7 +1514,7 @@ def create_app() -> Flask:
             default_mode=current_app.config["DEFAULT_PACKAGE_MODE"],
             lsf_enabled=current_app.config["ENABLE_LSF_PACKAGE"],
         )
-        if package_mode == "lsf" and not current_app.config["ENABLE_LSF_PACKAGE"]:
+        if package_mode in {"joey_lsf", "custom_lsf"} and not current_app.config["ENABLE_LSF_PACKAGE"]:
             return ("lsf packaging is disabled", 400)
 
         st = _load_state(ws)
@@ -1576,17 +1561,8 @@ def create_app() -> Flask:
                     return v.strip()
             return default
 
-        # Shared parameters
-        workers      = _get_int("workers", "ncores", default=16)
-        queue        = _get_str("queue", default="general")
-        project      = _get_str("project", default="brd")
-        mem_per_core = _get_int("mem_per_core", "mem", default=2000)
-        email        = _public_email()
-        env_line     = _get_str("env_line", default=current_app.config["DEFAULT_ENV_LINE"])
-
         # ConfGen parameters
         poses_conf        = _get_int("confgen_poses", "poses_conf", "poses", default=64)
-        confgen_walltime  = _get_str("confgen_walltime", "walltime_confgen", default="48:00")
         inferred_lig_mode, inferred_lig_filetype, inferred_single_sdf = infer_ligand_workflow(ligand_info)
         lig_mode          = _get_str("lig_mode", default=inferred_lig_mode)  # "1" CSV, "2" folder, "3" single SDF
         lig_filetype      = _get_str("lig_filetype", "filetype", default=inferred_lig_filetype)
@@ -1599,24 +1575,37 @@ def create_app() -> Flask:
 
         # Vina parameters
         poses_vina        = _get_int("vina_poses", "poses_vina", default=20)
-        vina_walltime     = _get_str("vina_walltime", "walltime_vina", "walltime", default="96:00")
-        vina_path         = _get_str("vina_path", "vina_exe", default="") or None
+        profile = profile_for_mode(
+            package_mode,
+            {
+                **f,
+                "lsf_email": _get_str("lsf_email", "email", default=""),
+                "notify_begin": f.get("notify_begin"),
+                "notify_end": f.get("notify_end"),
+                "queue": _get_str("queue", default="general"),
+                "project": _get_str("project", default=""),
+                "workers": _get_int("workers", "ncores", default=16),
+                "mem_per_core": _get_int("mem_per_core", "mem", default=2000),
+                "confgen_walltime": _get_str("confgen_walltime", "walltime_confgen", default="48:00"),
+                "vina_walltime": _get_str("vina_walltime", "walltime_vina", "walltime", default="96:00"),
+                "conda_sh": _get_str("conda_sh", default=""),
+                "conda_env": _get_str("conda_env", default=""),
+                "vina_path": _get_str("vina_path", "vina_exe", default=""),
+                "python_command": _get_str("python_command", default='$(command -v python3 || command -v python)'),
+                "setup_commands": f.get("setup_commands") or _get_str("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
+            },
+        )
 
-        if package_mode == "lsf":
+        if package_mode in {"joey_lsf", "custom_lsf"}:
             build_confgen_lsfs(
-                jobroot, lsf_dir, poses=poses_conf,
-                workers=workers, queue=queue, project=project, walltime=confgen_walltime,
-                mem_per_core=mem_per_core, email=email, env_line=env_line,
+                jobroot, lsf_dir, profile=profile, poses=poses_conf,
                 lig_mode=lig_mode, lig_filetype=lig_filetype,
                 csv_smiles_col=csv_smiles_col, csv_id_col=csv_id_col,
                 single_sdf_rel=(single_sdf_rel or None)
             )
 
             build_vina_lsfs(
-                jobroot, lsf_dir, poses=poses_vina,
-                workers=workers, queue=queue, project=project, walltime=vina_walltime,
-                mem_per_core=mem_per_core, email=email, env_line=env_line,
-                vina_path=vina_path
+                jobroot, lsf_dir, profile=profile, poses=poses_vina
             )
         else:
             build_portable_runners(jobroot)
@@ -2137,16 +2126,29 @@ def create_app() -> Flask:
         single_sdf_rel = _str_value("single_sdf_rel", "single_sdf", default=inferred_single_sdf or "")
         if lig_mode == "1" and not csv_smiles_col:
             return _v1_error("csv_smiles_column_required", "Select a CSV SMILES column before building.", 400)
-        if package_mode == "lsf":
+        profile = profile_for_mode(
+            package_mode,
+            {
+                **package_opts,
+                "lsf_email": _str_value("lsf_email", "email", default=""),
+                "notify_begin": package_opts.get("notify_begin"),
+                "notify_end": package_opts.get("notify_end"),
+                "queue": _str_value("queue", default="general"),
+                "project": _str_value("project", default=""),
+                "workers": _int_value("workers", "ncores", default=16),
+                "mem_per_core": _int_value("mem_per_core", "mem", default=2000),
+                "confgen_walltime": _str_value("confgen_walltime", "walltime_confgen", default="48:00"),
+                "vina_walltime": _str_value("vina_walltime", "walltime_vina", "walltime", default="96:00"),
+                "conda_sh": _str_value("conda_sh", default=""),
+                "conda_env": _str_value("conda_env", default=""),
+                "vina_path": _str_value("vina_path", "vina_exe", default=""),
+                "python_command": _str_value("python_command", default='$(command -v python3 || command -v python)'),
+                "setup_commands": package_opts.get("setup_commands") or _str_value("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
+            },
+        )
+        if package_mode in {"joey_lsf", "custom_lsf"}:
             build_confgen_lsfs(
-                jobroot, jobroot, poses=poses_conf,
-                workers=_int_value("workers", "ncores", default=16),
-                queue=_str_value("queue", default="general"),
-                project=_str_value("project", default="brd"),
-                walltime=_str_value("confgen_walltime", "walltime_confgen", default="48:00"),
-                mem_per_core=_int_value("mem_per_core", "mem", default=2000),
-                email=_public_email(),
-                env_line=_str_value("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
+                jobroot, jobroot, profile=profile, poses=poses_conf,
                 lig_mode=lig_mode,
                 lig_filetype=lig_filetype,
                 csv_smiles_col=csv_smiles_col,
@@ -2154,15 +2156,7 @@ def create_app() -> Flask:
                 single_sdf_rel=(single_sdf_rel or None),
             )
             build_vina_lsfs(
-                jobroot, jobroot, poses=poses_vina,
-                workers=_int_value("workers", "ncores", default=16),
-                queue=_str_value("queue", default="general"),
-                project=_str_value("project", default="brd"),
-                walltime=_str_value("vina_walltime", "walltime_vina", "walltime", default="96:00"),
-                mem_per_core=_int_value("mem_per_core", "mem", default=2000),
-                email=_public_email(),
-                env_line=_str_value("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
-                vina_path=_str_value("vina_path", "vina_exe", default="") or None,
+                jobroot, jobroot, profile=profile, poses=poses_vina,
             )
         else:
             build_portable_runners(jobroot)

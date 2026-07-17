@@ -8,44 +8,11 @@ from datetime import datetime
 import re  # at top
 from typing import Dict, List, Optional, Tuple
 
+from hpc_profiles import packaged_profile_or_default, render_lsf_header, render_setup_block, replace_profile
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_ENV = "source /nethome/jxs794/miniconda3/etc/profile.d/conda.sh && conda activate vina_env"
-
-LSF_TPL = """#!/bin/bash
-# Auto-generated: {timestamp}
-#BSUB -J confgen_{name}
-#BSUB -P {project}
-#BSUB -o logs/confgen_{name}_%J.out
-#BSUB -e logs/confgen_{name}_%J.err
-#BSUB -W {walltime}
-#BSUB -q {queue}
-#BSUB -n {workers}
-#BSUB -R "span[hosts=1]"
-#BSUB -R "rusage[mem={mem_per_core}]"
-#BSUB -B
-#BSUB -N
-#BSUB -u {email}
-
-set -euo pipefail
-cd "$LS_SUBCWD"
-mkdir -p logs
-
-# Activate environment
-{env_activate}
-
-# Pick a Python interpreter from the (now-activated) env
-PYBIN="$(command -v python3 || command -v python)"
-if [ -z "$PYBIN" ]; then
-  echo "❌ No Python interpreter found after activating env"; exit 127
-fi
-echo "Using Python: $PYBIN"
-
-
-# Optional obabel override (leave empty to rely on PATH/OBABEL_BIN)
-{obabel_line}
-{run_cmd}
-"""
+DEFAULT_PROFILE = packaged_profile_or_default(HERE)
+DEFAULT_ENV = render_setup_block(DEFAULT_PROFILE).strip()
 
 SUBMITTER_HDR = """#!/bin/bash
 set -euo pipefail
@@ -63,12 +30,12 @@ def parse_args():
     )
     # Common knobs
     p.add_argument("--poses", type=int, default=64, help="Poses per molecule (default: 64)")
-    p.add_argument("--workers", type=int, default=16, help="CPU cores per job (default: 16)")
-    p.add_argument("--queue", default="general", help="LSF queue (default: general)")
-    p.add_argument("--project", default="brd", help="LSF project (default: brd)")
-    p.add_argument("--walltime", default="48:00", help="Walltime (default: 48:00)")
-    p.add_argument("--mem-per-core", default="2000", help="MB per core for rusage[mem=...] (default: 2000)")
-    p.add_argument("--email", default="jxs794@miami.edu", help="Email for notifications")
+    p.add_argument("--workers", type=int, default=DEFAULT_PROFILE.workers, help=f"CPU cores per job (default: {DEFAULT_PROFILE.workers})")
+    p.add_argument("--queue", default=DEFAULT_PROFILE.queue, help=f"LSF queue (default: {DEFAULT_PROFILE.queue})")
+    p.add_argument("--project", default=DEFAULT_PROFILE.project, help=f"LSF project (default: {DEFAULT_PROFILE.project})")
+    p.add_argument("--walltime", default=DEFAULT_PROFILE.confgen_walltime, help=f"Walltime (default: {DEFAULT_PROFILE.confgen_walltime})")
+    p.add_argument("--mem-per-core", default=str(DEFAULT_PROFILE.mem_per_core_mb), help=f"MB per core for rusage[mem=...] (default: {DEFAULT_PROFILE.mem_per_core_mb})")
+    p.add_argument("--email", default=DEFAULT_PROFILE.email, help="Email for notifications")
     p.add_argument("--env-activate", default=DEFAULT_ENV, help="Shell line to activate conda/env")
     p.add_argument("--obabel-bin", default="", help="Path to obabel (optional). Empty → PATH/OBABEL_BIN.")
     p.add_argument("--enumerate-protomers", action="store_true",
@@ -271,19 +238,31 @@ def build_run_cmd(mode: str, target: str, poses: int, workers: int,
         )
 
 def write_lsf(name: str, run_cmd: str, args) -> Path:
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    obabel_line = f'export OBABEL_BIN="{args.obabel_bin}"\n' if args.obabel_bin.strip() else ""
-    text = LSF_TPL.replace("{run_cmd}", run_cmd).format(
-        timestamp=ts,
-        name=name,
-        project=args.project,
-        walltime=args.walltime,
+    profile = replace_profile(
+        DEFAULT_PROFILE,
         queue=args.queue,
+        project=args.project,
         workers=args.workers,
-        mem_per_core=args.mem_per_core,
+        mem_per_core_mb=args.mem_per_core,
+        confgen_walltime=args.walltime,
         email=args.email,
-        env_activate=args.env_activate,
-        obabel_line=obabel_line
+        setup_commands=args.env_activate,
+    )
+    obabel_line = f'export OBABEL_BIN="{args.obabel_bin}"\n' if args.obabel_bin.strip() else ""
+    text = (
+        f"#!/bin/bash\n# Auto-generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        + render_lsf_header(
+            profile=profile,
+            jobname=f"confgen_{name}",
+            log_prefix=f"confgen_{name}",
+            walltime=args.walltime,
+            workers=args.workers,
+            mem_per_core_mb=args.mem_per_core,
+        ).split("\n", 1)[1]
+        + render_setup_block(profile)
+        + f'PYBIN="{profile.python_command}"\nif [ -z "$PYBIN" ]; then\n  echo "❌ No Python interpreter found after activating env"; exit 127\nfi\necho "Using Python: $PYBIN"\n\n'
+        + obabel_line
+        + run_cmd
     )
     out = HERE / f"run_confgen_{name}.lsf"
     out.write_text(text)
