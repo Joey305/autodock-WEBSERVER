@@ -974,13 +974,7 @@ $('#btnFetchPDB').onclick=async()=>{
 };
 
 /* ---------- open receptor ---------- */
-async function parsePdbForOptions(rel){
-  const fileUrl = `/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`;
-  const res = await fetch(fileUrl);
-  if(!res.ok){
-    throw new Error(`Could not load receptor file (${res.status})`);
-  }
-  const txt = await res.text();
+function parsePdbTextForOptions(txt){
   const hets=new Set(), chains=new Set(), ligandMap=new Map();
   const waterNames=new Set(['HOH','WAT','H2O','DOD','TIP','TIP3','TIP3P','SOL']);
   txt.split(/\r?\n/).forEach(line=>{
@@ -1001,7 +995,66 @@ async function parsePdbForOptions(rel){
   });
   const ligands=[...ligandMap.entries()].map(([key, ligand])=>({key, ...ligand}))
     .sort((a,b)=> a.resname.localeCompare(b.resname) || a.chain.localeCompare(b.chain) || a.resi.localeCompare(b.resi));
-  return {hets, chains, ligands, raw:txt, fileUrl};
+  return {hets, chains, ligands};
+}
+function parseCifForOptions(txt){
+  const hets=new Set(), chains=new Set(), ligandMap=new Map();
+  const waterNames=new Set(['HOH','WAT','H2O','DOD','TIP','TIP3','TIP3P','SOL']);
+  const lines = txt.split(/\r?\n/);
+  for(let i=0;i<lines.length;i++){
+    if(lines[i].trim() !== 'loop_') continue;
+    const headers=[];
+    let j=i+1;
+    while(j<lines.length && lines[j].trim().startsWith('_atom_site.')){
+      headers.push(lines[j].trim());
+      j++;
+    }
+    if(!headers.length || !headers.includes('_atom_site.group_PDB')) continue;
+    const headerIndex = new Map(headers.map((h, idx)=>[h, idx]));
+    const groupIdx = headerIndex.get('_atom_site.group_PDB');
+    const resnameIdx = headerIndex.get('_atom_site.auth_comp_id') ?? headerIndex.get('_atom_site.label_comp_id');
+    const chainIdx = headerIndex.get('_atom_site.auth_asym_id') ?? headerIndex.get('_atom_site.label_asym_id');
+    const resiIdx = headerIndex.get('_atom_site.auth_seq_id') ?? headerIndex.get('_atom_site.label_seq_id');
+    const icodeIdx = headerIndex.get('_atom_site.pdbx_PDB_ins_code');
+    for(; j<lines.length; j++){
+      const raw = lines[j].trim();
+      if(!raw || raw === '#') break;
+      if(raw === 'loop_' || raw.startsWith('_')) break;
+      const cols = raw.match(/(?:'[^']*'|"[^"]*"|\S+)/g) || [];
+      if(groupIdx == null || cols.length <= groupIdx) continue;
+      const record = (cols[groupIdx] || '').replace(/^['"]|['"]$/g,'').toUpperCase();
+      if(record !== 'ATOM' && record !== 'HETATM') continue;
+      const rn = ((resnameIdx != null ? cols[resnameIdx] : '') || '').replace(/^['"]|['"]$/g,'').toUpperCase();
+      const ch = ((chainIdx != null ? cols[chainIdx] : '') || '').replace(/^['"]|['"]$/g,'').toUpperCase();
+      const resi = ((resiIdx != null ? cols[resiIdx] : '') || '').replace(/^['"]|['"]$/g,'');
+      const icode = ((icodeIdx != null ? cols[icodeIdx] : '') || '').replace(/^['"]|['"]$/g,'').replace(/^\?$/, '');
+      if(record === 'HETATM' && rn) hets.add(rn);
+      if(ch && ch !== '?' && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
+      if(record === 'HETATM' && rn && !waterNames.has(rn)){
+        const key=[rn, ch && ch !== '?' ? ch : '', resi && resi !== '?' ? resi : '', icode || ''].join('|');
+        const current=ligandMap.get(key) || {resname:rn, chain:(ch === '?' ? '' : ch) || '', resi:(resi === '?' ? '' : resi) || '', icode:icode || '', atomCount:0};
+        current.atomCount += 1;
+        ligandMap.set(key, current);
+      }
+    }
+    break;
+  }
+  const ligands=[...ligandMap.entries()].map(([key, ligand])=>({key, ...ligand}))
+    .sort((a,b)=> a.resname.localeCompare(b.resname) || a.chain.localeCompare(b.chain) || a.resi.localeCompare(b.resi));
+  return {hets, chains, ligands};
+}
+async function parsePdbForOptions(rel){
+  const fileUrl = `/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`;
+  const res = await fetch(fileUrl);
+  if(!res.ok){
+    throw new Error(`Could not load receptor file (${res.status})`);
+  }
+  const txt = await res.text();
+  const low = rel.toLowerCase();
+  const parsed = (low.endsWith('.cif') || low.endsWith('.mmcif'))
+    ? parseCifForOptions(txt)
+    : parsePdbTextForOptions(txt);
+  return {...parsed, raw:txt, fileUrl};
 }
 function chips(set, cls, checked=false){
   const arr=[...set].sort();
@@ -1094,7 +1147,7 @@ async function openReceptor(rel){
     drawReceptorList();
     return;
   }
-  const {hets, chains, ligands, fileUrl} = parsed;
+  const {hets, chains, ligands, raw} = parsed;
   renderMiniOptions({hets, chains});
   renderLigandChoices(ligands);
 
@@ -1102,7 +1155,8 @@ async function openReceptor(rel){
   try{ stage.removeAllComponents(); }catch{}
   const low=rel.toLowerCase();
   const ext=(low.endsWith('.cif')||low.endsWith('.mmcif'))?'cif':'pdb';
-  const comp=await stage.loadFile(fileUrl,{ext});
+  const source = new Blob([raw], {type:'text/plain'});
+  const comp=await stage.loadFile(source,{ext, name:rel.split('/').pop() || `receptor.${ext}`});
   comp.addRepresentation('cartoon',{pickable:true,opacity:.92,colorScheme:'chainname'});
   comp.addRepresentation('licorice',{sele:'hetero OR not protein',pickable:true});
   comp.addRepresentation('ball+stick',{sele:'hetero',pickable:true});
