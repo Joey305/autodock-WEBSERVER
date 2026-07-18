@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -494,26 +495,49 @@ def zip_job_tree(jobroot: Path) -> Path:
 def fetch_pdb_and_prep(pdb_code: str, dest_dir: Path, chains: str = "") -> Dict[str, Any]:
     dest_dir.mkdir(parents=True, exist_ok=True)
     pdb_code = pdb_code.strip().lower()
-    raw_pdb = dest_dir / f"{pdb_code}.pdb"
-
-    url = f"https://files.rcsb.org/view/{pdb_code}.pdb"
-    with urllib.request.urlopen(url) as resp, open(raw_pdb, "wb") as fout:
-        fout.write(resp.read())
-
     chains = (chains or "").replace(" ", "")
+
+    attempts = [
+        (f"https://files.rcsb.org/download/{pdb_code}.pdb", dest_dir / f"{pdb_code}.pdb", "pdb"),
+        (f"https://files.rcsb.org/download/{pdb_code}.cif", dest_dir / f"{pdb_code}.cif", "cif"),
+    ]
+    raw_path: Optional[Path] = None
+    source_format = ""
+    errors: list[str] = []
+    for url, candidate_path, fmt in attempts:
+        try:
+            with urllib.request.urlopen(url) as resp, open(candidate_path, "wb") as fout:
+                fout.write(resp.read())
+            raw_path = candidate_path
+            source_format = fmt
+            break
+        except urllib.error.HTTPError as exc:
+            errors.append(f"{candidate_path.name}: HTTP {exc.code}")
+        except urllib.error.URLError as exc:
+            errors.append(f"{candidate_path.name}: {exc.reason}")
+    if raw_path is None:
+        detail = "; ".join(errors) if errors else "no download attempts succeeded"
+        raise ValueError(f"Unable to fetch receptor {pdb_code.upper()} from RCSB ({detail}).")
+
     if chains:
+        if source_format != "pdb":
+            raise ValueError(
+                f"Receptor {pdb_code.upper()} is only available as mmCIF from RCSB, "
+                "and chain filtering is currently supported only for PDB downloads. "
+                "Fetch without chains, or upload a prepared single-chain receptor file."
+            )
         wanted = {c.upper() for c in chains.split(",") if c}
         filtered = dest_dir / f"{pdb_code}_filtered.pdb"
-        with open(raw_pdb) as fin, open(filtered, "w") as fout:
+        with open(raw_path) as fin, open(filtered, "w") as fout:
             for line in fin:
                 if line.startswith(("ATOM", "HETATM")):
                     if line[21].upper() in wanted:
                         fout.write(line)
                 else:
                     fout.write(line)
-        filtered.replace(raw_pdb)
+        filtered.replace(raw_path)
 
-    return {"pdb_path": str(raw_pdb), "receptor_pdb": str(raw_pdb)}
+    return {"pdb_path": str(raw_path), "receptor_pdb": str(raw_path)}
 
 
 _STD = {

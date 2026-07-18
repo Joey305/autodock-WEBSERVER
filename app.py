@@ -753,7 +753,10 @@ def create_app() -> Flask:
             return ("workspace missing", 400)
 
         rec_dir = ensure_subdir(ws, "Receptors")
-        out = fetch_pdb_and_prep(pdbid, rec_dir, chains=chains)
+        try:
+            out = fetch_pdb_and_prep(pdbid, rec_dir, chains=chains)
+        except ValueError as exc:
+            return (str(exc), 400)
         rel = str(Path("Receptors") / Path(out["pdb_path"]).name)
 
         st = _load_state(ws)
@@ -1842,7 +1845,10 @@ def create_app() -> Flask:
         ws = _ws(jobname)
         if not ws.exists():
             return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
-        out = fetch_pdb_and_prep(pdbid, ensure_subdir(ws, "Receptors"), chains=chains)
+        try:
+            out = fetch_pdb_and_prep(pdbid, ensure_subdir(ws, "Receptors"), chains=chains)
+        except ValueError as exc:
+            return _v1_error("receptor_fetch_failed", str(exc), 400)
         rel = str(Path("Receptors") / Path(out["pdb_path"]).name)
         data = _register_receptors(ws, _load_state(ws), [rel])
         data["rel"] = rel
