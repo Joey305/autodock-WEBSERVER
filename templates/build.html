@@ -1051,7 +1051,8 @@ function parseCifStructure(txt){
         if(ch && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
         if(record === 'HETATM' && rn && !waterNames.has(rn)){
           const key=[rn, ch || '', resi || '', icode || ''].join('|');
-          const current=ligandMap.get(key) || {resname:rn, chain:ch || '', resi:resi || '', icode:icode || '', atomCount:0};
+          const alias = rn.length > 3 ? rn.slice(0,3).toUpperCase() : rn;
+          const current=ligandMap.get(key) || {resname:rn, alias, chain:ch || '', resi:resi || '', icode:icode || '', atomCount:0};
           current.atomCount += 1;
           ligandMap.set(key, current);
         }
@@ -1103,9 +1104,11 @@ function renderMiniOptions({hets, chains}){
   $('#miniChains').innerHTML= `<div class="chip-wrap">${chips(chains,'chain-mini',false)}</div>`;
 }
 function ligandLabel(ligand){
+  const alias = ((ligand.alias || '') + '').toUpperCase();
+  const displayName = alias && alias !== ligand.resname ? `${ligand.resname} (${alias})` : ligand.resname;
   const loc = [ligand.chain || 'chain -', ligand.resi || 'resi -'].join(':');
   const atoms = ligand.atomCount ? ` (${ligand.atomCount})` : '';
-  return `${ligand.resname} ${loc}${atoms}`;
+  return `${displayName} ${loc}${atoms}`;
 }
 function renderLigandChoices(ligands){
   const wrap=$('#ligandPicker'), list=$('#ligandChoices');
@@ -1184,7 +1187,7 @@ async function openReceptor(rel){
     drawReceptorList();
     return;
   }
-  const {hets, chains, ligands, raw, atoms} = parsed;
+  const {hets, chains, ligands} = parsed;
   renderMiniOptions({hets, chains});
   renderLigandChoices(ligands);
 
@@ -1193,9 +1196,9 @@ async function openReceptor(rel){
   const low=rel.toLowerCase();
   const isCif = low.endsWith('.cif')||low.endsWith('.mmcif');
   const ext='pdb';
-  const sourceText = isCif ? cifAtomsToPdbText(atoms || []) : raw;
-  const source = new Blob([sourceText], {type:'text/plain'});
-  const comp=await stage.loadFile(source,{ext, name:rel.split('/').pop() || `receptor.${ext}`});
+  const displayRel = isCif ? rel.replace(/\.(cif|mmcif)$/i,'.pdb') : rel;
+  const displayFileUrl = `/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(displayRel)}`;
+  const comp=await stage.loadFile(displayFileUrl,{ext, name:displayRel.split('/').pop() || `receptor.${ext}`});
   comp.addRepresentation('cartoon',{pickable:true,opacity:.92,colorScheme:'chainname'});
   comp.addRepresentation('licorice',{sele:'hetero OR not protein',pickable:true});
   comp.addRepresentation('ball+stick',{sele:'hetero',pickable:true});

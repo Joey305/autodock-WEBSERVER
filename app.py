@@ -24,6 +24,11 @@ from packager import (
 from runner_templates import build_portable_runners
 from center_resolver import CenterResolutionError, resolve_center_from_file, resolve_xyz
 
+try:
+    import gemmi  # type: ignore
+except Exception:
+    gemmi = None
+
 SITE_CONTACT_EMAIL = "jmschulz@med.miami.edu"
 MAILTO_SUBJECT = "AutoDock-Vina PrepServer Question"
 REPOSITORY_URL = "https://github.com/Joey305/autodock-WEBSERVER"
@@ -111,6 +116,156 @@ def infer_ligand_workflow(ligand_info: Dict[str, Any]) -> tuple[str, str, Option
     if upload_mode == "single" and ext in {".smiles", ".smi"}:
         return "2", "smiles", None
     return "2", "sdf", None
+
+
+STD_AA = {
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+    "SEC", "PYL", "MSE",
+}
+STD_NT = {"A", "C", "G", "T", "U", "I", "DA", "DC", "DG", "DT", "DI", "RA", "RC", "RG", "RU"}
+WATER_NAMES = {"HOH", "WAT", "H2O"}
+COMMON_SUGARS = {"NAG", "BMA", "MAN", "GAL", "FUC", "NDG"}
+
+
+def _is_true_het_residue(res, chain=None) -> bool:
+    name = (res.name or "").strip().upper()
+    if name in WATER_NAMES:
+        return True
+    et = getattr(res, "entity_type", None)
+    if gemmi is not None and et in (gemmi.EntityType.NonPolymer, gemmi.EntityType.Water):
+        return True
+    if name in STD_AA or name in STD_NT:
+        return False
+    if name in COMMON_SUGARS:
+        return True
+    return getattr(res, "het_flag", " ") != " "
+
+
+def _iter_atoms_with_altloc_policy(res, policy: str = "collapse"):
+    if policy == "all":
+        for atom in res:
+            yield atom
+        return
+    groups = {}
+    for atom in res:
+        key = atom.name.strip()
+        alt = getattr(atom, "altloc", "") or ""
+        occ = getattr(atom, "occ", 1.0)
+        prev = groups.get(key)
+        if prev is None:
+            groups[key] = (atom, alt, occ)
+            continue
+        _, prev_alt, prev_occ = prev
+        better = (occ > prev_occ) or (occ == prev_occ and (alt or " ") < (prev_alt or " "))
+        if better:
+            groups[key] = (atom, alt, occ)
+    for atom, _, _ in groups.values():
+        yield atom
+
+
+def _format_pdb_atom_name(atom_name: str) -> str:
+    name = atom_name.strip()
+    return name[:4] if len(name) >= 4 else f"{name:>4}"
+
+
+def _derive_element(atom) -> str:
+    try:
+        elem = atom.element.name.strip()
+        if elem and elem != "X":
+            return elem
+    except Exception:
+        pass
+    letters = "".join(ch for ch in (atom.name or "") if ch.isalpha())
+    if not letters:
+        return ""
+    return letters[:2].title() if len(letters) >= 2 and letters[1].islower() else letters[0].upper()
+
+
+def _normalize_resname_for_pdb(resname: str, is_het: bool) -> tuple[str, Optional[str]]:
+    original = (resname or "").strip().upper()
+    if not original:
+        return "UNK", None
+    if len(original) <= 3:
+        return original, None
+    alias = original[:3]
+    return (alias, alias) if is_het else (alias, None)
+
+
+def _write_receptor_pdb_snapshot(
+    src_path: Path,
+    dst_path: Path,
+    remove_hets: Optional[List[str]] = None,
+    remove_chains: Optional[List[str]] = None,
+    remove_all_hets: bool = False,
+    altloc_mode: str = "collapse",
+) -> Dict[str, str]:
+    if gemmi is None:
+        raise RuntimeError(
+            "mmCIF receptor support requires the Python package `gemmi`, which is not installed in this environment."
+        )
+    structure = gemmi.read_structure(str(src_path))
+    remove_het_set = {item.strip().upper() for item in (remove_hets or []) if item.strip()}
+    remove_chain_set = {item.strip().upper() for item in (remove_chains or []) if item.strip()}
+    alias_map: Dict[str, str] = {}
+    serial = 1
+    lines: List[str] = []
+    wrote_any = False
+
+    for model in structure:
+        for chain in model:
+            chain_name = (chain.name or "").strip()
+            chain_id = (chain_name[:1] if chain_name else "A").upper()
+            if chain_id in remove_chain_set:
+                continue
+            chain_wrote = False
+            last_resname, last_resseq, last_icode = "UNK", 0, " "
+            for res in chain:
+                orig_resname = (res.name or "").strip().upper()
+                is_het = _is_true_het_residue(res, chain)
+                if is_het and remove_all_hets:
+                    continue
+                if is_het and orig_resname in remove_het_set:
+                    continue
+                pdb_resname, alias = _normalize_resname_for_pdb(orig_resname, is_het)
+                if alias:
+                    alias_map[orig_resname] = alias
+                try:
+                    resseq = res.seqid.num
+                    icode = res.seqid.icode if res.seqid.icode and res.seqid.icode != "\x00" else " "
+                except Exception:
+                    resseq, icode = 0, " "
+                record = "HETATM" if is_het else "ATOM  "
+                for atom in _iter_atoms_with_altloc_policy(res, policy=altloc_mode):
+                    x, y, z = atom.pos.x, atom.pos.y, atom.pos.z
+                    occ = getattr(atom, "occ", 1.00)
+                    bfac = getattr(atom, "b_iso", 0.00)
+                    altloc = atom.altloc if getattr(atom, "altloc", "") else " "
+                    atom_name = _format_pdb_atom_name(atom.name)
+                    element = _derive_element(atom)
+                    lines.append(
+                        f"{record:<6}{serial:>5} "
+                        f"{atom_name:<4}{altloc:1}"
+                        f"{pdb_resname:>3} "
+                        f"{chain_id:1}{resseq:>4}{icode:1}"
+                        f"   "
+                        f"{x:>8.3f}{y:>8.3f}{z:>8.3f}"
+                        f"{occ:>6.2f}{bfac:>6.2f}"
+                        f"          {element:>2}  "
+                    )
+                    serial += 1
+                    wrote_any = True
+                    chain_wrote = True
+                    last_resname, last_resseq, last_icode = pdb_resname, resseq, icode
+            if chain_wrote:
+                lines.append(f"{'TER':<6}{serial:>5}      {last_resname:>3} {chain_id:1}{last_resseq:>4}{last_icode:1}")
+                serial += 1
+    lines.append("END")
+    if not wrote_any:
+        raise RuntimeError(f"No atoms written from {src_path.name} after filtering.")
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    dst_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return alias_map
 
 
 def _curated_ligand_source(library_key: str) -> Optional[Dict[str, Any]]:
@@ -290,6 +445,28 @@ def create_app() -> Flask:
         if resolved and str(resolved).startswith(str(ws.resolve())) and resolved.exists():
             return resolved
         return None
+
+    def _ensure_receptor_pdb_snapshot(ws: Path, receptor_rel: str, *, altloc_mode: str = "collapse") -> Path:
+        rel_path = Path(receptor_rel)
+        stem = rel_path.stem
+        src = _resolve_workspace_file(ws, receptor_rel)
+        if src is None and rel_path.suffix.lower() == ".pdb":
+            for ext in (".cif", ".mmcif"):
+                candidate = _resolve_workspace_file(ws, str(Path("Receptors") / f"{stem}{ext}"))
+                if candidate is not None:
+                    src = candidate
+                    break
+        if src is None:
+            raise FileNotFoundError(f"Receptor source not found for {receptor_rel}")
+        if src.suffix.lower() not in {".cif", ".mmcif"}:
+            return src
+        dst = ensure_subdir(ws, "Receptors_PDB") / f"{stem}.pdb"
+        if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
+            return dst
+        alias_map = _write_receptor_pdb_snapshot(src, dst, altloc_mode=altloc_mode)
+        if alias_map:
+            dst.with_suffix(".aliases.json").write_text(json.dumps(alias_map, indent=2, sort_keys=True), encoding="utf-8")
+        return dst
 
     def _path_within(base: Path, candidate: Path) -> bool:
         try:
@@ -785,6 +962,11 @@ def create_app() -> Flask:
         if not jobname or not rel or not ws.exists():
             return ("missing", 400)
         p = _resolve_workspace_file(ws, rel)
+        if p is None and rel.lower().startswith("receptors/") and rel.lower().endswith(".pdb"):
+            try:
+                p = _ensure_receptor_pdb_snapshot(ws, rel)
+            except Exception:
+                p = None
         if p is None:
             return ("not found", 404)
         return send_file(p)
@@ -798,6 +980,11 @@ def create_app() -> Flask:
         if not ws.exists():
             return ("workspace missing", 404)
         p = _resolve_workspace_file(ws, rel)
+        if p is None and rel.lower().startswith("receptors/") and rel.lower().endswith(".pdb"):
+            try:
+                p = _ensure_receptor_pdb_snapshot(ws, rel)
+            except Exception:
+                p = None
         if p is None or not _path_within(ws, p):
             return ("not found", 404)
         return send_file(p, as_attachment=False, download_name=p.name)
@@ -1051,7 +1238,7 @@ def create_app() -> Flask:
 
         with open(log_path, "w") as logf:
             for r in recs:
-                in_path = rec_dir / Path(r["rel"]).name
+                in_path = _ensure_receptor_pdb_snapshot(ws, r["rel"], altloc_mode=altloc_mode)
                 cleaned_path = ws / f"{Path(r['rel']).stem}_clean.pdb"
                 out_path = out_dir / Path(r["rel"]).with_suffix(".pdbqt").name
 
@@ -1218,7 +1405,7 @@ def create_app() -> Flask:
         log_path = (ws / "prep3a.log").resolve()
         out_dir.mkdir(exist_ok=True)
 
-        in_path = rec_dir / name
+        in_path = _ensure_receptor_pdb_snapshot(ws, rel, altloc_mode=altloc_mode)
         cleaned_path = ws / f"{Path(name).stem}_clean.pdb"
         out_path = out_dir / Path(name).with_suffix(".pdbqt").name
 
@@ -1920,7 +2107,7 @@ def create_app() -> Flask:
         out_dir.mkdir(exist_ok=True)
         with open(log_path, "w") as logf:
             for r in recs:
-                in_path = rec_dir / Path(r["rel"]).name
+                in_path = _ensure_receptor_pdb_snapshot(ws, r["rel"], altloc_mode=altloc_mode)
                 cleaned_path = ws / f"{Path(r['rel']).stem}_clean.pdb"
                 out_path = out_dir / Path(r["rel"]).with_suffix(".pdbqt").name
                 _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
