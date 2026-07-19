@@ -182,6 +182,14 @@ def _derive_element(atom) -> str:
     return letters[:2].title() if len(letters) >= 2 and letters[1].islower() else letters[0].upper()
 
 
+def _pdb_safe_char(value: Any, default: str = " ") -> str:
+    text = ("" if value is None else str(value))
+    if not text or text == "\x00":
+        return default
+    ch = text[0]
+    return default if ch == "\x00" else ch
+
+
 def _normalize_resname_for_pdb(resname: str, is_het: bool) -> tuple[str, Optional[str]]:
     original = (resname or "").strip().upper()
     if not original:
@@ -232,7 +240,7 @@ def _write_receptor_pdb_snapshot(
                     alias_map[orig_resname] = alias
                 try:
                     resseq = res.seqid.num
-                    icode = res.seqid.icode if res.seqid.icode and res.seqid.icode != "\x00" else " "
+                    icode = _pdb_safe_char(getattr(res.seqid, "icode", ""), " ")
                 except Exception:
                     resseq, icode = 0, " "
                 record = "HETATM" if is_het else "ATOM  "
@@ -240,7 +248,7 @@ def _write_receptor_pdb_snapshot(
                     x, y, z = atom.pos.x, atom.pos.y, atom.pos.z
                     occ = getattr(atom, "occ", 1.00)
                     bfac = getattr(atom, "b_iso", 0.00)
-                    altloc = atom.altloc if getattr(atom, "altloc", "") else " "
+                    altloc = _pdb_safe_char(getattr(atom, "altloc", ""), " ")
                     atom_name = _format_pdb_atom_name(atom.name)
                     element = _derive_element(atom)
                     lines.append(
