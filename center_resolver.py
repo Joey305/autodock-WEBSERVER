@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import shlex
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
@@ -41,7 +42,7 @@ class StructureAtom:
         return (self.record, self.resname, self.chain, self.resi, self.insertion_code)
 
 
-SUPPORTED_STRUCTURE_SUFFIXES = {".pdb", ".ent", ".pdbqt"}
+SUPPORTED_STRUCTURE_SUFFIXES = {".pdb", ".ent", ".pdbqt", ".cif", ".mmcif"}
 
 
 def parse_pdb_atoms(path: Path) -> List[StructureAtom]:
@@ -49,10 +50,12 @@ def parse_pdb_atoms(path: Path) -> List[StructureAtom]:
     if suffix not in SUPPORTED_STRUCTURE_SUFFIXES:
         raise CenterResolutionError(
             "unsupported_structure_format",
-            f"Headless center resolution currently supports PDB, ENT, and PDBQT-like coordinate files; got {path.name}.",
+            f"Headless center resolution currently supports PDB, ENT, PDBQT, and mmCIF-like coordinate files; got {path.name}.",
             {"supported_suffixes": sorted(SUPPORTED_STRUCTURE_SUFFIXES), "path": str(path)},
             status_code=415,
         )
+    if suffix in {".cif", ".mmcif"}:
+        return parse_mmcif_atoms(path)
     atoms: List[StructureAtom] = []
     with path.open("r", errors="replace") as handle:
         for line in handle:
@@ -60,6 +63,110 @@ def parse_pdb_atoms(path: Path) -> List[StructureAtom]:
             if atom is not None:
                 atoms.append(atom)
     return atoms
+
+
+def parse_mmcif_atoms(path: Path) -> List[StructureAtom]:
+    text = path.read_text(errors="replace")
+    lines = text.splitlines()
+    atoms: List[StructureAtom] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip() != "loop_":
+            i += 1
+            continue
+        headers: List[str] = []
+        j = i + 1
+        while j < len(lines) and lines[j].strip().startswith("_atom_site."):
+            headers.append(lines[j].strip())
+            j += 1
+        if not headers or "_atom_site.group_PDB" not in headers:
+            i += 1
+            continue
+        atoms.extend(_parse_mmcif_atom_loop(lines, j, headers))
+        if atoms:
+            return atoms
+        i = j
+    return atoms
+
+
+def _parse_mmcif_atom_loop(lines: Sequence[str], start_idx: int, headers: Sequence[str]) -> List[StructureAtom]:
+    idx = {header: pos for pos, header in enumerate(headers)}
+    required = [
+        "_atom_site.group_PDB",
+        "_atom_site.Cartn_x",
+        "_atom_site.Cartn_y",
+        "_atom_site.Cartn_z",
+    ]
+    if any(name not in idx for name in required):
+        return []
+    atoms: List[StructureAtom] = []
+    row_tokens: List[str] = []
+    expected_cols = len(headers)
+    for raw_line in lines[start_idx:]:
+        stripped = raw_line.strip()
+        if not stripped or stripped == "#":
+            if stripped == "#":
+                break
+            continue
+        if stripped == "loop_" or stripped.startswith("_"):
+            break
+        if stripped.startswith(";"):
+            continue
+        row_tokens.extend(_mmcif_split_tokens(stripped))
+        while len(row_tokens) >= expected_cols:
+            row = row_tokens[:expected_cols]
+            row_tokens = row_tokens[expected_cols:]
+            atom = _structure_atom_from_mmcif_row(row, idx)
+            if atom is not None:
+                atoms.append(atom)
+    return atoms
+
+
+def _mmcif_split_tokens(line: str) -> List[str]:
+    lexer = shlex.shlex(line, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return list(lexer)
+
+
+def _mmcif_value(row: Sequence[str], idx: Dict[str, int], key: str) -> str:
+    pos = idx.get(key)
+    if pos is None or pos >= len(row):
+        return ""
+    value = row[pos].strip()
+    if value in {"?", "."}:
+        return ""
+    return value
+
+
+def _structure_atom_from_mmcif_row(row: Sequence[str], idx: Dict[str, int]) -> Optional[StructureAtom]:
+    record = _mmcif_value(row, idx, "_atom_site.group_PDB").upper()
+    if record not in {"ATOM", "HETATM"}:
+        return None
+    atom_name = _mmcif_value(row, idx, "_atom_site.auth_atom_id") or _mmcif_value(row, idx, "_atom_site.label_atom_id")
+    resname = (_mmcif_value(row, idx, "_atom_site.auth_comp_id") or _mmcif_value(row, idx, "_atom_site.label_comp_id")).upper()
+    chain = (_mmcif_value(row, idx, "_atom_site.auth_asym_id") or _mmcif_value(row, idx, "_atom_site.label_asym_id")).upper()
+    resi = _mmcif_value(row, idx, "_atom_site.auth_seq_id") or _mmcif_value(row, idx, "_atom_site.label_seq_id")
+    insertion_code = _mmcif_value(row, idx, "_atom_site.pdbx_PDB_ins_code").upper()
+    element = _mmcif_value(row, idx, "_atom_site.type_symbol").upper()
+    try:
+        x = float(_mmcif_value(row, idx, "_atom_site.Cartn_x"))
+        y = float(_mmcif_value(row, idx, "_atom_site.Cartn_y"))
+        z = float(_mmcif_value(row, idx, "_atom_site.Cartn_z"))
+    except Exception:
+        return None
+    return StructureAtom(
+        record=record,
+        atom_name=atom_name.upper(),
+        resname=resname,
+        chain=chain,
+        resi=resi,
+        insertion_code=insertion_code,
+        x=x,
+        y=y,
+        z=z,
+        element=element,
+    )
 
 
 def parse_pdb_atom_line(line: str) -> Optional[StructureAtom]:

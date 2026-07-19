@@ -15,6 +15,37 @@ HETATM    6  C2  ATP B 301       4.000   6.000   8.000  1.00 20.00           C
 HETATM    7  C1  ATP C 301      20.000  40.000  60.000  1.00 20.00           C
 """
 
+MMCIF_FIXTURE = """\
+data_test
+#
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_alt_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+_atom_site.label_seq_id
+_atom_site.pdbx_PDB_ins_code
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+_atom_site.occupancy
+_atom_site.B_iso_or_equiv
+_atom_site.auth_seq_id
+_atom_site.auth_comp_id
+_atom_site.auth_asym_id
+_atom_site.auth_atom_id
+_atom_site.pdbx_PDB_model_num
+HETATM 1 C C1 . A1AKL A 1 801 ? 10.000 20.000 30.000 1.00 20.00 801 A1AKL A C1 1
+HETATM 2 C C2 . A1AKL A 1 801 ? 12.000 22.000 32.000 1.00 20.00 801 A1AKL A C2 1
+ATOM 3 C CA . GLU A 1 82 ? 1.000 2.000 3.000 1.00 20.00 82 GLU A CA 1
+ATOM 4 C CB . GLU A 1 82 ? 3.000 4.000 5.000 1.00 20.00 82 GLU A CB 1
+#
+"""
+
 
 class CenterResolverTests(unittest.TestCase):
     def setUp(self):
@@ -62,6 +93,13 @@ class CenterResolverTests(unittest.TestCase):
             {"method": "atom", "record": "HETATM", "resname": "DR7", "chain": "A", "resi": "100", "atom_name": "C2"},
         )
         self.assertEqual(result["center"], [12.0, 22.0, 32.0])
+
+    def test_mmcif_ligand_center(self):
+        cif_path = Path(self._tmp.name) / "fixture.cif"
+        cif_path.write_text(MMCIF_FIXTURE)
+        result = resolve_center_from_file(cif_path, {"method": "ligand", "ligand": "A1AKL", "chain": "A", "resi": "801"})
+        self.assertEqual(result["center"], [11.0, 21.0, 31.0])
+        self.assertEqual(result["matched"]["resname"], "A1AKL")
 
 
 if __name__ == "__main__":

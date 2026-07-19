@@ -843,13 +843,13 @@ def create_app() -> Flask:
         if src is None:
             return ("not found", 404)
 
+        center: Optional[Tuple[float, float, float]] = None
+
         def _avg(pts: List[Tuple[float, float, float]]):
             n = max(1, len(pts))
             return (sum(p[0] for p in pts) / n,
                     sum(p[1] for p in pts) / n,
                     sum(p[2] for p in pts) / n)
-
-        center: Optional[Tuple[float, float, float]] = None
 
         if method == "xyz":
             arr = data.get("center") or []
@@ -861,40 +861,21 @@ def create_app() -> Flask:
             if pts:
                 center = _avg(pts)
 
-        elif method in ("ligand", "residue"):
-            lig_code = (data.get("lig_resname") or "").upper()
-            resname = (data.get("resname") or "").upper()
-            resi = (data.get("resi") or "").strip()
-            chain = (data.get("chain") or "").upper()
-
-            def match(line: str) -> bool:
-                if not line.startswith(("ATOM", "HETATM")):
-                    return False
-                rn = line[17:20].strip().upper()
-                ch = line[21].upper()
-                idx = line[22:26].strip()
-                if method == "ligand" and lig_code:
-                    ok = (rn == lig_code)
-                    if resi:  ok = ok and (idx == resi)
-                    if chain: ok = ok and (ch == chain)
-                    return ok
-                if method == "residue" and resname and resi:
-                    ok = (rn == resname and idx == resi)
-                    if chain: ok = ok and (ch == chain)
-                    return ok
-                return False
-
-            pts = []
-            with open(src) as f:
-                for line in f:
-                    if match(line):
-                        try:
-                            x = float(line[30:38]); y = float(line[38:46]); z = float(line[46:54])
-                            pts.append((x, y, z))
-                        except Exception:
-                            pass
-            if pts:
-                center = _avg(pts)
+        else:
+            payload = {"method": method, "size": size}
+            if method == "ligand":
+                payload["ligand"] = data.get("lig_resname")
+                payload["chain"] = data.get("chain")
+                payload["resi"] = data.get("resi")
+            elif method == "residue":
+                payload["resname"] = data.get("resname")
+                payload["chain"] = data.get("chain")
+                payload["resi"] = data.get("resi")
+            try:
+                result = resolve_center_from_file(src, payload)
+                center = tuple(result["center"])
+            except CenterResolutionError as exc:
+                return (exc.message, exc.status_code)
 
         if center is None:
             return ("could not compute center", 400)

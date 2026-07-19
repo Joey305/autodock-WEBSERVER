@@ -997,8 +997,17 @@ function parsePdbTextForOptions(txt){
     .sort((a,b)=> a.resname.localeCompare(b.resname) || a.chain.localeCompare(b.chain) || a.resi.localeCompare(b.resi));
   return {hets, chains, ligands};
 }
-function parseCifForOptions(txt){
-  const hets=new Set(), chains=new Set(), ligandMap=new Map();
+function mmcifValue(row, idx, key){
+  const pos = idx.get(key);
+  if(pos == null || pos >= row.length) return '';
+  const value = (row[pos] || '').trim();
+  return (value === '?' || value === '.') ? '' : value;
+}
+function splitCifTokens(line){
+  return line.match(/(?:'[^']*'|"[^"]*"|\S+)/g) || [];
+}
+function parseCifStructure(txt){
+  const hets=new Set(), chains=new Set(), ligandMap=new Map(), atoms=[];
   const waterNames=new Set(['HOH','WAT','H2O','DOD','TIP','TIP3','TIP3P','SOL']);
   const lines = txt.split(/\r?\n/);
   for(let i=0;i<lines.length;i++){
@@ -1012,36 +1021,64 @@ function parseCifForOptions(txt){
     if(!headers.length || !headers.includes('_atom_site.group_PDB')) continue;
     const headerIndex = new Map(headers.map((h, idx)=>[h, idx]));
     const groupIdx = headerIndex.get('_atom_site.group_PDB');
-    const resnameIdx = headerIndex.get('_atom_site.auth_comp_id') ?? headerIndex.get('_atom_site.label_comp_id');
-    const chainIdx = headerIndex.get('_atom_site.auth_asym_id') ?? headerIndex.get('_atom_site.label_asym_id');
-    const resiIdx = headerIndex.get('_atom_site.auth_seq_id') ?? headerIndex.get('_atom_site.label_seq_id');
-    const icodeIdx = headerIndex.get('_atom_site.pdbx_PDB_ins_code');
+    const xIdx = headerIndex.get('_atom_site.Cartn_x');
+    const yIdx = headerIndex.get('_atom_site.Cartn_y');
+    const zIdx = headerIndex.get('_atom_site.Cartn_z');
+    if(groupIdx == null || xIdx == null || yIdx == null || zIdx == null) continue;
+    let pending=[];
     for(; j<lines.length; j++){
       const raw = lines[j].trim();
       if(!raw || raw === '#') break;
       if(raw === 'loop_' || raw.startsWith('_')) break;
-      const cols = raw.match(/(?:'[^']*'|"[^"]*"|\S+)/g) || [];
-      if(groupIdx == null || cols.length <= groupIdx) continue;
-      const record = (cols[groupIdx] || '').replace(/^['"]|['"]$/g,'').toUpperCase();
-      if(record !== 'ATOM' && record !== 'HETATM') continue;
-      const rn = ((resnameIdx != null ? cols[resnameIdx] : '') || '').replace(/^['"]|['"]$/g,'').toUpperCase();
-      const ch = ((chainIdx != null ? cols[chainIdx] : '') || '').replace(/^['"]|['"]$/g,'').toUpperCase();
-      const resi = ((resiIdx != null ? cols[resiIdx] : '') || '').replace(/^['"]|['"]$/g,'');
-      const icode = ((icodeIdx != null ? cols[icodeIdx] : '') || '').replace(/^['"]|['"]$/g,'').replace(/^\?$/, '');
-      if(record === 'HETATM' && rn) hets.add(rn);
-      if(ch && ch !== '?' && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
-      if(record === 'HETATM' && rn && !waterNames.has(rn)){
-        const key=[rn, ch && ch !== '?' ? ch : '', resi && resi !== '?' ? resi : '', icode || ''].join('|');
-        const current=ligandMap.get(key) || {resname:rn, chain:(ch === '?' ? '' : ch) || '', resi:(resi === '?' ? '' : resi) || '', icode:icode || '', atomCount:0};
-        current.atomCount += 1;
-        ligandMap.set(key, current);
+      pending.push(...splitCifTokens(raw).map(v=>v.replace(/^['"]|['"]$/g,'')));
+      while(pending.length >= headers.length){
+        const cols = pending.slice(0, headers.length);
+        pending = pending.slice(headers.length);
+        const record = mmcifValue(cols, headerIndex, '_atom_site.group_PDB').toUpperCase();
+        if(record !== 'ATOM' && record !== 'HETATM') continue;
+        const rn = (mmcifValue(cols, headerIndex, '_atom_site.auth_comp_id') || mmcifValue(cols, headerIndex, '_atom_site.label_comp_id')).toUpperCase();
+        const ch = (mmcifValue(cols, headerIndex, '_atom_site.auth_asym_id') || mmcifValue(cols, headerIndex, '_atom_site.label_asym_id')).toUpperCase();
+        const resi = mmcifValue(cols, headerIndex, '_atom_site.auth_seq_id') || mmcifValue(cols, headerIndex, '_atom_site.label_seq_id');
+        const icode = mmcifValue(cols, headerIndex, '_atom_site.pdbx_PDB_ins_code').toUpperCase();
+        const atomName = mmcifValue(cols, headerIndex, '_atom_site.auth_atom_id') || mmcifValue(cols, headerIndex, '_atom_site.label_atom_id');
+        const element = mmcifValue(cols, headerIndex, '_atom_site.type_symbol').toUpperCase();
+        const x = Number(mmcifValue(cols, headerIndex, '_atom_site.Cartn_x'));
+        const y = Number(mmcifValue(cols, headerIndex, '_atom_site.Cartn_y'));
+        const z = Number(mmcifValue(cols, headerIndex, '_atom_site.Cartn_z'));
+        if(!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+        atoms.push({record, atomName, resname:rn, chain:ch, resi, icode, x, y, z, element});
+        if(record === 'HETATM' && rn) hets.add(rn);
+        if(ch && /[A-Za-z0-9]/.test(ch)) chains.add(ch);
+        if(record === 'HETATM' && rn && !waterNames.has(rn)){
+          const key=[rn, ch || '', resi || '', icode || ''].join('|');
+          const current=ligandMap.get(key) || {resname:rn, chain:ch || '', resi:resi || '', icode:icode || '', atomCount:0};
+          current.atomCount += 1;
+          ligandMap.set(key, current);
+        }
       }
     }
     break;
   }
   const ligands=[...ligandMap.entries()].map(([key, ligand])=>({key, ...ligand}))
     .sort((a,b)=> a.resname.localeCompare(b.resname) || a.chain.localeCompare(b.chain) || a.resi.localeCompare(b.resi));
-  return {hets, chains, ligands};
+  return {hets, chains, ligands, atoms};
+}
+function formatPdbAtomLine(atom, serial){
+  const record = (atom.record || 'ATOM').padEnd(6,' ');
+  const atomName = (atom.atomName || 'X').slice(0,4);
+  const atomField = atomName.length < 4 ? ` ${atomName.padEnd(3,' ')}` : atomName.padEnd(4,' ');
+  const resname = (atom.resname || 'UNK').slice(0,3).padStart(3,' ');
+  const chain = (atom.chain || 'A').slice(0,1);
+  const resi = String(atom.resi || '1').slice(-4).padStart(4,' ');
+  const icode = (atom.icode || ' ').slice(0,1) || ' ';
+  const x = Number(atom.x || 0).toFixed(3).padStart(8,' ');
+  const y = Number(atom.y || 0).toFixed(3).padStart(8,' ');
+  const z = Number(atom.z || 0).toFixed(3).padStart(8,' ');
+  const element = (atom.element || atom.atomName || 'X').replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase().padStart(2,' ');
+  return `${record}${String(serial).padStart(5,' ')} ${atomField}${resname} ${chain}${resi}${icode}   ${x}${y}${z}  1.00 20.00          ${element}`;
+}
+function cifAtomsToPdbText(atoms){
+  return atoms.map((atom, idx)=>formatPdbAtomLine(atom, idx + 1)).join('\n') + '\nEND\n';
 }
 async function parsePdbForOptions(rel){
   const fileUrl = `/api/wsfile?jobname=${encodeURIComponent(jobname)}&rel=${encodeURIComponent(rel)}`;
@@ -1052,7 +1089,7 @@ async function parsePdbForOptions(rel){
   const txt = await res.text();
   const low = rel.toLowerCase();
   const parsed = (low.endsWith('.cif') || low.endsWith('.mmcif'))
-    ? parseCifForOptions(txt)
+    ? parseCifStructure(txt)
     : parsePdbTextForOptions(txt);
   return {...parsed, raw:txt, fileUrl};
 }
@@ -1147,15 +1184,17 @@ async function openReceptor(rel){
     drawReceptorList();
     return;
   }
-  const {hets, chains, ligands, raw} = parsed;
+  const {hets, chains, ligands, raw, atoms} = parsed;
   renderMiniOptions({hets, chains});
   renderLigandChoices(ligands);
 
   let stage=getStage(rel, vpId);
   try{ stage.removeAllComponents(); }catch{}
   const low=rel.toLowerCase();
-  const ext=(low.endsWith('.cif')||low.endsWith('.mmcif'))?'cif':'pdb';
-  const source = new Blob([raw], {type:'text/plain'});
+  const isCif = low.endsWith('.cif')||low.endsWith('.mmcif');
+  const ext='pdb';
+  const sourceText = isCif ? cifAtomsToPdbText(atoms || []) : raw;
+  const source = new Blob([sourceText], {type:'text/plain'});
   const comp=await stage.loadFile(source,{ext, name:rel.split('/').pop() || `receptor.${ext}`});
   comp.addRepresentation('cartoon',{pickable:true,opacity:.92,colorScheme:'chainname'});
   comp.addRepresentation('licorice',{sele:'hetero OR not protein',pickable:true});
