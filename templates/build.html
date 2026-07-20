@@ -386,6 +386,14 @@
           <span class="text-muted small" id="lsfModeHelp">Includes the extra LSF/batch files and preserves the lab HPC workflow.</span>
         </label>
       </div>
+      <div class="col-lg-6">
+        <label class="mode-card d-block" id="mainakLsfModeCard">
+          <input type="radio" class="form-check-input me-2" name="packageMode" value="mainak_lsf" id="packageModeMainakLsf">
+          <span class="mode-eyebrow d-block mb-1">Optional</span>
+          <span class="fw-semibold d-block">Mainak's Dockign Mode / Include LSF-HPC scripts</span>
+          <span class="text-muted small">Includes the extra LSF/batch files and preserves the shared lab HPC workflow using Mainak's paths.</span>
+        </label>
+      </div>
       <div class="col-lg-12">
         <label class="mode-card d-block" id="customLsfModeCard">
           <input type="radio" class="form-check-input me-2" name="packageMode" value="custom_lsf" id="packageModeCustomLsf">
@@ -398,6 +406,7 @@
 
     <div id="lsfPanel" class="lsf-panel mt-3">
       <div id="joeyLsfHint" class="small text-muted mb-2">Joey mode keeps the current Miami workflow unchanged. The ZIP includes the existing lab defaults automatically.</div>
+      <div id="mainakLsfHint" class="small text-muted mb-2 d-none">Mainak mode mirrors Joey's Miami workflow but swaps the user-specific paths and email to Mainak's setup.</div>
       <div id="customLsfHint" class="small text-muted mb-2 d-none">Custom mode stores these LSF/HPC values inside the generated package so helper scripts can regenerate matching `.lsf` files later.</div>
       <div class="row g-2">
         <div class="col-md-3"><input id="lsfEmail" class="form-control custom-lsf-field" placeholder="LSF notification email"></div>
@@ -494,9 +503,10 @@ function getSelectedPackageMode(){
 }
 function setPackageMode(mode){
   const raw = mode === 'lsf' ? 'joey_lsf' : mode;
-  const normalized = ENABLE_LSF_PACKAGE && ['joey_lsf','custom_lsf'].includes(raw) ? raw : 'portable';
+  const normalized = ENABLE_LSF_PACKAGE && ['joey_lsf','mainak_lsf','custom_lsf'].includes(raw) ? raw : 'portable';
   $('#packageModePortable').checked = normalized === 'portable';
   $('#packageModeLsf').checked = normalized === 'joey_lsf';
+  $('#packageModeMainakLsf').checked = normalized === 'mainak_lsf';
   $('#packageModeCustomLsf').checked = normalized === 'custom_lsf';
   syncPackageModeUI();
 }
@@ -504,11 +514,14 @@ function syncPackageModeUI(){
   const mode = getSelectedPackageMode();
   const lsfAllowed = ENABLE_LSF_PACKAGE;
   $('#packageModeLsf').disabled = !lsfAllowed;
+  $('#packageModeMainakLsf').disabled = !lsfAllowed;
   $('#packageModeCustomLsf').disabled = !lsfAllowed;
   $('#lsfModeCard').classList.toggle('disabled', !lsfAllowed);
+  $('#mainakLsfModeCard').classList.toggle('disabled', !lsfAllowed);
   $('#customLsfModeCard').classList.toggle('disabled', !lsfAllowed);
   $('#portableModeCard').classList.toggle('active', mode === 'portable');
   $('#lsfModeCard').classList.toggle('active', mode === 'joey_lsf');
+  $('#mainakLsfModeCard').classList.toggle('active', mode === 'mainak_lsf');
   $('#customLsfModeCard').classList.toggle('active', mode === 'custom_lsf');
   $('#lsfModeHelp').textContent = lsfAllowed
     ? 'Includes the extra LSF/batch files and preserves the lab HPC workflow.'
@@ -516,13 +529,15 @@ function syncPackageModeUI(){
 
   const showLsf = mode !== 'portable' && lsfAllowed;
   const customMode = mode === 'custom_lsf' && lsfAllowed;
+  const mainakMode = mode === 'mainak_lsf' && lsfAllowed;
   $('#lsfPanel').classList.toggle('d-none', !showLsf);
-  $('#joeyLsfHint').classList.toggle('d-none', customMode || !showLsf);
+  $('#joeyLsfHint').classList.toggle('d-none', customMode || mainakMode || !showLsf);
+  $('#mainakLsfHint').classList.toggle('d-none', !mainakMode);
   $('#customLsfHint').classList.toggle('d-none', !customMode);
   $$('.custom-lsf-field').forEach(el => enable(el, customMode));
-  $('#btnBuild').textContent = mode === 'joey_lsf' ? "Build Joey's ZIP" : mode === 'custom_lsf' ? "Build Custom LSF ZIP" : "Build ZIP";
+  $('#btnBuild').textContent = mode === 'joey_lsf' ? "Build Joey's ZIP" : mode === 'mainak_lsf' ? "Build Mainak's ZIP" : mode === 'custom_lsf' ? "Build Custom LSF ZIP" : "Build ZIP";
 }
-['packageModePortable','packageModeLsf','packageModeCustomLsf'].forEach(id=>{
+['packageModePortable','packageModeLsf','packageModeMainakLsf','packageModeCustomLsf'].forEach(id=>{
   document.addEventListener('DOMContentLoaded', ()=>{
     $('#'+id).addEventListener('change', syncPackageModeUI);
   });
@@ -1507,6 +1522,7 @@ $('#btnBuild').onclick=async()=>{
   $('#buildStatus').textContent=`Ready (${j.package_mode})${warnings}`;
   $('#buildModeResult').textContent =
     j.package_mode === 'joey_lsf' ? "Packaged: Joey's Docking Server Mode"
+    : j.package_mode === 'mainak_lsf' ? "Packaged: Mainak's Dockign Mode"
     : j.package_mode === 'custom_lsf' ? 'Packaged: Custom LSF/HPC ZIP'
     : 'Packaged: Portable ZIP';
   $('#buildModeResult').classList.remove('d-none');

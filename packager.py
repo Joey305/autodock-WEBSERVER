@@ -388,7 +388,7 @@ def _stage_runtime_dirs(jobroot: Path, repo_root: Path, warnings: list[str]):
 def stage_runtime_assets(jobroot: Path, repo_root: Path, package_mode: str) -> list[str]:
     warnings: list[str] = []
     _stage_runtime_file_group(jobroot, repo_root, RUNTIME_ROOT_FILES, warnings)
-    if package_mode in {"lsf", "joey_lsf", "custom_lsf"}:
+    if package_mode in {"lsf", "joey_lsf", "mainak_lsf", "custom_lsf"}:
         _stage_runtime_file_group(jobroot, repo_root, RUNTIME_LSF_FILES, warnings)
     _stage_runtime_dirs(jobroot, repo_root, warnings)
     return warnings

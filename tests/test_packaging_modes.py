@@ -29,6 +29,7 @@ class PackagingModeTests(unittest.TestCase):
         self.assertEqual(normalize_package_mode({"package_mode": "portable"}), "portable")
         self.assertEqual(normalize_package_mode({"package_mode": "lsf"}), "joey_lsf")
         self.assertEqual(normalize_package_mode({"package_mode": "joey_lsf"}), "joey_lsf")
+        self.assertEqual(normalize_package_mode({"package_mode": "mainak_lsf"}), "mainak_lsf")
         self.assertEqual(normalize_package_mode({"package_mode": "custom_lsf"}), "custom_lsf")
         self.assertEqual(normalize_package_mode({"include_lsf": "1"}), "joey_lsf")
         self.assertEqual(normalize_package_mode({}, default_mode="lsf"), "joey_lsf")
@@ -86,6 +87,16 @@ class PackagingModeTests(unittest.TestCase):
 
     def test_custom_lsf_package_includes_hpc_files(self):
         jobroot, warnings = assemble_job_tree(self.ws, self.ws / "Receptors", self.ws / "Ligands", package_mode="custom_lsf")
+
+        self.assertTrue((jobroot / "3B_ServerDocks.py").exists())
+        self.assertTrue((jobroot / "1B_confgen_batch.py").exists())
+        self.assertTrue((jobroot / "4B_LSFbatch.py").exists())
+        self.assertTrue((jobroot / "hpc_profiles.py").exists())
+        self.assertTrue((jobroot / "lsf_templates.py").exists())
+        self.assertIsInstance(warnings, list)
+
+    def test_mainak_lsf_package_includes_hpc_files(self):
+        jobroot, warnings = assemble_job_tree(self.ws, self.ws / "Receptors", self.ws / "Ligands", package_mode="mainak_lsf")
 
         self.assertTrue((jobroot / "3B_ServerDocks.py").exists())
         self.assertTrue((jobroot / "1B_confgen_batch.py").exists())

@@ -5,9 +5,11 @@ from pathlib import Path
 
 from hpc_profiles import (
     JOEY_LSF_PROFILE,
+    MAINAK_LSF_PROFILE,
     build_custom_profile,
     load_packaged_profile,
     normalize_package_mode,
+    profile_for_mode,
     render_lsf_header,
     render_setup_block,
     save_packaged_profile,
@@ -19,7 +21,14 @@ class HpcProfileTests(unittest.TestCase):
     def test_mode_aliases_remain_backward_compatible(self):
         self.assertEqual(normalize_package_mode({"package_mode": "lsf"}), "joey_lsf")
         self.assertEqual(normalize_package_mode({"include_lsf": "1"}), "joey_lsf")
+        self.assertEqual(normalize_package_mode({"package_mode": "mainak_lsf"}), "mainak_lsf")
         self.assertEqual(normalize_package_mode({"package_mode": "custom_lsf"}), "custom_lsf")
+
+    def test_mainak_mode_uses_mainak_profile(self):
+        profile = profile_for_mode("mainak_lsf")
+        self.assertEqual(profile, MAINAK_LSF_PROFILE)
+        self.assertEqual(profile.email, "mxb2638@miami.edu")
+        self.assertEqual(profile.conda_sh, "/nethome/mxb2638/miniconda3/etc/profile.d/conda.sh")
 
     def test_custom_profile_is_sanitized(self):
         profile = build_custom_profile(

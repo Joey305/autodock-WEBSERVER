@@ -39,13 +39,13 @@ def normalize_package_mode(
     lsf_enabled: bool = True,
 ) -> str:
     raw_default = PACKAGE_MODE_ALIASES.get((default_mode or "").strip().lower(), (default_mode or "").strip().lower())
-    default = raw_default if raw_default in {"portable", "joey_lsf", "custom_lsf"} else "portable"
+    default = raw_default if raw_default in {"portable", "joey_lsf", "mainak_lsf", "custom_lsf"} else "portable"
 
     values = values or {}
     requested = PACKAGE_MODE_ALIASES.get(_clean_str(values.get("package_mode")).lower(), _clean_str(values.get("package_mode")).lower())
     include_lsf = _clean_str(values.get("include_lsf")).lower()
 
-    if requested in {"portable", "joey_lsf", "custom_lsf"}:
+    if requested in {"portable", "joey_lsf", "mainak_lsf", "custom_lsf"}:
         mode = requested
     elif include_lsf in {"1", "true", "yes", "on"}:
         mode = "joey_lsf"
@@ -54,7 +54,7 @@ def normalize_package_mode(
     else:
         mode = default
 
-    if mode in {"joey_lsf", "custom_lsf"} and not lsf_enabled:
+    if mode in {"joey_lsf", "mainak_lsf", "custom_lsf"} and not lsf_enabled:
         return "portable"
     return mode
 
@@ -106,6 +106,23 @@ JOEY_LSF_PROFILE = HPCProfile(
     confgen_walltime="48:00",
     vina_walltime="96:00",
     conda_sh="/nethome/jxs794/miniconda3/etc/profile.d/conda.sh",
+    conda_env="vina_env",
+    vina_executable="$HOME/miniconda3/envs/vina_env/bin/vina",
+    python_command='$(command -v python3 || command -v python)',
+)
+
+MAINAK_LSF_PROFILE = HPCProfile(
+    profile_name="mainak_miami",
+    email="mxb2638@miami.edu",
+    notify_begin=True,
+    notify_end=True,
+    queue="general",
+    project="brd",
+    workers=16,
+    mem_per_core_mb=2000,
+    confgen_walltime="48:00",
+    vina_walltime="96:00",
+    conda_sh="/nethome/mxb2638/miniconda3/etc/profile.d/conda.sh",
     conda_env="vina_env",
     vina_executable="$HOME/miniconda3/envs/vina_env/bin/vina",
     python_command='$(command -v python3 || command -v python)',
@@ -165,6 +182,8 @@ def build_custom_profile(values: Mapping[str, Any] | None) -> HPCProfile:
 def profile_for_mode(mode: str, values: Mapping[str, Any] | None = None) -> HPCProfile | None:
     if mode == "portable":
         return None
+    if mode == "mainak_lsf":
+        return MAINAK_LSF_PROFILE
     if mode == "custom_lsf":
         return build_custom_profile(values)
     return JOEY_LSF_PROFILE

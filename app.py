@@ -1693,7 +1693,7 @@ def create_app() -> Flask:
             default_mode=current_app.config["DEFAULT_PACKAGE_MODE"],
             lsf_enabled=current_app.config["ENABLE_LSF_PACKAGE"],
         )
-        if package_mode in {"joey_lsf", "custom_lsf"} and not current_app.config["ENABLE_LSF_PACKAGE"]:
+        if package_mode in {"joey_lsf", "mainak_lsf", "custom_lsf"} and not current_app.config["ENABLE_LSF_PACKAGE"]:
             return ("lsf packaging is disabled", 400)
 
         st = _load_state(ws)
@@ -1775,7 +1775,7 @@ def create_app() -> Flask:
             },
         )
 
-        if package_mode in {"joey_lsf", "custom_lsf"}:
+        if package_mode in {"joey_lsf", "mainak_lsf", "custom_lsf"}:
             build_confgen_lsfs(
                 jobroot, lsf_dir, profile=profile, poses=poses_conf,
                 lig_mode=lig_mode, lig_filetype=lig_filetype,
@@ -2328,7 +2328,7 @@ def create_app() -> Flask:
                 "setup_commands": package_opts.get("setup_commands") or _str_value("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
             },
         )
-        if package_mode in {"joey_lsf", "custom_lsf"}:
+        if package_mode in {"joey_lsf", "mainak_lsf", "custom_lsf"}:
             build_confgen_lsfs(
                 jobroot, jobroot, profile=profile, poses=poses_conf,
                 lig_mode=lig_mode,
