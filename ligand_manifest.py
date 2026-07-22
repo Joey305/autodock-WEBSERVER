@@ -242,7 +242,22 @@ def find_ligand_state_manifests(search_roots: Iterable[Path]) -> List[Path]:
             if str(resolved) not in seen:
                 seen.add(str(resolved))
                 found.append(resolved)
-        for candidate in root.rglob("ligand_state_manifest.csv"):
+
+        # Avoid deep recursive scans across large synced project trees when a
+        # nearby manifest already exists. The batch docking workflow only needs
+        # manifests colocated with the ligand folder or its immediate children.
+        if found:
+            continue
+
+        try:
+            child_dirs = [child for child in root.iterdir() if child.is_dir()]
+        except OSError:
+            child_dirs = []
+
+        for child in child_dirs:
+            candidate = child / "ligand_state_manifest.csv"
+            if not candidate.exists():
+                continue
             resolved = candidate.resolve()
             if str(resolved) in seen:
                 continue
