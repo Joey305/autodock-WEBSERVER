@@ -48,6 +48,12 @@ class BobVtsRunnerTests(unittest.TestCase):
         self.assertIn(b"BOB VTS Runner", response.data)
         self.assertEqual(response.headers["X-Robots-Tag"], "noindex, nofollow")
 
+    def test_hidden_page_lowercase_alias_renders(self):
+        response = self.client.get("/bob-vts.html")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"BOB VTS Runner", response.data)
+        self.assertEqual(response.headers["X-Robots-Tag"], "noindex, nofollow")
+
     def test_zip_upload_run_and_download(self):
         response = self.client.post(
             "/api/bob-vts/runs",

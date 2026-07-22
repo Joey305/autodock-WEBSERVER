@@ -830,6 +830,7 @@ exec bash "$VTS_SCRIPT"
         return render_template("troubleshooting.html")
 
     @app.get("/BOB-VTS.html")
+    @app.get("/bob-vts.html")
     @login_required
     def bob_vts_page():
         if not _vts_token_ok():
