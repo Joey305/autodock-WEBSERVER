@@ -342,7 +342,7 @@ class Config:
     DEFAULT_PACKAGE_MODE = os.getenv("DEFAULT_PACKAGE_MODE", "portable").strip().lower() or "portable"
     VTS_RUNNER_ROOT = os.getenv("VTS_RUNNER_ROOT", "")
     VTS_RUNNER_TOKEN = os.getenv("VTS_RUNNER_TOKEN", "")
-    VTS_RUNNER_CONDA_ENV = os.getenv("VTS_RUNNER_CONDA_ENV", "docking")
+    VTS_RUNNER_CONDA_ENV = os.getenv("VTS_RUNNER_CONDA_ENV", "" if os.getenv("DYNO") else "docking")
     VTS_RUNNER_ENV_LINE = os.getenv("VTS_RUNNER_ENV_LINE", "")
     VTS_RUNNER_TIMEOUT_SECONDS = int(os.getenv("VTS_RUNNER_TIMEOUT_SECONDS", "1800"))
     VTS_RUNNER_MAX_ZIP_MB = int(os.getenv("VTS_RUNNER_MAX_ZIP_MB", "1024"))
