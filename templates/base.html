@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <title>{% block title %}AutoDock-Vina PrepServer{% endblock %}</title>
     <meta name="description" content="{% block meta_description %}Browser-guided AutoDock Vina docking package preparation for receptor and ligand workflows.{% endblock %}">
-    <meta name="robots" content="{% block robots %}index,follow{% endblock %}">
+    <meta name="robots" content="index,follow">
     <link rel="canonical" href="{{ request.base_url }}">
     <link rel="sitemap" type="application/xml" href="{{ url_for('sitemap_xml', _external=True) }}">
     <link rel="alternate" type="text/markdown" title="LLMs summary" href="{{ url_for('llms_txt', _external=True) }}">

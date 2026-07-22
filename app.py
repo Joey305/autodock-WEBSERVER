@@ -3,15 +3,14 @@
 # ==============================
 from __future__ import annotations
 
-import os, json, time, csv, subprocess, re, shutil, threading, uuid, zipfile, stat, signal, hmac
+import os, json, time, csv, subprocess, re, shutil
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
 from flask import (
-    Flask, render_template, request, send_file, send_from_directory, jsonify, current_app, url_for, make_response
+    Flask, render_template, request, send_file, send_from_directory, jsonify, current_app, url_for
 )
 from flask_login import LoginManager, login_required
-from werkzeug.utils import secure_filename
 
 from models import db, User
 from auth import auth_bp
@@ -340,12 +339,6 @@ class Config:
     ENABLE_AUTH = _env_bool("ENABLE_AUTH", False)
     ENABLE_LSF_PACKAGE = _env_bool("ENABLE_LSF_PACKAGE", True)
     DEFAULT_PACKAGE_MODE = os.getenv("DEFAULT_PACKAGE_MODE", "portable").strip().lower() or "portable"
-    VTS_RUNNER_ROOT = os.getenv("VTS_RUNNER_ROOT", "")
-    VTS_RUNNER_TOKEN = os.getenv("VTS_RUNNER_TOKEN", "")
-    VTS_RUNNER_CONDA_ENV = os.getenv("VTS_RUNNER_CONDA_ENV", "" if os.getenv("DYNO") else "docking")
-    VTS_RUNNER_ENV_LINE = os.getenv("VTS_RUNNER_ENV_LINE", "")
-    VTS_RUNNER_TIMEOUT_SECONDS = int(os.getenv("VTS_RUNNER_TIMEOUT_SECONDS", "1800"))
-    VTS_RUNNER_MAX_ZIP_MB = int(os.getenv("VTS_RUNNER_MAX_ZIP_MB", "1024"))
 
 
 class PublicUser:
@@ -373,9 +366,6 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(Config)
     Path(app.config["TMP_ROOT"]).mkdir(parents=True, exist_ok=True)
-    if not app.config["VTS_RUNNER_ROOT"]:
-        app.config["VTS_RUNNER_ROOT"] = str(Path(app.config["TMP_ROOT"]) / "vts_runs")
-    Path(app.config["VTS_RUNNER_ROOT"]).mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
     with app.app_context():
@@ -492,262 +482,6 @@ def create_app() -> Flask:
         except Exception:
             return False
 
-    vts_jobs_lock = threading.Lock()
-
-    def _vts_runner_root() -> Path:
-        root = Path(current_app.config["VTS_RUNNER_ROOT"])
-        root.mkdir(parents=True, exist_ok=True)
-        return root
-
-    def _vts_token_ok() -> bool:
-        expected = current_app.config.get("VTS_RUNNER_TOKEN", "")
-        if not expected:
-            return True
-        supplied = (
-            request.args.get("token")
-            or request.form.get("token")
-            or request.headers.get("X-VTS-Runner-Token")
-            or ""
-        )
-        return hmac.compare_digest(str(supplied), str(expected))
-
-    def _vts_status_path(run_dir: Path) -> Path:
-        return run_dir / "status.json"
-
-    def _write_vts_status(run_dir: Path, status: Dict[str, Any]) -> None:
-        status_path = _vts_status_path(run_dir)
-        tmp_path = status_path.with_suffix(".json.tmp")
-        tmp_path.write_text(json.dumps(status, indent=2, sort_keys=True), encoding="utf-8")
-        tmp_path.replace(status_path)
-
-    def _read_vts_status(run_dir: Path) -> Dict[str, Any]:
-        status_path = _vts_status_path(run_dir)
-        if not status_path.exists():
-            return {}
-        try:
-            return json.loads(status_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-
-    def _update_vts_status(run_dir: Path, **updates: Any) -> Dict[str, Any]:
-        with vts_jobs_lock:
-            status = _read_vts_status(run_dir)
-            status.update(updates)
-            status["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            _write_vts_status(run_dir, status)
-            return status
-
-    def _tail_text(path: Path, max_chars: int = 16000) -> str:
-        if not path.exists():
-            return ""
-        try:
-            data = path.read_bytes()
-        except Exception:
-            return ""
-        return data[-max_chars:].decode("utf-8", errors="replace")
-
-    def _safe_extract_vts_zip(zip_path: Path, extract_dir: Path, max_uncompressed_bytes: int) -> None:
-        if not zipfile.is_zipfile(zip_path):
-            raise ValueError("Upload must be a valid .zip file.")
-
-        base = extract_dir.resolve()
-        total = 0
-        with zipfile.ZipFile(zip_path) as zf:
-            members = zf.infolist()
-            if not members:
-                raise ValueError("The zip archive is empty.")
-            for info in members:
-                name = info.filename.replace("\\", "/")
-                if not name or name.startswith("__MACOSX/") or "/__MACOSX/" in name:
-                    continue
-                if name.startswith("/") or re.match(r"^[A-Za-z]:/", name):
-                    raise ValueError(f"Unsafe absolute path in zip: {info.filename}")
-                parts = Path(name).parts
-                if any(part in {"", ".", ".."} for part in parts):
-                    raise ValueError(f"Unsafe relative path in zip: {info.filename}")
-                mode = (info.external_attr >> 16) & 0o170000
-                if mode == stat.S_IFLNK:
-                    raise ValueError(f"Symbolic links are not allowed in zip uploads: {info.filename}")
-                total += info.file_size
-                if total > max_uncompressed_bytes:
-                    raise ValueError("The expanded zip is too large for the VTS runner.")
-                target = (extract_dir / name).resolve()
-                try:
-                    target.relative_to(base)
-                except ValueError as exc:
-                    raise ValueError(f"Unsafe extraction path in zip: {info.filename}") from exc
-
-            for info in members:
-                name = info.filename.replace("\\", "/")
-                if name and not name.startswith("__MACOSX/") and "/__MACOSX/" not in name:
-                    zf.extract(info, extract_dir)
-
-    def _detect_vts_package_root(extract_dir: Path) -> Path:
-        visible_children = [
-            p for p in extract_dir.iterdir()
-            if p.name not in {".DS_Store", "__MACOSX"} and not p.name.startswith("._")
-        ]
-        dirs = [p for p in visible_children if p.is_dir()]
-        files = [p for p in visible_children if p.is_file()]
-        if len(dirs) == 1 and not files:
-            return dirs[0]
-        return extract_dir
-
-    def _find_vts_runner_script(package_root: Path) -> Path:
-        candidates = [
-            p for p in package_root.rglob("*.sh")
-            if p.is_file()
-            and not any(part == "__MACOSX" for part in p.parts)
-            and p.name.startswith("run")
-            and ("linux" in p.name.lower() or "macos" in p.name.lower())
-        ]
-        if not candidates:
-            raise ValueError("No Linux/macOS runner script was found. Expected a file like run_*_macos_linux.sh.")
-        candidates.sort(key=lambda p: (len(p.relative_to(package_root).parts), p.name.lower()))
-        return candidates[0]
-
-    def _vts_command() -> List[str]:
-        bootstrap = r'''
-set -e
-if [ -n "${VTS_RUNNER_ENV_LINE:-}" ]; then
-  eval "$VTS_RUNNER_ENV_LINE"
-elif [ -n "${VTS_RUNNER_CONDA_ENV:-}" ]; then
-  if command -v conda >/dev/null 2>&1; then
-    eval "$(conda shell.bash hook)"
-    conda activate "$VTS_RUNNER_CONDA_ENV"
-  elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-    . "$HOME/miniconda3/etc/profile.d/conda.sh"
-    conda activate "$VTS_RUNNER_CONDA_ENV"
-  elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
-    . "$HOME/anaconda3/etc/profile.d/conda.sh"
-    conda activate "$VTS_RUNNER_CONDA_ENV"
-  else
-    echo "[BOB-VTS] Conda environment requested but conda was not found; continuing with current Python."
-  fi
-fi
-if [ -n "${CONDA_PREFIX:-}" ] && [ -x "$CONDA_PREFIX/bin/python" ]; then
-  mkdir -p "$PWD/.bob_vts_bin"
-  ln -sf "$CONDA_PREFIX/bin/python" "$PWD/.bob_vts_bin/python3"
-  export PATH="$PWD/.bob_vts_bin:$CONDA_PREFIX/bin:$PATH"
-fi
-echo "[BOB-VTS] CWD=$(pwd)"
-echo "[BOB-VTS] Runner=$VTS_SCRIPT"
-echo "[BOB-VTS] Python=$(command -v python3 || command -v python || true)"
-python3 -V 2>/dev/null || python -V 2>/dev/null || true
-exec bash "$VTS_SCRIPT"
-'''
-        return ["bash", "-lc", bootstrap]
-
-    def _run_vts_job(run_dir: Path, package_root: Path, script_path: Path) -> None:
-        log_path = run_dir / "bob_vts_terminal_output.txt"
-        started = time.time()
-        _update_vts_status(
-            run_dir,
-            status="running",
-            started_at=time.strftime("%Y-%m-%d %H:%M:%S"),
-            script=str(script_path.relative_to(package_root)),
-        )
-
-        env = os.environ.copy()
-        env.update(
-            {
-                "PYTHONUNBUFFERED": "1",
-                "MPLBACKEND": env.get("MPLBACKEND", "Agg"),
-                "VTS_NUM_THREADS": env.get("VTS_NUM_THREADS", "1"),
-                "OMP_NUM_THREADS": env.get("OMP_NUM_THREADS", "1"),
-                "MKL_NUM_THREADS": env.get("MKL_NUM_THREADS", "1"),
-                "OPENBLAS_NUM_THREADS": env.get("OPENBLAS_NUM_THREADS", "1"),
-                "VTS_SCRIPT": str(script_path),
-                "VTS_RUNNER_CONDA_ENV": str(app.config.get("VTS_RUNNER_CONDA_ENV", "")),
-                "VTS_RUNNER_ENV_LINE": str(app.config.get("VTS_RUNNER_ENV_LINE", "")),
-            }
-        )
-
-        return_code: Optional[int] = None
-        timed_out = False
-        error = ""
-        try:
-            script_path.chmod(script_path.stat().st_mode | 0o755)
-            with log_path.open("w", encoding="utf-8", errors="replace") as log_file:
-                proc = subprocess.Popen(
-                    _vts_command(),
-                    cwd=package_root,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    env=env,
-                    start_new_session=True,
-                    text=True,
-                )
-                try:
-                    return_code = proc.wait(timeout=int(app.config["VTS_RUNNER_TIMEOUT_SECONDS"]))
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    try:
-                        return_code = proc.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                        return_code = proc.wait(timeout=10)
-        except Exception as exc:
-            error = str(exc)
-            return_code = 1 if return_code is None else return_code
-
-        elapsed = round(time.time() - started, 2)
-        status_name = "succeeded" if return_code == 0 and not timed_out and not error else "failed"
-        metadata = {
-            "status": status_name,
-            "return_code": return_code,
-            "timed_out": timed_out,
-            "elapsed_seconds": elapsed,
-            "script": str(script_path.relative_to(package_root)),
-            "error": error,
-            "completed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        try:
-            (package_root / "bob_vts_run_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-            shutil.copyfile(log_path, package_root / "bob_vts_terminal_output.txt")
-            zip_stem = secure_filename(f"{package_root.name}_BOB_VTS_results") or "BOB_VTS_results"
-            result_zip = run_dir / f"{zip_stem}.zip"
-            if result_zip.exists():
-                result_zip.unlink()
-            shutil.make_archive(str(result_zip.with_suffix("")), "zip", root_dir=package_root.parent, base_dir=package_root.name)
-            metadata["result_zip"] = str(result_zip)
-        except Exception as exc:
-            status_name = "failed"
-            metadata["status"] = status_name
-            metadata["error"] = f"{error}; result zip failed: {exc}".strip("; ")
-
-        _update_vts_status(run_dir, **metadata)
-
-    def _public_vts_status(run_id: str, run_dir: Path) -> Dict[str, Any]:
-        status = _read_vts_status(run_dir)
-        if not status:
-            return {}
-        result_zip_value = status.get("result_zip", "")
-        result_zip = Path(result_zip_value) if result_zip_value else None
-        payload = {
-            "run_id": run_id,
-            "status": status.get("status", "unknown"),
-            "original_filename": status.get("original_filename", ""),
-            "package_name": status.get("package_name", ""),
-            "script": status.get("script", ""),
-            "return_code": status.get("return_code"),
-            "timed_out": bool(status.get("timed_out", False)),
-            "elapsed_seconds": status.get("elapsed_seconds"),
-            "started_at": status.get("started_at", ""),
-            "completed_at": status.get("completed_at", ""),
-            "updated_at": status.get("updated_at", ""),
-            "error": status.get("error", ""),
-            "log_tail": _tail_text(run_dir / "bob_vts_terminal_output.txt"),
-        }
-        if result_zip and result_zip.exists():
-            download_args = {"run_id": run_id}
-            if current_app.config.get("VTS_RUNNER_TOKEN"):
-                token = request.args.get("token") or request.headers.get("X-VTS-Runner-Token") or ""
-                download_args["token"] = token
-            payload["download_url"] = url_for("bob_vts_download", **download_args)
-        return payload
-
     # ---------- PAGES ----------
     @app.get("/robots.txt")
     def robots_txt():
@@ -828,113 +562,6 @@ exec bash "$VTS_SCRIPT"
     @app.get("/troubleshooting")
     def troubleshooting():
         return render_template("troubleshooting.html")
-
-    @app.get("/BOB-VTS.html")
-    @app.get("/bob-vts.html")
-    @login_required
-    def bob_vts_page():
-        if not _vts_token_ok():
-            return ("not found", 404)
-        response = make_response(
-            render_template(
-                "BOB-VTS.html",
-                token_required=bool(current_app.config.get("VTS_RUNNER_TOKEN")),
-                supplied_token=request.args.get("token", ""),
-                max_zip_mb=current_app.config["VTS_RUNNER_MAX_ZIP_MB"],
-                timeout_minutes=round(int(current_app.config["VTS_RUNNER_TIMEOUT_SECONDS"]) / 60),
-            )
-        )
-        response.headers["X-Robots-Tag"] = "noindex, nofollow"
-        return response
-
-    @app.post("/api/bob-vts/runs")
-    @login_required
-    def bob_vts_start():
-        if not _vts_token_ok():
-            return jsonify({"error": "not found"}), 404
-
-        max_zip_bytes = int(current_app.config["VTS_RUNNER_MAX_ZIP_MB"]) * 1024 * 1024
-        if request.content_length and request.content_length > max_zip_bytes:
-            return jsonify({"error": f"Upload is larger than {current_app.config['VTS_RUNNER_MAX_ZIP_MB']} MB."}), 413
-
-        upload = request.files.get("package")
-        if not upload or not upload.filename:
-            return jsonify({"error": "Drop or choose a VTS .zip package first."}), 400
-        if Path(upload.filename).suffix.lower() != ".zip":
-            return jsonify({"error": "Only .zip packages are accepted."}), 400
-
-        run_id = uuid.uuid4().hex[:16]
-        run_dir = _vts_runner_root() / run_id
-        upload_dir = run_dir / "upload"
-        extract_dir = run_dir / "extracted"
-        upload_dir.mkdir(parents=True)
-        extract_dir.mkdir(parents=True)
-
-        original_name = secure_filename(upload.filename) or "vts_package.zip"
-        upload_path = upload_dir / original_name
-        upload.save(upload_path)
-
-        try:
-            _safe_extract_vts_zip(upload_path, extract_dir, max_zip_bytes)
-            package_root = _detect_vts_package_root(extract_dir)
-            script_path = _find_vts_runner_script(package_root)
-        except ValueError as exc:
-            shutil.rmtree(run_dir, ignore_errors=True)
-            return jsonify({"error": str(exc)}), 400
-
-        _write_vts_status(
-            run_dir,
-            {
-                "run_id": run_id,
-                "status": "queued",
-                "original_filename": original_name,
-                "package_name": package_root.name,
-                "package_root": str(package_root),
-                "script": str(script_path.relative_to(package_root)),
-                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            },
-        )
-
-        thread = threading.Thread(target=_run_vts_job, args=(run_dir, package_root, script_path), daemon=True)
-        thread.start()
-
-        payload = _public_vts_status(run_id, run_dir)
-        status_args = {"run_id": run_id}
-        if current_app.config.get("VTS_RUNNER_TOKEN"):
-            status_args["token"] = request.form.get("token", "")
-        payload["status_url"] = url_for("bob_vts_status", **status_args)
-        return jsonify(payload), 202
-
-    @app.get("/api/bob-vts/runs/<run_id>")
-    @login_required
-    def bob_vts_status(run_id: str):
-        if not _vts_token_ok():
-            return jsonify({"error": "not found"}), 404
-        if not re.fullmatch(r"[a-f0-9]{16}", run_id):
-            return jsonify({"error": "Invalid run id."}), 400
-        run_dir = _vts_runner_root() / run_id
-        payload = _public_vts_status(run_id, run_dir)
-        if not payload:
-            return jsonify({"error": "Run not found."}), 404
-        return jsonify(payload)
-
-    @app.get("/api/bob-vts/runs/<run_id>/download")
-    @login_required
-    def bob_vts_download(run_id: str):
-        if not _vts_token_ok():
-            return ("not found", 404)
-        if not re.fullmatch(r"[a-f0-9]{16}", run_id):
-            return ("invalid run id", 400)
-        run_dir = _vts_runner_root() / run_id
-        status = _read_vts_status(run_dir)
-        result_zip = Path(status.get("result_zip", "")) if status.get("result_zip") else None
-        if not result_zip or not result_zip.exists():
-            return ("result zip not found", 404)
-        try:
-            result_zip.resolve().relative_to(run_dir.resolve())
-        except ValueError:
-            return ("result zip not found", 404)
-        return send_file(result_zip, as_attachment=True, download_name=result_zip.name)
 
     @app.get("/viz/project")
     @login_required
