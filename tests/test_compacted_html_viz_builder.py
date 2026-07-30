@@ -1,8 +1,10 @@
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -17,6 +19,36 @@ def load_script_module(filename: str, module_name: str):
 
 
 class CompactedHtmlVizBuilderTests(unittest.TestCase):
+    def test_print_selection_summary_uses_rank_order_with_scores(self):
+        module = load_script_module("5_CompactedHTMLViz.py", "compacted_html_viz_ranked_summary")
+        groups = [
+            {
+                "receptor": "9ba9",
+                "ligand_base": "CONIVAPTAN",
+                "selected_rows": [
+                    {"Binding_Affinity": "-9.344"},
+                    {"Binding_Affinity": "-9.100"},
+                ],
+            },
+            {
+                "receptor": "9ba9",
+                "ligand_base": "DIHYDROERGOTAMINE_MESYLATE",
+                "selected_rows": [
+                    {"Binding_Affinity": "-9.377"},
+                ],
+            },
+        ]
+        stream = io.StringIO()
+        with mock.patch("sys.stdout", stream):
+            module.print_selection_summary(groups, top_ligands=50, top_poses=15)
+
+        output = stream.getvalue()
+        first = output.index("[1] DIHYDROERGOTAMINE_MESYLATE")
+        second = output.index("[2] CONIVAPTAN")
+        self.assertLess(first, second)
+        self.assertIn("best=-9.377  poses=1", output)
+        self.assertIn("best=-9.344  poses=2", output)
+
     def test_build_project_compacts_multiple_variants_into_one_viewer(self):
         module = load_script_module("5_CompactedHTMLViz.py", "compacted_html_viz_module")
         with tempfile.TemporaryDirectory() as tmpdir:

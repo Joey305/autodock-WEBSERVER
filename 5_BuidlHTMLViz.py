@@ -9,10 +9,10 @@ import json
 import re
 import shutil
 import zipfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 UPSTREAM_REPO_URL = "https://github.com/muntisa/py-VinaScope-Docking-Viewer"
 UPSTREAM_VIEWER_URL = "https://muntisa.github.io/VinaDock-Viz/VinaDock_Viz.html"
@@ -102,10 +102,35 @@ def prompt_int(prompt: str, default: int) -> int:
         return value
 
 
+def _is_temporary_score_csv(path: Path) -> bool:
+    name = path.name
+    return name.endswith("_UNSORTED.tmp.csv") or ".tmp." in name
+
+
+def discover_score_csvs(base_dir: Optional[Path] = None) -> List[Path]:
+    base = base_dir or Path.cwd()
+    preferred_patterns = [
+        "ALL_Docking_Results_with_provenance_*.csv",
+        "*vina_docking_scores_sorted.csv",
+    ]
+    seen = set()
+    candidates: List[Path] = []
+    for pattern in preferred_patterns:
+        for path in sorted(base.glob(pattern)):
+            if not path.is_file() or _is_temporary_score_csv(path):
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            candidates.append(path)
+    return candidates
+
+
 def prompt_csv_path() -> Path:
-    candidates = sorted(Path.cwd().glob("*vina_docking_scores_sorted.csv"))
+    candidates = discover_score_csvs()
     if not candidates:
-        candidates = sorted(Path.cwd().glob("*.csv"))
+        candidates = sorted(p for p in Path.cwd().glob("*.csv") if p.is_file() and not _is_temporary_score_csv(p))
     if candidates:
         return choose_from_list("Select a docking score CSV:", candidates)
 
@@ -166,6 +191,10 @@ def safe_float(value: Any, default: float = 1e9) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def progress(message: str) -> None:
+    print(message, flush=True)
 
 
 def unique_output_path(directory: Path, filename: str, used_names: set[str]) -> Path:
@@ -232,6 +261,35 @@ def group_top_hits(rows: Iterable[Dict[str, str]], top_ligands: int) -> List[Dic
         )
         selected.extend(ranked_variants)
     return selected
+
+
+def print_selection_summary(selected_rows: Sequence[Dict[str, str]], top_ligands: int) -> None:
+    per_receptor: Dict[str, Dict[str, List[Dict[str, str]]]] = defaultdict(lambda: defaultdict(list))
+    for row in selected_rows:
+        receptor = row.get("Receptor", "").strip()
+        ligand_base = row.get("_LigandBaseKey") or row.get("LigandBase") or row.get("Ligand") or row.get("LigandVariant") or "ligand"
+        if not receptor:
+            continue
+        per_receptor[receptor][ligand_base].append(row)
+
+    print("\n✅ Top-N selection summary")
+    print("   Mode: per_receptor_top_base_ligands")
+    print(f"   Top base ligands per receptor: {top_ligands}")
+    for receptor in sorted(per_receptor):
+        base_groups = per_receptor[receptor]
+        ranked = sorted(
+            base_groups.items(),
+            key=lambda item: (
+                min(safe_float(row.get("Binding_Affinity", "")) for row in item[1]),
+                item[0],
+            ),
+        )
+        total_rows = sum(len(rows) for _base, rows in ranked)
+        print(f"   - {receptor}: {total_rows} selected row(s) across {len(ranked)} base ligand(s)")
+        for rank, (ligand_base, rows_for_base) in enumerate(ranked, start=1):
+            best = min(safe_float(row.get("Binding_Affinity", "")) for row in rows_for_base)
+            variant_count = len(Counter(row.get("_LigandVariantKey") or row.get("LigandVariant") or row.get("Ligand") for row in rows_for_base))
+            print(f"       [{rank}] {ligand_base:<32} best={best:.3f}  rows={len(rows_for_base)}  variants={variant_count}")
 
 
 def find_receptor_file(receptor_name: str, search_roots: Iterable[Path]) -> Optional[Path]:
@@ -1378,7 +1436,10 @@ def build_project(
     inputs_dir.mkdir(exist_ok=True)
 
     rows = load_rows(csv_path)
+    progress(f"📄 Loaded {len(rows)} score rows from {csv_path}")
     selected_rows = group_top_hits(rows, top_ligands=top_ligands)
+    print_selection_summary(selected_rows, top_ligands=top_ligands)
+    progress(f"🧭 Output project: {project_dir}")
     search_roots: List[Path] = []
     for root in receptor_roots or []:
         root_path = Path(root)
@@ -1395,14 +1456,23 @@ def build_project(
     receptor_copy_map: Dict[str, str] = {}
     used_input_names: set[str] = set()
 
-    for row in selected_rows:
+    total_rows = len(selected_rows)
+    for row_index, row in enumerate(selected_rows, start=1):
         receptor_name = row.get("Receptor", "").strip()
         ligand_name = row.get("LigandBase") or row.get("Ligand") or row.get("LigandVariant") or "ligand"
         ligand_variant = row.get("LigandVariant") or str(ligand_name)
         outfile = Path(row.get("OutFile", "")).resolve()
         receptor_file = find_receptor_file(receptor_name, search_roots)
+        progress(
+            f"\n🧬 Viewer {row_index}/{total_rows}: "
+            f"{receptor_name} / {ligand_variant} | score={row.get('Binding_Affinity', '')}"
+        )
 
         if not outfile.exists() or receptor_file is None:
+            if not outfile.exists():
+                progress(f"   ⚠️ missing docked PDBQT: {outfile}")
+            if receptor_file is None:
+                progress(f"   ⚠️ receptor not found for {receptor_name}")
             missing_entries.append(
                 {
                     "receptor": receptor_name,
@@ -1413,6 +1483,8 @@ def build_project(
             )
             continue
 
+        progress(f"   receptor: {receptor_file}")
+        progress(f"   docked PDBQT: {outfile}")
         receptor_text = receptor_file.read_text(encoding="utf-8", errors="ignore")
         ligand_text = trim_pose_file_text(outfile.read_text(encoding="utf-8", errors="ignore"), top_poses=top_poses)
         affinities = pose_affinities_from_text(ligand_text)
@@ -1434,6 +1506,7 @@ def build_project(
         viewer_file = viewers_dir / f"{slug}.html"
 
         ligand_copy.write_text(ligand_text, encoding="utf-8")
+        progress(f"   wrote input: {ligand_copy.name}")
         try:
             viewer_html = build_viewer_html(
                 page_title=page_title,
@@ -1449,6 +1522,7 @@ def build_project(
                 shutil.rmtree(project_dir, ignore_errors=True)
             raise
         viewer_file.write_text(viewer_html, encoding="utf-8")
+        progress(f"   ✅ wrote viewer: {viewer_file.name}")
 
         manifest_entries.append(
             {
@@ -1485,7 +1559,9 @@ def build_project(
     (project_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (project_dir / "UPSTREAM_LICENSE.txt").write_text(UPSTREAM_LICENSE_TEXT, encoding="utf-8")
     (project_dir / "index.html").write_text(build_index_html(page_title, manifest_entries), encoding="utf-8")
+    progress(f"\n🧾 Wrote manifest/index with {len(manifest_entries)} viewer entrie(s); missing={len(missing_entries)}")
     zip_path = write_zip(project_dir)
+    progress(f"📦 Wrote ZIP: {zip_path}")
     manifest["project_dir"] = str(project_dir)
     manifest["zip_path"] = str(zip_path)
     return manifest

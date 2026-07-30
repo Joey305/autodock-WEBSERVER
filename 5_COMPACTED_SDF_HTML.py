@@ -103,6 +103,10 @@ def b64encode_text(text: str) -> str:
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
+def progress(message: str) -> None:
+    print(message, flush=True)
+
+
 def build_corrected_pose_bundle(
     selected_rows: List[Dict[str, str]],
     resolver: Any,
@@ -110,6 +114,7 @@ def build_corrected_pose_bundle(
     hydrogen_mode: str,
     min_mcs_fraction: float,
     allow_reference_fallback: bool,
+    progress_label: str = "",
 ) -> Dict[str, Any]:
     if not getattr(PYMOL, "HAVE_RDKIT", False):
         raise SystemExit("❌ RDKit is required for corrected SDF bond-order reconstruction.")
@@ -118,6 +123,7 @@ def build_corrected_pose_bundle(
     warnings: List[str] = []
     sdf_blocks: List[str] = []
 
+    total = len(selected_rows)
     for display_index, row in enumerate(selected_rows, start=1):
         ligand_variant = row.get("LigandVariant", "")
         ligand_base = row.get("LigandBase", "")
@@ -125,10 +131,16 @@ def build_corrected_pose_bundle(
         pose_index = int(COMPACT.safe_float(row.get("Pose", "1") or 1, 1))
         affinity = COMPACT.safe_float(row.get("Binding_Affinity", ""))
         outfile = Path(row.get("OutFile", "")).expanduser()
+        prefix = f"{progress_label} " if progress_label else ""
+        progress(
+            f"      {prefix}pose {display_index}/{total}: "
+            f"{ligand_variant or ligand_base} vina_pose={pose_index} score={affinity:.3f}"
+        )
         if not outfile.is_absolute():
             outfile = outfile.resolve()
         if not outfile.exists():
             warnings.append(f"{ligand_variant}: missing OutFile {outfile}")
+            progress(f"        ⚠️ missing OutFile: {outfile}")
             continue
 
         with tempfile.TemporaryDirectory(prefix="compact_sdf_pose_") as tmpdir:
@@ -137,21 +149,31 @@ def build_corrected_pose_bundle(
                 _, pose_warning = PYMOL.extract_selected_pose_pdbqt(outfile, pose_index, selected_pose_pdbqt)
             except Exception as exc:
                 warnings.append(f"{ligand_variant}: pose extraction failed ({exc})")
+                progress(f"        ⚠️ pose extraction failed: {exc}")
                 continue
 
+            progress("        resolving reference SDF...")
             resolution = resolver.resolve(row, allow_fallback=allow_reference_fallback)
             reference_sdf = resolution.get("reference_sdf")
             ref_mol = PYMOL.load_reference_mol(reference_sdf)
+            progress(
+                "        reference status="
+                f"{resolution.get('reference_lookup_status', '') or 'unknown'} "
+                f"path={reference_sdf or '(none)'}"
+            )
 
             try:
+                progress("        converting selected PDBQT with Open Babel...")
                 coords_mol = PYMOL.pdbqt_to_mol(selected_pose_pdbqt, obabel_bin)
             except Exception as exc:
                 warnings.append(f"{ligand_variant}: Open Babel conversion failed ({exc})")
+                progress(f"        ⚠️ Open Babel conversion failed: {exc}")
                 continue
 
             fitted_mol = None
             fit_warning = pose_warning or ""
             if ref_mol is not None:
+                progress("        fitting reference chemistry onto docked coordinates...")
                 fitted_mol, fit_status, _mcs_size, warning = PYMOL.rigid_fit_by_mcs(
                     coords_mol,
                     ref_mol,
@@ -190,6 +212,7 @@ def build_corrected_pose_bundle(
                     "molblock": molblock,
                 }
             )
+            progress(f"        ✅ corrected model ready: fit_status={fit_status}")
 
     return {
         "models": corrected_models,
@@ -262,8 +285,10 @@ def build_project(
     inputs_dir.mkdir(exist_ok=True)
 
     rows = COMPACT.load_rows(csv_path)
+    progress(f"📄 Loaded {len(rows)} score rows from {csv_path}")
     groups = COMPACT.select_compacted_groups(rows, top_ligands=top_ligands, top_poses=top_poses)
     COMPACT.print_selection_summary(groups, top_ligands=top_ligands, top_poses=top_poses)
+    progress(f"🧭 Output project: {project_dir}")
 
     search_roots: List[Path] = []
     for root in receptor_roots or []:
@@ -287,13 +312,20 @@ def build_project(
     receptor_copy_map: Dict[str, str] = {}
     used_input_names: set[str] = set()
 
-    for group in groups:
+    total_groups = len(groups)
+    for group_index, group in enumerate(groups, start=1):
         receptor_name = str(group["receptor"])
         ligand_base = str(group["ligand_base"])
         selected_rows = list(group["selected_rows"])
+        best_score = min(COMPACT.safe_float(row.get("Binding_Affinity", "")) for row in selected_rows)
+        progress(
+            f"\n🧬 Group {group_index}/{total_groups}: "
+            f"{receptor_name} / {ligand_base} | poses={len(selected_rows)} | best={best_score:.3f}"
+        )
         receptor_file = COMPACT.BASE.find_receptor_file(receptor_name, search_roots)
 
         if receptor_file is None:
+            progress(f"   ⚠️ receptor not found for {receptor_name}; skipping group.")
             missing_entries.append(
                 {
                     "receptor": receptor_name,
@@ -303,8 +335,11 @@ def build_project(
             )
             continue
 
+        progress(f"   receptor: {receptor_file}")
         receptor_text = receptor_file.read_text(encoding="utf-8", errors="ignore")
+        progress("   collecting docked pose text...")
         ligand_text, build_warnings, variants_included = COMPACT.build_combined_pose_text(selected_rows)
+        progress(f"   collected {len(variants_included)} raw pose block(s); reconstructing corrected SDF models...")
         corrected_bundle = build_corrected_pose_bundle(
             selected_rows=selected_rows,
             resolver=resolver,
@@ -312,11 +347,17 @@ def build_project(
             hydrogen_mode=hydrogen_mode,
             min_mcs_fraction=min_mcs_fraction,
             allow_reference_fallback=allow_reference_fallback,
+            progress_label=f"group {group_index}/{total_groups}",
         )
         build_warnings = build_warnings + corrected_bundle["warnings"]
         corrected_models = corrected_bundle["models"]
+        progress(
+            f"   corrected models ready: {len(corrected_models)}/{len(selected_rows)} "
+            f"(warnings={len(build_warnings)})"
+        )
 
         if not ligand_text.strip():
+            progress("   ⚠️ no pose data collected; skipping group.")
             missing_entries.append(
                 {
                     "receptor": receptor_name,
@@ -327,6 +368,7 @@ def build_project(
             )
             continue
         if not corrected_models:
+            progress("   ⚠️ no corrected SDF models produced; skipping group.")
             missing_entries.append(
                 {
                     "receptor": receptor_name,
@@ -355,6 +397,7 @@ def build_project(
 
         ligand_copy.write_text(ligand_text, encoding="utf-8")
         corrected_sdf_copy.write_text(corrected_bundle["combined_sdf_text"], encoding="utf-8")
+        progress(f"   wrote inputs: {ligand_copy.name}, {corrected_sdf_copy.name}")
 
         viewer_html = COMPACT.BASE.build_viewer_html(
             page_title=page_title,
@@ -368,6 +411,7 @@ def build_project(
         viewer_html = COMPACT.decorate_compacted_viewer_html(viewer_html)
         viewer_html = decorate_sdf_viewer_html(viewer_html, corrected_models)
         viewer_file.write_text(viewer_html, encoding="utf-8")
+        progress(f"   ✅ wrote viewer: {viewer_file.name}")
 
         manifest_entries.append(
             {
@@ -413,7 +457,9 @@ def build_project(
     (project_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (project_dir / "UPSTREAM_LICENSE.txt").write_text(COMPACT.BASE.UPSTREAM_LICENSE_TEXT, encoding="utf-8")
     (project_dir / "index.html").write_text(COMPACT.build_index_html(page_title, manifest_entries), encoding="utf-8")
+    progress(f"\n🧾 Wrote manifest/index with {len(manifest_entries)} viewer entrie(s); missing={len(missing_entries)}")
     zip_path = COMPACT.BASE.write_zip(project_dir)
+    progress(f"📦 Wrote ZIP: {zip_path}")
     manifest["project_dir"] = str(project_dir)
     manifest["zip_path"] = str(zip_path)
     return manifest

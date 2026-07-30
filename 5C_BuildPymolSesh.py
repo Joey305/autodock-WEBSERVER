@@ -183,6 +183,15 @@ def safe_float(value: Any, default: float = 1e9) -> float:
         return default
 
 
+def row_binding_score(row: Dict[str, Any], default: float = 1e9) -> float:
+    key = binding_column(row)
+    return safe_float(row.get(key), default) if key else default
+
+
+def progress(message: str) -> None:
+    print(message, flush=True)
+
+
 # ---------------------------------------------------------------------------
 # CLI / input helpers
 # ---------------------------------------------------------------------------
@@ -280,6 +289,30 @@ def list_and_select_multiple(prompt: str, options: Sequence[str]) -> List[str]:
     return chosen
 
 
+def is_temporary_score_csv(path: Path) -> bool:
+    name = path.name
+    return name.endswith("_UNSORTED.tmp.csv") or ".tmp." in name
+
+
+def discover_score_csvs(base_dir: Path) -> List[Path]:
+    preferred_patterns = [
+        "ALL_Docking_Results_with_provenance_*.csv",
+        "*vina_docking_scores_sorted.csv",
+    ]
+    seen = set()
+    candidates: List[Path] = []
+    for pattern in preferred_patterns:
+        for path in sorted(base_dir.glob(pattern)):
+            if not path.is_file() or is_temporary_score_csv(path):
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            candidates.append(path)
+    return candidates
+
+
 def prompt_for_inputs(args: argparse.Namespace, cwd: Path) -> Tuple[Path, str, int, List[Path], Path]:
     csv_path = Path(args.csv).expanduser() if args.csv else None
     mode = args.mode
@@ -301,10 +334,10 @@ def prompt_for_inputs(args: argparse.Namespace, cwd: Path) -> Tuple[Path, str, i
             raise SystemExit("❌ Non-interactive mode requires: " + ", ".join(missing))
     else:
         if not csv_path:
-            csv_files = sorted([f.name for f in cwd.glob("*.csv")])
+            csv_files = discover_score_csvs(cwd)
             if not csv_files:
-                raise SystemExit("❌ No CSV files found in current directory.")
-            csv_path = cwd / list_and_select("Available CSV files:", csv_files)
+                raise SystemExit("❌ No docking score CSV files found in current directory.")
+            csv_path = cwd / list_and_select("Available docking score CSV files:", [f.name for f in csv_files])
 
         if not mode:
             print("\n⚙️ Selection mode:")
@@ -430,10 +463,22 @@ def print_selection_summary(grouped: Dict[str, List[Dict[str, Any]]], mode: str,
     print(f"   Mode: {mode}")
     print(f"   Top N: {top_n}")
     for receptor, rows in grouped.items():
-        counts = Counter(row.get("LigandBase", "") for row in rows)
-        print(f"   - {receptor}: {len(rows)} selected rows across {len(counts)} base ligand(s)")
-        for base, count in sorted(counts.items()):
-            print(f"       {base}: {count}")
+        per_base: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            base = (row.get("LigandBase") or "").strip()
+            if base:
+                per_base[base].append(row)
+        ranked = sorted(
+            per_base.items(),
+            key=lambda item: (
+                min(row_binding_score(row) for row in item[1]),
+                item[0],
+            ),
+        )
+        print(f"   - {receptor}: {len(rows)} selected rows across {len(ranked)} base ligand(s)")
+        for rank, (base, base_rows) in enumerate(ranked, start=1):
+            best = min(row_binding_score(row) for row in base_rows)
+            print(f"       [{rank}] {base:<32} best={best:.3f}  poses={len(base_rows)}")
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +542,15 @@ def _is_previous_output_path(path: Path) -> bool:
     return any(part in {"11_AA_Ligands", "11_AA_PDBOUTPUT", "11_AA_PDBQT"} for part in path.parts)
 
 
+def _looks_like_ligand_manifest_dir(path: Path) -> bool:
+    name = path.name
+    if name.startswith("."):
+        return False
+    if name.startswith(("Docking_Results", "Docking_Configs", "logs", "__pycache__")):
+        return False
+    return name == "Ligands" or "Ligands" in name
+
+
 class ReferenceResolver:
     """Find generated/reference SDFs for ligand variants."""
 
@@ -538,8 +592,38 @@ class ReferenceResolver:
                 seen.add(str(root))
         return unique
 
+    def _manifest_paths(self) -> List[Path]:
+        candidates: List[Path] = []
+        direct = self.cwd / "ligand_state_manifest.csv"
+        if direct.is_file():
+            candidates.append(direct.resolve())
+
+        try:
+            child_dirs = [p for p in self.cwd.iterdir() if p.is_dir()]
+        except OSError:
+            child_dirs = []
+
+        for root in child_dirs:
+            if not _looks_like_ligand_manifest_dir(root):
+                continue
+            manifest = root / "ligand_state_manifest.csv"
+            if manifest.is_file():
+                candidates.append(manifest.resolve())
+
+        unique: List[Path] = []
+        seen = set()
+        for path in candidates:
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(path)
+        return unique
+
     def _index(self) -> None:
-        for root in self._candidate_roots():
+        sdf_roots = self._candidate_roots()
+        progress(f"🔎 Indexing reference SDF roots: {len(sdf_roots)}")
+        for root in sdf_roots:
             for sdf in root.rglob("*.sdf"):
                 if not self._should_index_sdf(sdf):
                     continue
@@ -548,7 +632,9 @@ class ReferenceResolver:
                 self.exact_index[sdf.stem].append(sdf)
                 self.base_index[parsed["LigandBase"]].append(sdf)
 
-        for manifest in self.cwd.rglob("ligand_state_manifest.csv"):
+        manifests = self._manifest_paths()
+        progress(f"🗒️  Indexing ligand state manifests: {len(manifests)}")
+        for manifest in manifests:
             if _is_hidden_or_junk_path(manifest):
                 continue
             if not self.include_previous_outputs_as_reference and _is_previous_output_path(manifest):
@@ -575,6 +661,12 @@ class ReferenceResolver:
                             self.manifest_rows[variant].append((manifest.resolve(), row))
             except Exception:
                 continue
+        progress(
+            "✅ Reference index ready: "
+            f"{len(self.exact_index)} exact SDF stem(s), "
+            f"{len(self.base_index)} base ligand(s), "
+            f"{len(self.manifest_rows)} manifest variant(s)"
+        )
 
     def _manifest_candidate_paths(self, manifest_path: Path, row: Dict[str, str]) -> Iterable[Path]:
         manifest_dir = manifest_path.parent
@@ -1052,8 +1144,9 @@ def main() -> None:
     grouped = select_rows(rows, top_n, mode)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    print(f"\n📄 Reading: {csv_path}")
-    print(f"🔎 Detected CSV style: {csv_style}")
+    progress(f"\n📄 Reading: {csv_path}")
+    progress(f"🔎 Detected CSV style: {csv_style}")
+    progress(f"📊 Loaded {len(rows)} score rows.")
     print_selection_summary(grouped, mode, top_n)
 
     if args.dry_run_selection:
@@ -1080,8 +1173,8 @@ def main() -> None:
                 )
         audit_csv = out_dir_pdb / f"selection_audit_{timestamp}.csv"
         write_audit(audit_csv, audit_rows)
-        print("\n🎉 Dry-run selection complete.")
-        print(f"🧾 Selection audit: {audit_csv}")
+        progress("\n🎉 Dry-run selection complete.")
+        progress(f"🧾 Selection audit: {audit_csv}")
         return
 
     if not HAVE_RDKIT:
@@ -1093,23 +1186,34 @@ def main() -> None:
     loaded_receptors: Dict[str, str] = {}
     audit_rows = []
 
-    print("\n🔬 Building corrected ligand exports and PyMOL session...")
+    total_selected = sum(len(selected_rows) for selected_rows in grouped.values())
+    progress("\n🔬 Building corrected ligand exports and PyMOL session...")
+    progress(f"🧭 Output root: {out_root}")
+    progress(f"🧮 Selected rows to process: {total_selected}")
 
-    for receptor, selected_rows in grouped.items():
+    processed_rows = 0
+    for receptor_index, (receptor, selected_rows) in enumerate(grouped.items(), start=1):
         rec_name = receptor.replace(".pdbqt", "").replace(".converted", "")
+        progress(f"\n🧬 Receptor {receptor_index}/{len(grouped)}: {rec_name} | selected={len(selected_rows)}")
         receptor_file = find_receptor_file(receptor_roots, rec_name)
         if receptor_file is None:
-            print(f"⚠️ Receptor file not found for {rec_name}; skipping receptor.")
+            progress(f"⚠️ Receptor file not found for {rec_name}; skipping receptor.")
             continue
 
+        progress(f"   receptor file: {receptor_file}")
         rec_obj = load_receptor_once(pymol_enabled, receptor_file, rec_name, loaded_receptors)
         receptor_group = sanitize_pymol_name("grp_" + rec_name)
 
         for rank_for_receptor, row in enumerate(selected_rows, 1):
+            processed_rows += 1
             ligand_variant = row.get("LigandVariant", "")
             ligand_base = row.get("LigandBase", "")
             pose_index = int(safe_float(row.get("Pose") or 1, 1))
             binding = row.get("Binding_Affinity", row.get("Binding_Affinity_kcal_per_mol", ""))
+            progress(
+                f"   [{processed_rows}/{total_selected}] rank={rank_for_receptor} "
+                f"{ligand_base} | {ligand_variant} | vina_pose={pose_index} | score={binding}"
+            )
 
             prefix = sanitize_filename(
                 f"{rec_name}_Top{rank_for_receptor:02d}_{ligand_base}_{ligand_variant}_vinaPose{pose_index}"
@@ -1147,19 +1251,21 @@ def main() -> None:
             audit["dock_pdbqt"] = str(dock_pdbqt or "")
             if dock_pdbqt is None or not dock_pdbqt.exists():
                 audit["skipped_reason"] = "missing_docked_pdbqt"
-                print(f"⚠️ Missing docked PDBQT for {rec_name}/{ligand_variant}; skipping.")
+                progress(f"      ⚠️ Missing docked PDBQT for {rec_name}/{ligand_variant}; skipping.")
                 audit_rows.append(audit)
                 continue
 
             try:
+                progress(f"      extracting pose from {dock_pdbqt}")
                 _, pose_warning = extract_selected_pose_pdbqt(dock_pdbqt, pose_index, selected_pose_pdbqt)
             except Exception as exc:
                 audit["skipped_reason"] = "pose_extraction_failed"
                 audit["fit_warning"] = str(exc)
-                print(f"⚠️ Could not extract pose for {ligand_variant}: {exc}")
+                progress(f"      ⚠️ Could not extract pose for {ligand_variant}: {exc}")
                 audit_rows.append(audit)
                 continue
 
+            progress("      resolving reference SDF...")
             resolution = resolver.resolve(row, allow_fallback=args.allow_reference_fallback)
             reference_sdf = resolution.get("reference_sdf")
             audit.update(
@@ -1172,13 +1278,20 @@ def main() -> None:
                     "is_fallback_reference": resolution.get("is_fallback_reference", False),
                 }
             )
+            progress(
+                "      reference status="
+                f"{resolution.get('reference_lookup_status', '') or 'unknown'} "
+                f"method={resolution.get('reference_lookup_method', '') or 'unknown'} "
+                f"path={reference_sdf or '(none)'}"
+            )
 
             try:
+                progress("      converting selected PDBQT with Open Babel...")
                 coords_mol = pdbqt_to_mol(selected_pose_pdbqt, obabel_bin)
             except Exception as exc:
                 audit["skipped_reason"] = "pdbqt_to_mol_failed"
                 audit["fit_warning"] = str(exc)
-                print(f"⚠️ PDBQT conversion failed for {ligand_variant}: {exc}")
+                progress(f"      ⚠️ PDBQT conversion failed for {ligand_variant}: {exc}")
                 audit_rows.append(audit)
                 continue
 
@@ -1190,6 +1303,7 @@ def main() -> None:
             fit_warning = pose_warning or ""
 
             if ref_mol is not None:
+                progress("      fitting reference chemistry onto docked coordinates...")
                 fitted_mol, fit_status, mcs_size, warning = rigid_fit_by_mcs(
                     coords_mol, ref_mol, min_mcs_fraction=args.min_mcs_fraction
                 )
@@ -1209,12 +1323,13 @@ def main() -> None:
 
             final_mol = apply_hydrogen_mode(fitted_mol, args.hydrogen_mode)
             try:
+                progress(f"      writing corrected SDF: {corrected_sdf.name}")
                 write_sdf(corrected_sdf, final_mol)
                 audit["saved_corrected_sdf"] = str(corrected_sdf)
             except Exception as exc:
                 audit["skipped_reason"] = "write_sdf_failed"
                 audit["fit_warning"] = (fit_warning + " " + str(exc)).strip()
-                print(f"⚠️ Could not write corrected SDF for {ligand_variant}: {exc}")
+                progress(f"      ⚠️ Could not write corrected SDF for {ligand_variant}: {exc}")
                 audit_rows.append(audit)
                 continue
 
@@ -1223,6 +1338,7 @@ def main() -> None:
 
             if pymol_enabled:
                 try:
+                    progress("      exporting PyMOL objects...")
                     cmd.load(str(corrected_sdf), ligand_obj)
                     cmd.hide("everything", ligand_obj)
                     cmd.show("sticks", ligand_obj)
@@ -1236,31 +1352,34 @@ def main() -> None:
                 except Exception as exc:
                     audit["skipped_reason"] = "pymol_export_failed"
                     fit_warning = (fit_warning + " " + str(exc)).strip()
-                    print(f"⚠️ PyMOL export failed for {ligand_variant}: {exc}")
+                    progress(f"      ⚠️ PyMOL export failed for {ligand_variant}: {exc}")
+            else:
+                progress("      PyMOL unavailable; kept corrected SDF and selected PDBQT only.")
 
             audit["fit_method"] = fit_method
             audit["fit_status"] = fit_status
             audit["mcs_map_size"] = mcs_size
             audit["fit_warning"] = fit_warning
             audit_rows.append(audit)
+            progress(f"      ✅ done: fit_status={fit_status} method={fit_method}")
 
     session_path = out_dir_pdb / f"Top{top_n}_{mode}_Docking_Results_{timestamp}.pse"
     if pymol_enabled:
         try:
             cmd.save(str(session_path))
         except Exception as exc:
-            print(f"⚠️ Could not save PyMOL session: {exc}")
+            progress(f"⚠️ Could not save PyMOL session: {exc}")
 
     audit_csv = out_dir_pdb / f"top_hits_audit_{timestamp}.csv"
     write_audit(audit_csv, audit_rows)
 
-    print("\n🎉 Done!")
+    progress("\n🎉 Done!")
     if pymol_enabled:
-        print(f"🧪 PyMOL session: {session_path}")
-    print(f"📦 PDB complexes: {out_dir_pdb}")
-    print(f"📦 Corrected SDFs: {out_dir_sdf}")
-    print(f"📦 Raw selected PDBQT: {out_dir_pdbqt}")
-    print(f"🧾 Audit CSV: {audit_csv}")
+        progress(f"🧪 PyMOL session: {session_path}")
+    progress(f"📦 PDB complexes: {out_dir_pdb}")
+    progress(f"📦 Corrected SDFs: {out_dir_sdf}")
+    progress(f"📦 Raw selected PDBQT: {out_dir_pdbqt}")
+    progress(f"🧾 Audit CSV: {audit_csv}")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,26 @@ def load_script_module(filename: str, module_name: str):
 
 
 class HtmlVizBuilderTests(unittest.TestCase):
+    def test_prompt_csv_path_includes_4c_combined_outputs(self):
+        module = load_script_module("5_BuidlHTMLViz.py", "html_viz_builder_combined_prompt_module")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            combined = root / "ALL_Docking_Results_with_provenance_TOP10000_2026-07-29_05-26-47.csv"
+            combined.write_text("Receptor,Ligand,Pose,Binding_Affinity,OutFile\n", encoding="utf-8")
+            per_dir = root / "Docking_Results_demo_2026-07-27_14-28-28_vina_docking_scores_sorted.csv"
+            per_dir.write_text("Receptor,Ligand,Pose,Binding_Affinity,OutFile\n", encoding="utf-8")
+            tmp = root / "ALL_Docking_Results_with_provenance_TOPALL_2026-07-29_05-26-01_UNSORTED.tmp.csv"
+            tmp.write_text("Receptor,Ligand,Pose,Binding_Affinity,OutFile\n", encoding="utf-8")
+
+            with mock.patch.object(module.Path, "cwd", return_value=root):
+                candidates = module.discover_score_csvs()
+                self.assertEqual(candidates, [combined, per_dir])
+
+                with mock.patch("builtins.input", return_value="1"):
+                    selected = module.prompt_csv_path()
+
+            self.assertEqual(selected, combined)
+
     def test_resolve_args_prompts_for_missing_csv(self):
         module = load_script_module("5_BuidlHTMLViz.py", "html_viz_builder_prompt_module")
         with tempfile.TemporaryDirectory() as tmpdir:

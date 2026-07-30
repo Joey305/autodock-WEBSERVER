@@ -1,4 +1,5 @@
 import csv
+import io
 import importlib
 import importlib.util
 import os
@@ -29,6 +30,41 @@ class PymolBuilderTests(unittest.TestCase):
         rel = module.infer_tmp_sdf_relative_path("DR7_p01_t02_c005")
         self.assertEqual(rel, Path("DR7") / "DR7_p01_t02" / "DR7_p01_t02_c005.sdf")
 
+    def test_discover_score_csvs_filters_tmp_and_non_score_csvs(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_score_csv_discovery")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            combined = root / "ALL_Docking_Results_with_provenance_TOP10000_2026-07-29_05-26-47.csv"
+            combined.write_text("Receptor,Ligand,Pose,Binding_Affinity,OutFile\n", encoding="utf-8")
+            per_dir = root / "Docking_Results_demo_2026-07-27_14-28-28_vina_docking_scores_sorted.csv"
+            per_dir.write_text("Receptor,Ligand,Pose,Binding_Affinity,OutFile\n", encoding="utf-8")
+            tmp = root / "ALL_Docking_Results_with_provenance_TOPALL_2026-07-29_05-26-01_UNSORTED.tmp.csv"
+            tmp.write_text("Receptor,Ligand,Pose,Binding_Affinity,OutFile\n", encoding="utf-8")
+            centers = root / "vina_centers.csv"
+            centers.write_text("PDB_ID,X,Y,Z,SIZE\nrec.pdbqt,1,2,3,20\n", encoding="utf-8")
+
+            self.assertEqual(module.discover_score_csvs(root), [combined, per_dir])
+
+    def test_print_selection_summary_uses_rank_order_with_scores(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_ranked_summary")
+        grouped = {
+            "9ba9": [
+                {"LigandBase": "CONIVAPTAN", "Binding_Affinity": "-9.344"},
+                {"LigandBase": "DIHYDROERGOTAMINE_MESYLATE", "Binding_Affinity": "-9.377"},
+                {"LigandBase": "CONIVAPTAN", "Binding_Affinity": "-9.100"},
+            ]
+        }
+        stream = io.StringIO()
+        with mock.patch("sys.stdout", stream):
+            module.print_selection_summary(grouped, "per_ligand", 15)
+
+        output = stream.getvalue()
+        first = output.index("[1] DIHYDROERGOTAMINE_MESYLATE")
+        second = output.index("[2] CONIVAPTAN")
+        self.assertLess(first, second)
+        self.assertIn("best=-9.377  poses=1", output)
+        self.assertIn("best=-9.344  poses=2", output)
+
     def test_manifest_lookup_returns_exact_variant_sdf(self):
         module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_manifest_lookup")
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -58,6 +94,29 @@ class PymolBuilderTests(unittest.TestCase):
             self.assertEqual(resolution["reference_lookup_warning"], "")
             self.assertEqual(resolution["manifest_row"]["LigandVariant"], "DR7_p01_t02_c005")
             self.assertTrue(resolution["is_exact_variant_match"])
+
+    def test_reference_resolver_indexes_only_direct_ligand_manifests(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_manifest_fast_paths")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ligand_dir = root / "chembl_part_001_Ligands_PDBQT_64Poses_20260714_0754"
+            ligand_dir.mkdir()
+            with (ligand_dir / "ligand_state_manifest.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["LigandVariant", "TmpSDFFile"])
+                writer.writeheader()
+                writer.writerow({"LigandVariant": "Good_p01_t01_c001", "TmpSDFFile": "Good/Good_p01_t01/Good_p01_t01_c001.sdf"})
+
+            deep_results = root / "Docking_Results_demo" / "recA" / "Bad_p01_t01_c001"
+            deep_results.mkdir(parents=True)
+            with (deep_results / "ligand_state_manifest.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["LigandVariant", "TmpSDFFile"])
+                writer.writeheader()
+                writer.writerow({"LigandVariant": "Bad_p01_t01_c001", "TmpSDFFile": "Bad.sdf"})
+
+            resolver = module.ReferenceResolver(root)
+
+            self.assertIn("Good_p01_t01_c001", resolver.manifest_rows)
+            self.assertNotIn("Bad_p01_t01_c001", resolver.manifest_rows)
 
     def test_previous_corrected_outputs_are_excluded_from_reference_lookup(self):
         module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_exclude_previous_outputs")

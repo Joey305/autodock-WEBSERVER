@@ -95,6 +95,10 @@ def safe_float(value: Any, default: float = 1e9) -> float:
         return default
 
 
+def progress(message: str) -> None:
+    print(message, flush=True)
+
+
 def unique_output_path(directory: Path, filename: str, used_names: set[str]) -> Path:
     candidate = filename
     stem = Path(filename).stem
@@ -201,21 +205,30 @@ def select_compacted_groups(
 
 
 def print_selection_summary(groups: Sequence[Dict[str, Any]], top_ligands: int, top_poses: int) -> None:
-    per_receptor_counts: Dict[str, Counter[str]] = defaultdict(Counter)
+    per_receptor_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for group in groups:
         receptor = str(group["receptor"])
-        ligand_base = str(group["ligand_base"])
-        per_receptor_counts[receptor][ligand_base] = len(group["selected_rows"])
+        per_receptor_groups[receptor].append(group)
 
     print("\n✅ Compacted Top-N selection summary")
     print("   Mode: per_ligand_compacted")
     print(f"   Top base ligands per receptor: {top_ligands}")
     print(f"   Top poses per base ligand: {top_poses}")
-    for receptor, counts in per_receptor_counts.items():
-        total_rows = sum(counts.values())
-        print(f"   - {receptor}: {total_rows} selected poses across {len(counts)} base ligand(s)")
-        for ligand_base, count in sorted(counts.items()):
-            print(f"       {ligand_base}: {count}")
+    for receptor, receptor_groups in per_receptor_groups.items():
+        ranked_groups = sorted(
+            receptor_groups,
+            key=lambda group: (
+                min(safe_float(row.get("Binding_Affinity", "")) for row in group["selected_rows"]),
+                str(group["ligand_base"]),
+            ),
+        )
+        total_rows = sum(len(group["selected_rows"]) for group in ranked_groups)
+        print(f"   - {receptor}: {total_rows} selected poses across {len(ranked_groups)} base ligand(s)")
+        for rank, group in enumerate(ranked_groups, start=1):
+            ligand_base = str(group["ligand_base"])
+            selected_rows = list(group["selected_rows"])
+            best = min(safe_float(row.get("Binding_Affinity", "")) for row in selected_rows)
+            print(f"       [{rank}] {ligand_base:<32} best={best:.3f}  poses={len(selected_rows)}")
 
 
 def extract_selected_pose_text(pdbqt_text: str, pose_index: int) -> tuple[str, str]:
@@ -471,8 +484,10 @@ def build_project(
     inputs_dir.mkdir(exist_ok=True)
 
     rows = load_rows(csv_path)
+    progress(f"📄 Loaded {len(rows)} score rows from {csv_path}")
     groups = select_compacted_groups(rows, top_ligands=top_ligands, top_poses=top_poses)
     print_selection_summary(groups, top_ligands=top_ligands, top_poses=top_poses)
+    progress(f"🧭 Output project: {project_dir}")
 
     search_roots: List[Path] = []
     for root in receptor_roots or []:
@@ -490,13 +505,20 @@ def build_project(
     receptor_copy_map: Dict[str, str] = {}
     used_input_names: set[str] = set()
 
-    for group in groups:
+    total_groups = len(groups)
+    for group_index, group in enumerate(groups, start=1):
         receptor_name = str(group["receptor"])
         ligand_base = str(group["ligand_base"])
         selected_rows = list(group["selected_rows"])
+        best_score = min(safe_float(row.get("Binding_Affinity", "")) for row in selected_rows)
+        progress(
+            f"\n🧬 Group {group_index}/{total_groups}: "
+            f"{receptor_name} / {ligand_base} | poses={len(selected_rows)} | best={best_score:.3f}"
+        )
         receptor_file = BASE.find_receptor_file(receptor_name, search_roots)
 
         if receptor_file is None:
+            progress(f"   ⚠️ receptor not found for {receptor_name}; skipping group.")
             missing_entries.append(
                 {
                     "receptor": receptor_name,
@@ -506,9 +528,13 @@ def build_project(
             )
             continue
 
+        progress(f"   receptor: {receptor_file}")
         receptor_text = receptor_file.read_text(encoding="utf-8", errors="ignore")
+        progress("   collecting docked pose text...")
         ligand_text, build_warnings, variants_included = build_combined_pose_text(selected_rows)
+        progress(f"   collected {len(variants_included)} raw pose block(s).")
         if not ligand_text.strip():
+            progress("   ⚠️ no pose data collected; skipping group.")
             missing_entries.append(
                 {
                     "receptor": receptor_name,
@@ -535,6 +561,7 @@ def build_project(
         viewer_file = viewers_dir / f"{slug}.html"
 
         ligand_copy.write_text(ligand_text, encoding="utf-8")
+        progress(f"   wrote input: {ligand_copy.name}")
         viewer_html = BASE.build_viewer_html(
             page_title=page_title,
             receptor_label=Path(receptor_file).name,
@@ -545,6 +572,7 @@ def build_project(
             source_outfile="; ".join(str(Path(row.get("OutFile", "")).name) for row in selected_rows),
         )
         viewer_file.write_text(decorate_compacted_viewer_html(viewer_html), encoding="utf-8")
+        progress(f"   ✅ wrote viewer: {viewer_file.name}")
 
         manifest_entries.append(
             {
@@ -586,7 +614,9 @@ def build_project(
     (project_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (project_dir / "UPSTREAM_LICENSE.txt").write_text(BASE.UPSTREAM_LICENSE_TEXT, encoding="utf-8")
     (project_dir / "index.html").write_text(build_index_html(page_title, manifest_entries), encoding="utf-8")
+    progress(f"\n🧾 Wrote manifest/index with {len(manifest_entries)} viewer entrie(s); missing={len(missing_entries)}")
     zip_path = BASE.write_zip(project_dir)
+    progress(f"📦 Wrote ZIP: {zip_path}")
     manifest["project_dir"] = str(project_dir)
     manifest["zip_path"] = str(zip_path)
     return manifest
