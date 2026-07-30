@@ -168,6 +168,11 @@ class HtmlVizBuilderTests(unittest.TestCase):
             self.assertEqual(manifest["entry_count"], 2)
             variants = [entry["ligand_variant"] for entry in manifest["entries"]]
             self.assertEqual(variants, ["LigA_p01_t01_c001", "LigA_p01_t02_c001"])
+            viewer_path = Path(manifest["project_dir"]) / manifest["entries"][0]["viewer_file"]
+            viewer_html = viewer_path.read_text(encoding="utf-8")
+            self.assertIn("const STANDALONE_VIEWERS = [", viewer_html)
+            self.assertIn("LigA_p01_t02_c001", viewer_html)
+            self.assertIn('class="pose-score-box"', viewer_html)
 
     def test_build_project_reuses_one_receptor_copy_per_unique_receptor(self):
         module = load_script_module("5_BuidlHTMLViz.py", "html_viz_builder_dedupe_module")

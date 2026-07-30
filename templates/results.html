@@ -471,6 +471,79 @@ document.addEventListener("DOMContentLoaded", () => {
     return url;
   }
 
+  function injectViewerContext(viewerText, context) {
+    const contextJson = JSON.stringify(context);
+    const contextScript = `<script>
+window.__VINA_VIEWER_CONTEXT__ = ${contextJson};
+(() => {
+  function installFallbackSwitcher() {
+    const entries = window.__VINA_VIEWER_CONTEXT__ || [];
+    const chip = document.getElementById("ligand-label");
+    if (!chip || entries.length <= 1 || chip.querySelector("select")) return;
+    const label = chip.querySelector("span");
+    const currentName = label ? label.textContent.replace(/^Ligand:\\s*/, "") : "";
+    const icon = chip.querySelector("svg");
+    const styleId = "local-standalone-ligand-switcher-style";
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement("style");
+      style.id = styleId;
+      style.textContent = ".ligand-chip.ligand-chip-select{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px;align-items:center;width:100%;max-width:100%}.ligand-chip-select select{min-width:0;width:100%;border:0;background:transparent;color:var(--txt,#111827);font:600 10px var(--mono,monospace);outline:0;overflow:hidden;text-overflow:ellipsis}";
+      document.head.appendChild(style);
+    }
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", "Select ligand viewer");
+    let activeIndex = entries.findIndex((entry) => entry.title === currentName || entry.url === window.location.href.split("#")[0]);
+    if (activeIndex < 0) activeIndex = 0;
+    entries.forEach((entry, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = entry.score ? \`\${entry.title || "Ligand"} (\${entry.score} kcal/mol)\` : (entry.title || "Ligand");
+      select.appendChild(option);
+    });
+    select.value = String(activeIndex);
+    select.addEventListener("change", () => {
+      const entry = entries[Number(select.value)];
+      if (entry && entry.url) window.location.href = entry.url;
+    });
+    chip.classList.add("ligand-chip-select");
+    chip.innerHTML = "";
+    if (icon) chip.appendChild(icon);
+    chip.appendChild(select);
+  }
+  document.addEventListener("DOMContentLoaded", () => setTimeout(installFallbackSwitcher, 0));
+  window.addEventListener("load", () => setTimeout(installFallbackSwitcher, 50));
+  setTimeout(installFallbackSwitcher, 500);
+})();
+<\/script>`;
+    if (viewerText.includes("</head>")) {
+      return viewerText.replace("</head>", `${contextScript}</head>`);
+    }
+    return `${contextScript}${viewerText}`;
+  }
+
+  function createLocalViewerLauncher(projectKey, index) {
+    const launcherHtml = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Docking viewer</title></head>
+<body>
+<script>
+(() => {
+  const payload = JSON.parse(sessionStorage.getItem(${JSON.stringify(projectKey)}) || "{}");
+  const record = payload.entries && payload.entries[${index}];
+  if (!record || !record.html) {
+    document.body.textContent = "This local viewer is no longer available. Reload the project folder to restore it.";
+    return;
+  }
+  document.open();
+  document.write(record.html);
+  document.close();
+})();
+<\/script>
+</body>
+</html>`;
+    return addObjectUrl(new Blob([launcherHtml], { type: "text/html" }));
+  }
+
   function renderLocalProject(manifest, entries) {
     if (!localShell || !localEntryList || !localProjectTitle || !localProjectMeta || !localViewerTitle || !localViewerFrame || !localOpenStandalone) {
       return;
@@ -588,7 +661,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const entries = [];
+    const matchedEntries = [];
     for (const entry of manifest.entries || []) {
       const viewerRel = normPath(entry.viewer_file);
       const lookupPath = normPath(manifestDir ? `${manifestDir}/${viewerRel}` : viewerRel);
@@ -597,18 +670,44 @@ document.addEventListener("DOMContentLoaded", () => {
         continue;
       }
       const viewerText = await viewerFile.text();
-      const viewerUrl = addObjectUrl(new Blob([viewerText], { type: "text/html" }));
-      entries.push({
+      matchedEntries.push({
         ...entry,
-        viewerUrl,
+        viewerText,
         viewerTitle: viewerFile.name.replace(/\.html$/i, ""),
       });
     }
 
-    if (!entries.length) {
+    if (!matchedEntries.length) {
       setStatus("manifest.json was found, but no viewer HTML files could be matched.", "is-error");
       return;
     }
+
+    const projectKey = `vina-viewer-project:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const launcherUrls = matchedEntries.map((_, index) => createLocalViewerLauncher(projectKey, index));
+    const context = matchedEntries.map((entry, index) => ({
+      title: entry.ligand_variant || entry.ligand || entry.viewerTitle || "Viewer",
+      receptor: entry.receptor || "",
+      score: entry.best_affinity || "",
+      viewer_file: normPath(entry.viewer_file),
+      url: launcherUrls[index],
+    }));
+    const storedEntries = matchedEntries.map((entry) => ({
+      html: injectViewerContext(entry.viewerText, context),
+    }));
+    try {
+      sessionStorage.setItem(projectKey, JSON.stringify({ entries: storedEntries }));
+    } catch (error) {
+      setStatus("The project is too large for browser session storage. Try opening it from the server workspace path instead.", "is-error");
+      resetObjectUrls();
+      return;
+    }
+    const entries = matchedEntries.map((entry, index) => {
+      const { viewerText, ...rest } = entry;
+      return {
+        ...rest,
+        viewerUrl: launcherUrls[index],
+      };
+    });
 
     setStatus(`Loaded ${entries.length} viewer${entries.length === 1 ? "" : "s"} from the dropped project folder.`, "is-success");
     renderLocalProject(manifest, entries);

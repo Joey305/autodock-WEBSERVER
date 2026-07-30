@@ -554,9 +554,15 @@ def _looks_like_ligand_manifest_dir(path: Path) -> bool:
 class ReferenceResolver:
     """Find generated/reference SDFs for ligand variants."""
 
-    def __init__(self, cwd: Path, include_previous_outputs_as_reference: bool = False):
+    def __init__(
+        self,
+        cwd: Path,
+        include_previous_outputs_as_reference: bool = False,
+        wanted_variants: Optional[Iterable[str]] = None,
+    ):
         self.cwd = cwd.resolve()
         self.include_previous_outputs_as_reference = include_previous_outputs_as_reference
+        self.wanted_variants = {str(v).strip() for v in (wanted_variants or []) if str(v).strip()}
         self.tmp_roots = sorted([p.resolve() for p in self.cwd.glob("Ligands_TMP_SDF_*") if p.is_dir()])
         self.exact_index: Dict[str, List[Path]] = defaultdict(list)
         self.base_index: Dict[str, List[Path]] = defaultdict(list)
@@ -620,47 +626,77 @@ class ReferenceResolver:
             unique.append(path)
         return unique
 
+    @staticmethod
+    def _manifest_variant(row: Dict[str, str]) -> str:
+        variant = (
+            row.get("LigandVariant")
+            or row.get("Variant")
+            or row.get("Ligand")
+            or row.get("PDBQTStem")
+            or row.get("OutputStem")
+            or ""
+        ).strip()
+        if variant:
+            return variant
+
+        # Try to infer from an SDF filename in the manifest row.
+        for key in ("TmpSDFFile", "SDFFile", "SDFPath", "SourceSDF", "GeneratedSDF"):
+            value = (row.get(key) or "").strip()
+            if value:
+                return Path(value).stem
+        return ""
+
     def _index(self) -> None:
         sdf_roots = self._candidate_roots()
-        progress(f"🔎 Indexing reference SDF roots: {len(sdf_roots)}")
-        for root in sdf_roots:
-            for sdf in root.rglob("*.sdf"):
-                if not self._should_index_sdf(sdf):
-                    continue
-                sdf = sdf.resolve()
-                parsed = parse_ligand_name(sdf.stem)
-                self.exact_index[sdf.stem].append(sdf)
-                self.base_index[parsed["LigandBase"]].append(sdf)
+        if self.wanted_variants:
+            progress(
+                "🔎 Reference SDF broad pre-index skipped; "
+                f"targeted lookup for {len(self.wanted_variants)} selected variant(s)."
+            )
+        else:
+            progress(f"🔎 Indexing reference SDF roots: {len(sdf_roots)}")
+            for root in sdf_roots:
+                for sdf in root.rglob("*.sdf"):
+                    if not self._should_index_sdf(sdf):
+                        continue
+                    sdf = sdf.resolve()
+                    parsed = parse_ligand_name(sdf.stem)
+                    self.exact_index[sdf.stem].append(sdf)
+                    self.base_index[parsed["LigandBase"]].append(sdf)
 
         manifests = self._manifest_paths()
-        progress(f"🗒️  Indexing ligand state manifests: {len(manifests)}")
-        for manifest in manifests:
+        target_note = f" for selected variants" if self.wanted_variants else ""
+        progress(f"🗒️  Indexing ligand state manifests: {len(manifests)}{target_note}")
+        for index, manifest in enumerate(manifests, start=1):
             if _is_hidden_or_junk_path(manifest):
                 continue
             if not self.include_previous_outputs_as_reference and _is_previous_output_path(manifest):
                 continue
             try:
+                size_mb = manifest.stat().st_size / (1024 * 1024)
+            except OSError:
+                size_mb = 0.0
+            progress(f"   manifest {index}/{len(manifests)}: {manifest.parent.name} ({size_mb:.1f} MB)")
+            rows_seen = 0
+            rows_kept = 0
+            try:
                 with manifest.open(newline="", encoding="utf-8") as handle:
                     for row in csv.DictReader(handle):
-                        variant = (
-                            row.get("LigandVariant")
-                            or row.get("Variant")
-                            or row.get("Ligand")
-                            or row.get("PDBQTStem")
-                            or row.get("OutputStem")
-                            or ""
-                        ).strip()
-                        if not variant:
-                            # Try to infer from an SDF filename in the manifest row.
-                            for key in ("TmpSDFFile", "SDFFile", "SDFPath", "SourceSDF", "GeneratedSDF"):
-                                value = (row.get(key) or "").strip()
-                                if value:
-                                    variant = Path(value).stem
-                                    break
+                        rows_seen += 1
+                        variant = self._manifest_variant(row)
+                        if self.wanted_variants and variant not in self.wanted_variants:
+                            continue
                         if variant:
                             self.manifest_rows[variant].append((manifest.resolve(), row))
+                            rows_kept += 1
             except Exception:
+                progress("      ⚠️ Could not read this manifest; continuing.")
                 continue
+            if self.wanted_variants:
+                progress(f"      kept {rows_kept} selected row(s) from {rows_seen} manifest row(s).")
+                if len(self.manifest_rows) >= len(self.wanted_variants):
+                    progress("      all selected variants found; skipping remaining manifests.")
+                    break
         progress(
             "✅ Reference index ready: "
             f"{len(self.exact_index)} exact SDF stem(s), "
@@ -702,6 +738,16 @@ class ReferenceResolver:
         # Prefer exact generated TMP SDFs, then shorter paths.
         return sorted(paths, key=lambda p: (0 if "Ligands_TMP_SDF_" in str(p) else 1, len(str(p))))[0]
 
+    def _targeted_exact_candidates(self, variant: str, base: str, parsed: Dict[str, str]) -> Iterable[Path]:
+        state_no_conf = "_".join([x for x in [parsed.get("ProtomerTag"), parsed.get("TautomerTag")] if x])
+        roots = self._candidate_roots()
+        for root in roots:
+            yield root / f"{variant}.sdf"
+            if base:
+                yield root / base / f"{variant}.sdf"
+            if base and state_no_conf:
+                yield root / base / f"{base}_{state_no_conf}" / f"{variant}.sdf"
+
     def resolve(self, row: Dict[str, Any], allow_fallback: bool = False) -> Dict[str, Any]:
         variant = (row.get("LigandVariant") or "").strip()
         base = (row.get("LigandBase") or parse_ligand_name(variant)["LigandBase"]).strip()
@@ -728,6 +774,12 @@ class ReferenceResolver:
                     return pack(candidate, "manifest_exact", "exact_reference_sdf")
 
         # 2) Exact filename/stem search.
+        if self.wanted_variants:
+            for candidate in self._targeted_exact_candidates(variant, base, parsed):
+                checked.append(str(candidate))
+                if candidate.exists() and self._should_index_sdf(candidate):
+                    return pack(candidate, "targeted_exact_path", "exact_reference_sdf")
+
         exact = self._prefer(self.exact_index.get(variant, []))
         if exact:
             checked.extend([str(p) for p in self.exact_index.get(variant, [])])
@@ -1181,7 +1233,17 @@ def main() -> None:
         raise SystemExit("❌ RDKit is required. Install it in the docking env before running this script.")
 
     obabel_bin = obabel_path(args.obabel_bin)
-    resolver = ReferenceResolver(cwd, include_previous_outputs_as_reference=args.include_previous_outputs_as_reference)
+    selected_variants = [
+        str(row.get("LigandVariant", "")).strip()
+        for selected_rows in grouped.values()
+        for row in selected_rows
+        if str(row.get("LigandVariant", "")).strip()
+    ]
+    resolver = ReferenceResolver(
+        cwd,
+        include_previous_outputs_as_reference=args.include_previous_outputs_as_reference,
+        wanted_variants=selected_variants,
+    )
     pymol_enabled = launch_pymol()
     loaded_receptors: Dict[str, str] = {}
     audit_rows = []

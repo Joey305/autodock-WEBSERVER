@@ -6,6 +6,7 @@ import base64
 import csv
 import html
 import json
+import os
 import re
 import shutil
 import zipfile
@@ -357,6 +358,36 @@ def load_vinascope_generator_template() -> str:
     return match.group(1)
 
 
+def build_viewer_switch_context(entries: Sequence[Dict[str, Any]], current_viewer_file: str) -> List[Dict[str, str]]:
+    current_path = Path(current_viewer_file)
+    current_parent = current_path.parent if str(current_path.parent) != "." else Path(".")
+    context: List[Dict[str, str]] = []
+    for entry in entries:
+        viewer_file = str(entry.get("viewer_file") or "").replace("\\", "/")
+        if not viewer_file:
+            continue
+        title = str(entry.get("ligand_variant") or entry.get("ligand") or Path(viewer_file).stem)
+        target = os.path.relpath(viewer_file, start=str(current_parent)).replace("\\", "/")
+        context.append(
+            {
+                "title": title,
+                "receptor": str(entry.get("receptor") or ""),
+                "score": str(entry.get("best_affinity") or ""),
+                "viewer_file": viewer_file,
+                "url": target,
+            }
+        )
+    return context
+
+
+def inject_viewer_switch_context(viewer_html: str, entries: Sequence[Dict[str, Any]], current_viewer_file: str) -> str:
+    context_json = json.dumps(build_viewer_switch_context(entries, current_viewer_file), ensure_ascii=False)
+    current_json = json.dumps(str(current_viewer_file).replace("\\", "/"), ensure_ascii=False)
+    viewer_html = viewer_html.replace("const STANDALONE_VIEWERS = [];", f"const STANDALONE_VIEWERS = {context_json};", 1)
+    viewer_html = viewer_html.replace('const CURRENT_VIEWER_FILE = "";', f"const CURRENT_VIEWER_FILE = {current_json};", 1)
+    return viewer_html
+
+
 def build_viewer_html(
     page_title: str,
     receptor_label: str,
@@ -386,12 +417,67 @@ def build_viewer_html(
     template = template.replace(
         'document.getElementById("ligand-label").querySelector("span").textContent = "Ligand: "+ligandName;',
         'document.getElementById("ligand-label").querySelector("span").textContent = "Ligand: "+ligandName;\n'
-        f'  document.title = {json.dumps(title)};\n',
+        f'  document.title = {json.dumps(title)};\n'
+        '  installStandaloneLigandSwitcher(ligandName);\n',
         1,
     )
     template = template.replace(
         'toast("Interactions CSV saved automatically");',
         f'toast("Loaded {ligand_label} ({best_affinity} kcal/mol)");',
+        1,
+    )
+    template = template.replace(
+        """// ═══════════════════════════════════════════════════════════════════
+//  MAIN
+// ═══════════════════════════════════════════════════════════════════""",
+        """// ═══════════════════════════════════════════════════════════════════
+//  STANDALONE PROJECT SWITCHER
+// ═══════════════════════════════════════════════════════════════════
+const STANDALONE_VIEWERS = [];
+const CURRENT_VIEWER_FILE = "";
+
+function installStandaloneLigandSwitcher(ligandName) {
+  const chip = document.getElementById("ligand-label");
+  if (!chip) return;
+  const entries = Array.isArray(window.__VINA_VIEWER_CONTEXT__) && window.__VINA_VIEWER_CONTEXT__.length
+    ? window.__VINA_VIEWER_CONTEXT__
+    : STANDALONE_VIEWERS;
+  if (!entries || entries.length <= 1) return;
+
+  const currentHref = window.location.href.split("#")[0];
+  const currentEntry = entries.findIndex((entry) =>
+    entry.viewer_file === CURRENT_VIEWER_FILE ||
+    entry.title === ligandName ||
+    (entry.url && entry.url === currentHref)
+  );
+  const activeIndex = currentEntry >= 0 ? currentEntry : 0;
+  const icon = chip.querySelector("svg");
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", "Select ligand viewer");
+
+  entries.forEach((entry, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    const score = entry.score ? ` (${entry.score} kcal/mol)` : "";
+    option.textContent = `${entry.title || "Ligand"}${score}`;
+    select.appendChild(option);
+  });
+  select.value = String(activeIndex);
+  select.addEventListener("change", () => {
+    const entry = entries[Number(select.value)];
+    if (!entry || !entry.url) return;
+    window.location.href = entry.url;
+  });
+
+  chip.classList.add("ligand-chip-select");
+  chip.innerHTML = "";
+  if (icon) chip.appendChild(icon);
+  chip.appendChild(select);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  MAIN
+// ═══════════════════════════════════════════════════════════════════""",
         1,
     )
     template = template.replace(
@@ -427,6 +513,22 @@ def build_viewer_html(
 """,
         """.hud-unit{font-size:8.5px;color:var(--txt-muted);margin-left:2px}
 .hud-pose{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--txt)}
+.ligand-chip{max-width:100%}
+.ligand-chip.ligand-chip-select{
+  display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px;
+  align-items:center;width:100%;
+}
+.ligand-chip-select select{
+  min-width:0;width:100%;border:0;background:transparent;color:var(--txt);
+  font:600 10px var(--mono);letter-spacing:0;outline:0;
+  overflow:hidden;text-overflow:ellipsis;
+}
+.ligand-chip-select select:focus{color:var(--accent)}
+.pose-item{align-items:flex-start}
+.pose-info{min-width:0;overflow:hidden}
+.pose-score-box{flex:0 0 58px;min-width:58px;text-align:right}
+.pose-rank,.pose-rmsd,.pose-sub{min-width:0;overflow-wrap:anywhere}
+.pose-sub{line-height:1.35}
 .hud-card{pointer-events:auto}
 .hud-interaction-card{width:132px}
 .hud-interaction-toggle{
@@ -455,6 +557,17 @@ def build_viewer_html(
   font:500 10px var(--font);
 }
 """,
+        1,
+    )
+    template = template.replace(
+        """        <div>
+          <div class="pose-score" style="color:${hex}">${pose.score.toFixed(1)}</div>
+          <div class="pose-unit">kcal/mol</div>
+        </div>""",
+        """        <div class="pose-score-box">
+          <div class="pose-score" style="color:${hex}">${pose.score.toFixed(1)}</div>
+          <div class="pose-unit">kcal/mol</div>
+        </div>""",
         1,
     )
     template = template.replace(
@@ -1559,6 +1672,17 @@ def build_project(
     (project_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (project_dir / "UPSTREAM_LICENSE.txt").write_text(UPSTREAM_LICENSE_TEXT, encoding="utf-8")
     (project_dir / "index.html").write_text(build_index_html(page_title, manifest_entries), encoding="utf-8")
+    for entry in manifest_entries:
+        viewer_path = project_dir / str(entry.get("viewer_file", ""))
+        if viewer_path.exists():
+            viewer_path.write_text(
+                inject_viewer_switch_context(
+                    viewer_path.read_text(encoding="utf-8"),
+                    manifest_entries,
+                    str(entry["viewer_file"]),
+                ),
+                encoding="utf-8",
+            )
     progress(f"\n🧾 Wrote manifest/index with {len(manifest_entries)} viewer entrie(s); missing={len(missing_entries)}")
     zip_path = write_zip(project_dir)
     progress(f"📦 Wrote ZIP: {zip_path}")

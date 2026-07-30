@@ -245,6 +245,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const chip = doc.getElementById("ligand-label");
     if (!chip) return;
+    if (chip.querySelector("select")) return;
 
     const styleId = "codex-ligand-switcher-style";
     if (!doc.getElementById(styleId)) {

@@ -113,6 +113,8 @@ class CompactedHtmlVizBuilderTests(unittest.TestCase):
             viewer_path = Path(manifest["project_dir"]) / entry["viewer_file"]
             viewer_html = viewer_path.read_text(encoding="utf-8")
             self.assertIn("pose.variant", viewer_html)
+            self.assertIn("const STANDALONE_VIEWERS = [", viewer_html)
+            self.assertIn('class="pose-score-box"', viewer_html)
             self.assertIn("REMARK COMPACTED_VARIANT:", pose_text)
 
             parsed_manifest = json.loads((Path(manifest["project_dir"]) / "manifest.json").read_text(encoding="utf-8"))

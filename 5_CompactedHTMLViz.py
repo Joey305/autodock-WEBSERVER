@@ -614,6 +614,17 @@ def build_project(
     (project_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (project_dir / "UPSTREAM_LICENSE.txt").write_text(BASE.UPSTREAM_LICENSE_TEXT, encoding="utf-8")
     (project_dir / "index.html").write_text(build_index_html(page_title, manifest_entries), encoding="utf-8")
+    for entry in manifest_entries:
+        viewer_path = project_dir / str(entry.get("viewer_file", ""))
+        if viewer_path.exists():
+            viewer_path.write_text(
+                BASE.inject_viewer_switch_context(
+                    viewer_path.read_text(encoding="utf-8"),
+                    manifest_entries,
+                    str(entry["viewer_file"]),
+                ),
+                encoding="utf-8",
+            )
     progress(f"\n🧾 Wrote manifest/index with {len(manifest_entries)} viewer entrie(s); missing={len(missing_entries)}")
     zip_path = BASE.write_zip(project_dir)
     progress(f"📦 Wrote ZIP: {zip_path}")

@@ -302,9 +302,16 @@ def build_project(
         search_roots = [base_dir / "Receptors", base_dir / "Receptors_PDBQT", base_dir]
 
     obabel_bin = PYMOL.obabel_path(obabel_bin_cli)
+    selected_variants = [
+        str(row.get("LigandVariant", "")).strip()
+        for group in groups
+        for row in group["selected_rows"]
+        if str(row.get("LigandVariant", "")).strip()
+    ]
     resolver = PYMOL.ReferenceResolver(
         base_dir.resolve(),
         include_previous_outputs_as_reference=include_previous_outputs_as_reference,
+        wanted_variants=selected_variants,
     )
 
     manifest_entries: List[Dict[str, Any]] = []
