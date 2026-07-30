@@ -245,6 +245,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const chip = doc.getElementById("ligand-label");
     if (!chip) return;
+    doc.querySelectorAll(".pose-score").forEach((score) => {
+      if (score.parentElement) {
+        score.parentElement.classList.add("pose-score-box");
+      }
+    });
     if (chip.querySelector("select")) return;
 
     const styleId = "codex-ligand-switcher-style";
@@ -256,6 +261,7 @@ document.addEventListener("DOMContentLoaded", () => {
           position: relative;
           cursor: pointer;
           user-select: none;
+          max-width: 100%;
         }
         #ligand-label.codex-ligand-switcher .codex-ligand-caret {
           margin-left: auto;
@@ -297,6 +303,24 @@ document.addEventListener("DOMContentLoaded", () => {
           background: rgba(20,184,166,.10);
           border-color: rgba(20,184,166,.25);
           color: #0f766e;
+        }
+        .pose-item {
+          align-items: flex-start;
+        }
+        .pose-info {
+          min-width: 0;
+          overflow: hidden;
+        }
+        .pose-score-box {
+          flex: 0 0 58px;
+          min-width: 58px;
+          text-align: right;
+        }
+        .pose-rank,
+        .pose-rmsd,
+        .pose-sub {
+          min-width: 0;
+          overflow-wrap: anywhere;
         }
       `;
       doc.head.appendChild(style);
