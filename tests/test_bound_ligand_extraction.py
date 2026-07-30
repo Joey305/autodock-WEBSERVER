@@ -82,6 +82,8 @@ class BoundLigandExtractionTests(unittest.TestCase):
         payload = response.get_json()
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["extracted"]["target_name"], "DR7.sdf")
+        self.assertEqual(payload["extracted"]["target_rel"], "Ligands/DR7.sdf")
+        self.assertIsInstance(payload["extracted"]["target_path"], str)
         self.assertTrue((ws / "Ligands" / "DR7.sdf").exists())
 
         state = self.app_module.json.loads((ws / "_state.json").read_text(encoding="utf-8"))

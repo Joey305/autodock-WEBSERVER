@@ -846,7 +846,8 @@ def create_app() -> Flask:
             "atom_count": len(selected),
         }
         return {
-            "target_path": target_path,
+            "target_path": str(target_path),
+            "target_rel": f"Ligands/{target_path.name}",
             "target_name": target_path.name,
             "source": source,
             "atom_count": len(selected),
