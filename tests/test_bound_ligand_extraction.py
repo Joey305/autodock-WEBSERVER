@@ -41,8 +41,8 @@ class BoundLigandExtractionTests(unittest.TestCase):
         receptor_dir.mkdir(parents=True, exist_ok=True)
         pdb = receptor_dir / "3eky.pdb"
         lines = [
-            "HETATM    1  C1  DR7 A 101      11.000  21.000  31.000  1.00 20.00           C  ",
-            "HETATM    2  O1  DR7 A 101      12.000  21.000  31.000  1.00 20.00           O  ",
+            "HETATM    1  CAA DR7 A 101      11.000  21.000  31.000  1.00 20.00           C  ",
+            "HETATM    2  NBG DR7 A 101      12.000  21.000  31.000  1.00 20.00           N  ",
             "HETATM    3  C1  ATP B 201       1.000   2.000   3.000  1.00 20.00           C  ",
         ]
         if extra_dr7:
@@ -62,6 +62,14 @@ class BoundLigandExtractionTests(unittest.TestCase):
         workspace, ws = self._create_workspace_with_receptor("extract-dr7")
 
         def fake_run(cmd, stdout=None, stderr=None, text=None):
+            pdb_lines = Path(cmd[2]).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(pdb_lines[0][12:16], " CAA")
+            self.assertEqual(pdb_lines[0][17:20], "DR7")
+            self.assertEqual(pdb_lines[0][21], "A")
+            self.assertEqual(pdb_lines[0][22:26].strip(), "101")
+            self.assertEqual(pdb_lines[0][76:78].strip(), "C")
+            self.assertEqual(pdb_lines[1][12:16], " NBG")
+            self.assertEqual(pdb_lines[1][76:78].strip(), "N")
             out_path = Path(cmd[-1])
             out_path.write_text("DR7\n  OpenAI\n\nM  END\n$$$$\n", encoding="utf-8")
             return self.app_module.subprocess.CompletedProcess(cmd, 0, "", "")

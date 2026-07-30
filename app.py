@@ -734,7 +734,7 @@ def create_app() -> Flask:
             element = (atom.element or atom.atom_name or "X").strip()
             element = re.sub(r"[^A-Za-z]", "", element).upper()[:2].rjust(2) or " X"
             lines.append(
-                f"{record}{serial:5d} {atom_field}{resname} {chain}{resi:4d}{icode}"
+                f"{record}{serial:5d} {atom_field} {resname} {chain}{resi:4d}{icode}"
                 f"   {atom.x:8.3f}{atom.y:8.3f}{atom.z:8.3f}"
                 f"  1.00 20.00          {element}  "
             )
