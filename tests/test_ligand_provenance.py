@@ -198,6 +198,8 @@ class ConformerInputIdentityTests(unittest.TestCase):
                 "REMARK VINA RESULT: -7.4 0.0 0.0\n"
                 "REMARK VINA RESULT: -6.9 0.0 0.0\n"
             )
+            config_path = outfile.with_name("config.txt")
+            config_path.write_text("center_x = 1\n")
             write_ligand_state_manifest(
                 lig_dir / "ligand_state_manifest.csv",
                 [
@@ -225,6 +227,28 @@ class ConformerInputIdentityTests(unittest.TestCase):
             self.assertEqual(rows[0]["LigandBase"], "obj01")
             self.assertEqual(rows[0]["StateTag"], "p01_t02")
             self.assertEqual(rows[0]["CanonicalSMILES"], "CCO")
+            self.assertFalse(config_path.exists())
+
+    def test_process_one_dir_can_keep_config_files(self):
+        module = load_script_module("4_ParseScores.py", "parse_scores_module_keep_configs")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            results_dir = Path(tmpdir) / "Docking_Results_Test"
+            outfile = results_dir / "ReceptorA" / "obj01_p01_t02_c005" / "out.pdbqt"
+            outfile.parent.mkdir(parents=True, exist_ok=True)
+            outfile.write_text("REMARK VINA RESULT: -7.4 0.0 0.0\n")
+            config_path = outfile.with_name("config.txt")
+            config_path.write_text("center_x = 1\n")
+
+            rows = module.process_one_dir(
+                results_dir,
+                workers=1,
+                heartbeat=1,
+                fallback_crawl=True,
+                delete_configs=False,
+            )
+
+            self.assertEqual(len(rows), 1)
+            self.assertTrue(config_path.exists())
 
 
 class ConcatenateScoresTests(unittest.TestCase):

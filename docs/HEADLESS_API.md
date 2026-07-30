@@ -21,6 +21,7 @@ The API is additive. Existing browser routes under `/api/...` and the `/build` w
 | POST | `/api/v1/workspaces/<jobname>/prep/start` | Run receptor preparation using the existing conversion path. |
 | GET | `/api/v1/workspaces/<jobname>/prep/status` | Read receptor-prep status and log tail. |
 | POST | `/api/v1/workspaces/<jobname>/ligands/upload` | Upload ligand file, ZIP, or folder-style multipart files. |
+| POST | `/api/v1/workspaces/<jobname>/ligands/extract` | Extract a selected receptor HETATM instance into `Ligands/` as SDF. |
 | GET | `/api/v1/workspaces/<jobname>/ligands` | List ligand files and upload metadata. |
 | POST | `/api/v1/workspaces/<jobname>/build` | Build a portable or optional LSF package. |
 | GET | `/api/v1/workspaces/<jobname>/artifacts` | List generated ZIP artifacts. |
@@ -110,6 +111,16 @@ Selection object:
 The resolver does not silently choose the first ligand instance. If a HETATM selector matches multiple ligand instances, the API returns `ambiguous_selection` with candidates. Provide `chain` and `resi` to disambiguate.
 
 Zero-match selectors return `no_atoms_matched`.
+
+## Bound Ligand Extraction
+
+After uploading or fetching a receptor, a bound HETATM ligand instance can be reused as a ligand input:
+
+```json
+{"receptor": "3eky.pdb", "resname": "DR7", "chain": "A", "resi": "100"}
+```
+
+`ligands/extract` writes an SDF into `Ligands/`, marks ligand input as uploaded, and returns `ambiguous_selection` if the selector matches multiple HETATM instances. Open Babel must be available on the server for SDF conversion.
 
 ## Prep And Build
 

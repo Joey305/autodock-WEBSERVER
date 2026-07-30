@@ -22,7 +22,15 @@ from packager import (
     save_uploaded_ligand_zip, save_uploaded_ligand_folder,
 )
 from runner_templates import build_portable_runners
-from center_resolver import CenterResolutionError, resolve_center_from_file, resolve_xyz
+from center_resolver import (
+    CenterResolutionError,
+    filter_atoms,
+    group_instances,
+    instance_metadata,
+    parse_pdb_atoms,
+    resolve_center_from_file,
+    resolve_xyz,
+)
 
 try:
     import gemmi  # type: ignore
@@ -115,6 +123,8 @@ def infer_ligand_workflow(ligand_info: Dict[str, Any]) -> tuple[str, str, Option
         return "3", "sdf", f"Ligands/{Path(filename).name}"
     if upload_mode == "single" and ext in {".smiles", ".smi"}:
         return "2", "smiles", None
+    if upload_mode == "extracted" and ext == ".sdf" and ligand_info.get("accepted_count") == 1:
+        return "3", "sdf", f"Ligands/{Path(filename).name}"
     return "2", "sdf", None
 
 
@@ -691,6 +701,157 @@ def create_app() -> Flask:
     def _save_state(ws: Path, obj: Dict[str, Any]):
         (ws / "_state.json").write_text(json.dumps(obj, indent=2))
 
+    def _safe_ligand_filename_stem(value: str) -> str:
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "_", (value or "").strip()).strip("._")
+        return stem or "ligand"
+
+    def _unique_ligand_path(lig_dir: Path, requested_name: str) -> Path:
+        requested = Path(requested_name).name
+        stem = _safe_ligand_filename_stem(Path(requested).stem)
+        suffix = Path(requested).suffix.lower() or ".sdf"
+        if suffix != ".sdf":
+            suffix = ".sdf"
+        candidate = lig_dir / f"{stem}{suffix}"
+        counter = 2
+        while candidate.exists():
+            candidate = lig_dir / f"{stem}_{counter:03d}{suffix}"
+            counter += 1
+        return candidate
+
+    def _write_atoms_as_pdb(atoms, out_path: Path) -> None:
+        lines = []
+        for serial, atom in enumerate(atoms, start=1):
+            record = (atom.record or "HETATM").ljust(6)[:6]
+            atom_name = (atom.atom_name or "X").strip()[:4]
+            atom_field = f" {atom_name:<3}" if len(atom_name) < 4 else f"{atom_name:<4}"
+            resname = (atom.resname or "LIG").strip().upper()[:3].rjust(3)
+            chain = (atom.chain or "A").strip()[:1] or "A"
+            try:
+                resi = int(str(atom.resi).strip() or "1")
+            except Exception:
+                resi = 1
+            icode = (atom.insertion_code or " ").strip()[:1] or " "
+            element = (atom.element or atom.atom_name or "X").strip()
+            element = re.sub(r"[^A-Za-z]", "", element).upper()[:2].rjust(2) or " X"
+            lines.append(
+                f"{record}{serial:5d} {atom_field}{resname} {chain}{resi:4d}{icode}"
+                f"   {atom.x:8.3f}{atom.y:8.3f}{atom.z:8.3f}"
+                f"  1.00 20.00          {element}  "
+            )
+        lines.append("END")
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _ligand_files_metadata(lig_dir: Path, upload_mode: str, filename: str, source: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        supported = {".sdf", ".smiles", ".smi", ".csv"}
+        files = [p for p in sorted(lig_dir.rglob("*")) if p.is_file() and p.suffix.lower() in supported]
+        accepted_files = [p.relative_to(lig_dir).as_posix() for p in files]
+        filetypes = sorted({p.suffix.lower() for p in files})
+        return {
+            "upload_mode": upload_mode,
+            "filename": filename,
+            "accepted_files": accepted_files,
+            "accepted_count": len(accepted_files),
+            "ignored_files": [],
+            "warnings": [],
+            "is_csv": filetypes == [".csv"] and len(accepted_files) == 1,
+            "filetypes": filetypes,
+            "ligands_root": str(lig_dir),
+            **({"source": source} if source else {}),
+        }
+
+    def _extract_bound_ligand_sdf(ws: Path, rel: str, selection: Dict[str, Any], requested_name: str = "") -> Dict[str, Any]:
+        src = _resolve_workspace_file(ws, rel)
+        if src is None:
+            raise CenterResolutionError("receptor_not_found", "A matching receptor file was not found in the workspace.", {"receptor": rel}, 404)
+
+        resname = (selection.get("resname") or selection.get("het") or selection.get("ligand") or "").strip().upper()
+        chain = (selection.get("chain") or "").strip().upper()
+        resi = (selection.get("resi") or "").strip()
+        icode = (selection.get("insertion_code") or selection.get("icode") or "").strip().upper()
+        if not resname:
+            raise CenterResolutionError("bad_request", "Choose a HETATM ligand before extracting.", status_code=400)
+
+        atoms = parse_pdb_atoms(src)
+        selected = filter_atoms(
+            atoms,
+            {
+                "record": "HETATM",
+                "resname": resname,
+                "chain": chain,
+                "resi": resi,
+                "insertion_code": icode,
+            },
+        )
+        if not selected:
+            raise CenterResolutionError(
+                "no_atoms_matched",
+                f"No HETATM atoms matched {resname} in receptor {Path(rel).name}.",
+                {"receptor": rel, "resname": resname, "chain": chain, "resi": resi, "insertion_code": icode},
+                404,
+            )
+
+        groups = group_instances(selected)
+        if len(groups) > 1:
+            candidates = [{**instance_metadata(group_atoms), "atom_count": len(group_atoms)} for group_atoms in groups.values()]
+            raise CenterResolutionError(
+                "ambiguous_selection",
+                "Multiple ligand instances matched. Select a specific chain and residue number.",
+                {"candidates": sorted(candidates, key=lambda c: (c.get("resname", ""), c.get("chain", ""), c.get("resi", "")))},
+                400,
+            )
+
+        lig_dir = ensure_subdir(ws, "Ligands")
+        target_name = requested_name or f"{resname}.sdf"
+        target_path = _unique_ligand_path(lig_dir, target_name)
+        tmp_pdb = ws / f".{target_path.stem}_extracted_ligand.pdb"
+        _write_atoms_as_pdb(selected, tmp_pdb)
+
+        cmd = ["obabel", "-ipdb", str(tmp_pdb), "-osdf", "-O", str(target_path)]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        except FileNotFoundError as exc:
+            tmp_pdb.unlink(missing_ok=True)
+            raise CenterResolutionError(
+                "obabel_missing",
+                "Open Babel CLI executable `obabel` is required to extract a bound ligand as SDF.",
+                {"cmd": cmd},
+                500,
+            ) from exc
+        except Exception as exc:
+            raise CenterResolutionError(
+                "ligand_extraction_failed",
+                "Open Babel execution failed unexpectedly while extracting the bound ligand.",
+                {"cmd": cmd, "exception": str(exc)},
+                500,
+            ) from exc
+        finally:
+            tmp_pdb.unlink(missing_ok=True)
+
+        if result.returncode != 0 or not target_path.exists() or target_path.stat().st_size == 0:
+            raise CenterResolutionError(
+                "ligand_extraction_failed",
+                "Open Babel could not convert the selected bound ligand to SDF.",
+                {"cmd": cmd, "returncode": result.returncode, "stdout": result.stdout[-1000:], "stderr": result.stderr[-1000:]},
+                500,
+            )
+
+        metadata = instance_metadata(selected)
+        source = {
+            "type": "bound_hetatm",
+            "receptor": rel,
+            "resname": metadata.get("resname", resname),
+            "chain": metadata.get("chain", chain),
+            "resi": metadata.get("resi", resi),
+            "insertion_code": metadata.get("insertion_code", icode),
+            "atom_count": len(selected),
+        }
+        return {
+            "target_path": target_path,
+            "target_name": target_path.name,
+            "source": source,
+            "atom_count": len(selected),
+        }
+
     # ---------- CENTERS CSV HELPERS (now canonical: PDB_ID,X,Y,Z,SIZE) ----------
     def _centers_csv_path(ws: Path, st: Dict[str, Any]) -> Path:
         """
@@ -1176,6 +1337,8 @@ def create_app() -> Flask:
             "receptors_total": total,
             "receptors_centered": centered,
             "receptors_prepped": prepped,
+            "ligands_uploaded": bool(st.get("ligands_uploaded")),
+            "ligand_info": st.get("ligand_info") or {},
             "centers_csv": str(_centers_csv_path(ws, st)),
             "centers_rows": csv_rows,
             "expected_pdbqt": expected,
@@ -1632,6 +1795,36 @@ def create_app() -> Flask:
         }
         _save_state(ws, st)
         return jsonify({"ok": True, **st["ligand_info"]})
+
+    @app.post("/api/ligands/extract")
+    @login_required
+    def api_lig_extract():
+        data = request.get_json(silent=True) or dict(request.form.items())
+        jobname = (data.get("jobname") or "").strip()
+        rel = (data.get("rel") or data.get("receptor") or "").strip()
+        ws = _ws(jobname)
+        if not ws.exists():
+            return ("workspace missing", 400)
+        if not rel:
+            return ("missing receptor", 400)
+        selection = {
+            "resname": data.get("resname") or data.get("het") or data.get("ligand"),
+            "chain": data.get("chain"),
+            "resi": data.get("resi"),
+            "insertion_code": data.get("insertion_code") or data.get("icode"),
+        }
+        try:
+            extracted = _extract_bound_ligand_sdf(ws, rel, selection, requested_name=(data.get("filename") or ""))
+        except CenterResolutionError as exc:
+            return jsonify(exc.to_dict()), exc.status_code
+
+        lig_dir = ensure_subdir(ws, "Ligands")
+        info = _ligand_files_metadata(lig_dir, "extracted", extracted["target_name"], source=extracted["source"])
+        st = _load_state(ws)
+        st["ligands_uploaded"] = True
+        st["ligand_info"] = info
+        _save_state(ws, st)
+        return jsonify({"ok": True, "extracted": extracted, **info})
 
     @app.post("/api/ligands/curated")
     @login_required
@@ -2254,6 +2447,40 @@ def create_app() -> Flask:
         st["ligand_info"] = {"upload_mode": "curated", "filename": source_path.name, **result}
         _save_state(ws, st)
         return _v1_ok(st["ligand_info"], warnings=result.get("warnings", []))
+
+    @app.post("/api/v1/workspaces/<jobname>/ligands/extract")
+    @login_required
+    def api_v1_ligands_extract(jobname: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
+        payload = _json_payload()
+        rel = (payload.get("receptor") or payload.get("rel") or "").strip()
+        if not rel:
+            st = _load_state(ws)
+            receptors = st.get("receptors", [])
+            if len(receptors) == 1:
+                rel = receptors[0].get("rel", "")
+        if not rel:
+            return _v1_error("receptor_required", "Provide receptor or rel when extracting a bound ligand.", 400)
+        selection = {
+            "resname": payload.get("resname") or payload.get("het") or payload.get("ligand"),
+            "chain": payload.get("chain"),
+            "resi": payload.get("resi"),
+            "insertion_code": payload.get("insertion_code") or payload.get("icode"),
+        }
+        try:
+            extracted = _extract_bound_ligand_sdf(ws, rel, selection, requested_name=(payload.get("filename") or ""))
+        except CenterResolutionError as exc:
+            return _v1_error(exc.error, exc.message, exc.status_code, exc.details)
+
+        lig_dir = ensure_subdir(ws, "Ligands")
+        info = _ligand_files_metadata(lig_dir, "extracted", extracted["target_name"], source=extracted["source"])
+        st = _load_state(ws)
+        st["ligands_uploaded"] = True
+        st["ligand_info"] = info
+        _save_state(ws, st)
+        return _v1_ok({"extracted": extracted, "ligand_info": info})
 
     @app.get("/api/v1/workspaces/<jobname>/ligands")
     @login_required

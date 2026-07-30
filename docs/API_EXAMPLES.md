@@ -71,6 +71,15 @@ curl -s -X POST "$BASE/api/v1/workspaces/api-example/ligands/upload" \
   -F file=@ligands.sdf | python -m json.tool
 ```
 
+## Extract A Bound HETATM Ligand
+
+```bash
+curl -s -X POST "$BASE/api/v1/workspaces/api-example/ligands/extract" \
+  -H "Content-Type: application/json" \
+  -d '{"receptor":"3eky.pdb","resname":"DR7","chain":"A","resi":"100"}' \
+  | python -m json.tool
+```
+
 ## Prepare Receptors
 
 ```bash

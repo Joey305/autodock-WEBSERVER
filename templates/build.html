@@ -199,6 +199,12 @@
           <div class="ligand-picker">
             <div class="fw-semibold small mb-2">Detected HETATM ligands</div>
             <div id="ligandChoices" class="ligand-choice-list"></div>
+            <div class="d-flex align-items-center gap-2 flex-wrap mt-2">
+              <button id="btnExtractLigand" class="btn btn-outline-primary btn-sm" type="button" disabled>
+                <i class="bi bi-file-earmark-plus"></i> Extract selected as SDF
+              </button>
+              <span id="extractLigandStatus" class="small text-muted"></span>
+            </div>
           </div>
         </div>
         <div class="col-12 d-grid"><button id="btnSaveCenter" class="btn btn-warning"><i class="bi bi-bullseye"></i> Save center</button></div>
@@ -478,6 +484,7 @@ let pickedAtoms=[];
 let prepPoll=null;
 let ligandUploadState = { kind:null, headers:[], selectedSmiles:'', selectedId:'' };
 let selectedLigandKey=null;
+let selectedLigandData=null;
 let preparedStage=null;
 let preparedReviewList=[];
 let preparedReviewIndex=0;
@@ -760,6 +767,8 @@ async function newWS(){
   $('#ligandStep').classList.add('d-none'); $('#buildStep').classList.add('d-none');
   $('#miniHet').innerHTML='Open a receptor to populate…'; $('#miniChains').innerHTML='Open a receptor to populate…';
   $('#ligandPicker').classList.add('d-none'); $('#ligandChoices').innerHTML='';
+  $('#extractLigandStatus').textContent='';
+  enable($('#btnExtractLigand'), false);
   resetPreparedReview();
   resetCenterSelectionInputs();
   currentRel=null; state=null; isMulti=false; pickedAtoms=[]; if(prepPoll) clearInterval(prepPoll);
@@ -1128,7 +1137,10 @@ function ligandLabel(ligand){
 function renderLigandChoices(ligands){
   const wrap=$('#ligandPicker'), list=$('#ligandChoices');
   selectedLigandKey=null;
+  selectedLigandData=null;
   list.innerHTML='';
+  $('#extractLigandStatus').textContent='';
+  enable($('#btnExtractLigand'), false);
   if(!ligands || !ligands.length){
     wrap.classList.add('d-none');
     return;
@@ -1146,6 +1158,7 @@ function renderLigandChoices(ligands){
 }
 function selectDetectedLigand(ligand){
   selectedLigandKey=ligand.key;
+  selectedLigandData=ligand;
   $('#ligCode').value=ligand.resname;
   $('#ligResi').value=ligand.resi || '';
   $('#ligChain').value=ligand.chain || '';
@@ -1154,10 +1167,14 @@ function selectDetectedLigand(ligand){
   const st=stagesByRel[currentRel];
   if(st) drawPickMarkersOn(st);
   $$('#ligandChoices .ligand-choice').forEach(btn=> btn.classList.toggle('active', btn.dataset.key===ligand.key));
+  enable($('#btnExtractLigand'), true);
+  $('#extractLigandStatus').textContent='';
 }
 function clearDetectedLigandSelection(){
   selectedLigandKey=null;
+  selectedLigandData=null;
   $$('#ligandChoices .ligand-choice').forEach(btn=>btn.classList.remove('active'));
+  enable($('#btnExtractLigand'), false);
 }
 function resetCenterSelectionInputs(){
   ['ligCode','ligResi','ligChain','resName','resId','resChain','xyzPaste'].forEach(id=> $('#'+id).value='');
@@ -1415,6 +1432,44 @@ $('#ligSingle').onchange=async()=>{
 };
 $('#ligZip').onchange=()=>resetCsvColumnUI('');
 $('#ligFolder').onchange=()=>resetCsvColumnUI('');
+$('#btnExtractLigand').onclick=async()=>{
+  if(!jobname || !currentRel) return alert('Open a receptor first');
+  const ligand = selectedLigandData;
+  if(!ligand) return alert('Select a detected HETATM ligand first');
+  $('#extractLigandStatus').textContent='Extracting...';
+  enable($('#btnExtractLigand'), false);
+  try{
+    const payload = {
+      jobname,
+      rel: currentRel,
+      resname: ligand.resname,
+      chain: ligand.chain || '',
+      resi: ligand.resi || '',
+      insertion_code: ligand.icode || '',
+      filename: `${ligand.resname}.sdf`
+    };
+    const r = await fetch('/api/ligands/extract', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    if(!r.ok){
+      let message = await r.text();
+      try{ message = JSON.parse(message).message || message; }catch{}
+      throw new Error(message);
+    }
+    const result = await r.json();
+    summarizeLigandUpload(result, `Extracted ${result.extracted?.target_name || ligand.resname + '.sdf'}`);
+    $('#extractLigandStatus').textContent=`Saved ${result.extracted?.target_name || ligand.resname + '.sdf'} to Ligands/`;
+    resetCsvColumnUI('');
+    await reloadAll();
+    await gateLigandsAndBuild();
+  }catch(err){
+    $('#extractLigandStatus').textContent=`Extraction failed: ${err.message || err}`;
+  }finally{
+    enable($('#btnExtractLigand'), !!selectedLigandData);
+  }
+};
 function summarizeLigandUpload(payload, fallbackLabel, {silent=false} = {}){
   const accepted = payload.accepted_files || [];
   const warnings = payload.warnings || [];

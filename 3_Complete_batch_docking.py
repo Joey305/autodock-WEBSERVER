@@ -345,11 +345,7 @@ def main():
     results_dir = os.path.join(
         cwd, f"Docking_Results_{rec_tag}_{lig_tag}_{num_modes}Poses_{timestamp_tag}"
     )
-    config_dir  = os.path.join(
-        cwd, f"Docking_Configs_{rec_tag}_{lig_tag}_{num_modes}Poses_{timestamp_tag}"
-    )
     os.makedirs(results_dir, exist_ok=True)
-    os.makedirs(config_dir, exist_ok=True)
 
     # Run log (append all results; keeps terminal quiet) — tagged
     run_log_path = os.path.join(
@@ -379,7 +375,6 @@ def main():
     print(f"\n🧠 Detected {ncpus} schedulable cores. "
           f"Running up to {max_workers} concurrent Vina jobs (reserve {reserve}).", flush=True)
     print(f"🗂  Results dir: {results_dir}", flush=True)
-    print(f"⚙️  Configs dir:  {config_dir}\n", flush=True)
     print(f"🧪 Vina executable: {vina_exe}", flush=True)
 
     successes, failures = 0, 0
@@ -457,7 +452,6 @@ def main():
         f.write(f" - Ligand dir  : {ligand_dir}\n")
         f.write(f" - Centers CSV : {vina_csv}\n")
         f.write(f" - Results dir : {results_dir}\n")
-        f.write(f" - Configs dir : {config_dir}\n")
         f.write(f" - num_modes   : {num_modes}\n\n")
         f.write("Results:\n--------\n")
         for line in results_log:
@@ -617,9 +611,7 @@ if __name__ == "__main__":
 
 #     # Outputs with poses + timestamp
 #     results_dir = os.path.join(cwd, f"Docking_Results_{num_modes}Poses_{timestamp_tag}")
-#     config_dir  = os.path.join(cwd, f"Docking_Configs_{num_modes}Poses_{timestamp_tag}")
 #     os.makedirs(results_dir, exist_ok=True)
-#     os.makedirs(config_dir, exist_ok=True)
 
 #     # Run log (append all results; keeps terminal quiet)
 #     run_log_path = os.path.join(cwd, f"run_log_{timestamp_tag}.txt")
@@ -701,7 +693,6 @@ if __name__ == "__main__":
 #     print(f"\n🧠 Detected {ncpus} schedulable cores. "
 #           f"Running up to {max_workers} concurrent Vina jobs (reserve {reserve}).", flush=True)
 #     print(f"🗂  Results dir: {results_dir}", flush=True)
-#     print(f"⚙️  Configs dir:  {config_dir}\n", flush=True)
 
 #     successes, failures = 0, 0
 #     results_log = []
@@ -769,7 +760,6 @@ if __name__ == "__main__":
 #         f.write(f" - Ligand dir  : {ligand_dir}\n")
 #         f.write(f" - Centers CSV : {vina_csv}\n")
 #         f.write(f" - Results dir : {results_dir}\n")
-#         f.write(f" - Configs dir : {config_dir}\n")
 #         f.write(f" - num_modes   : {num_modes}\n\n")
 #         f.write("Results:\n--------\n")
 #         for line in results_log:

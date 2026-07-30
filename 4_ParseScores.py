@@ -24,6 +24,7 @@ def parse_cli():
     ap.add_argument("--workers", type=int, default=8, help="Worker threads per job (default: 8).")
     ap.add_argument("--heartbeat", type=int, default=1000, help="Files per progress update.")
     ap.add_argument("--fallback-crawl", action="store_true", help="If log missing, crawl directory.")
+    ap.add_argument("--keep-configs", action="store_true", help="Keep per-job config.txt files after successful parsing.")
     return ap.parse_args()
 
 # ==========================================================
@@ -175,7 +176,24 @@ def build_score_rows(
     return rows
 
 
-def process_one_dir(results_dir: Path, workers: int, heartbeat: int, fallback_crawl: bool) -> List[Dict[str, object]]:
+def delete_sibling_config(outfile_path: Path) -> Tuple[int, str]:
+    config_path = Path(outfile_path).with_name("config.txt")
+    if not config_path.is_file():
+        return 0, ""
+    try:
+        config_path.unlink()
+        return 1, ""
+    except Exception as exc:
+        return 0, f"{config_path}: {exc}"
+
+
+def process_one_dir(
+    results_dir: Path,
+    workers: int,
+    heartbeat: int,
+    fallback_crawl: bool,
+    delete_configs: bool = True,
+) -> List[Dict[str, object]]:
     """Parse all out.pdbqt files for one Docking_Results_* directory."""
     log_path = match_run_log(results_dir)
     targets: List[Tuple[str, str, Path]] = []
@@ -204,27 +222,38 @@ def process_one_dir(results_dir: Path, workers: int, heartbeat: int, fallback_cr
     rows_buffer = []
     processed = 0
     hits = 0
+    configs_deleted = 0
+    config_delete_errors = 0
     lock = threading.Lock()
 
     def work(tup):
         receptor, ligand_dir, p = tup
         if not Path(p).is_file():
-            return []
+            return [], 0, ""
         poses = parse_vina_pdbqt(p)
         if not poses:
-            return []
-        return build_score_rows(receptor, ligand_dir, Path(p), poses, manifest_map.get(ligand_dir))
+            return [], 0, ""
+        rows = build_score_rows(receptor, ligand_dir, Path(p), poses, manifest_map.get(ligand_dir))
+        deleted = 0
+        delete_error = ""
+        if delete_configs:
+            deleted, delete_error = delete_sibling_config(Path(p))
+        return rows, deleted, delete_error
 
     print(f"🚀 {results_dir.name}: parsing {len(targets)} files with {workers} threads …")
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [ex.submit(work, t) for t in targets]
         for fut in as_completed(futs):
             try:
-                part = fut.result()
+                part, deleted, delete_error = fut.result()
             except Exception as e:
                 print(f"❌ Worker error: {e}")
                 continue
             processed += 1
+            configs_deleted += deleted
+            if delete_error:
+                config_delete_errors += 1
+                print(f"\n⚠️ Could not delete config.txt: {delete_error}")
             if part:
                 hits += 1
                 with lock:
@@ -234,7 +263,13 @@ def process_one_dir(results_dir: Path, workers: int, heartbeat: int, fallback_cr
                 sys.stdout.write(f"\r🔎 {results_dir.name}: {processed}/{len(targets)} ({pct}%)  files_with_results={hits}")
                 sys.stdout.flush()
 
-    print(f"\n✅ {results_dir.name}: parsed {processed} files; {hits} had results.")
+    if delete_configs:
+        cleanup_note = f"; deleted config.txt={configs_deleted}"
+        if config_delete_errors:
+            cleanup_note += f"; config delete errors={config_delete_errors}"
+    else:
+        cleanup_note = "; kept config.txt files"
+    print(f"\n✅ {results_dir.name}: parsed {processed} files; {hits} had results{cleanup_note}.")
     return rows_buffer
 
 # ==========================================================
@@ -251,7 +286,13 @@ def main():
             sys.exit(1)
 
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        rows = process_one_dir(results_dir, args.workers, args.heartbeat, args.fallback_crawl)
+        rows = process_one_dir(
+            results_dir,
+            args.workers,
+            args.heartbeat,
+            args.fallback_crawl,
+            delete_configs=not args.keep_configs,
+        )
         if not rows:
             print(f"⚠️ No results parsed in {results_dir.name}")
             sys.exit(0)
@@ -285,7 +326,13 @@ def main():
     all_rows: List[Dict[str, object]] = []
 
     for results_dir in selected:
-        rows = process_one_dir(results_dir, workers, heartbeat, args.fallback_crawl)
+        rows = process_one_dir(
+            results_dir,
+            workers,
+            heartbeat,
+            args.fallback_crawl,
+            delete_configs=not args.keep_configs,
+        )
         if not rows:
             continue
         rows.sort(key=lambda r: (str(r["Receptor"]), float(r["Binding_Affinity"])))
