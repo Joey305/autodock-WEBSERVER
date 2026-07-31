@@ -90,6 +90,10 @@ class CompactedSdfHtmlBuilderTests(unittest.TestCase):
             viewer_html = (Path(manifest["project_dir"]) / entry["viewer_file"]).read_text(encoding="utf-8")
             self.assertIn("correctedPoseData", viewer_html)
             self.assertIn('viewer.addModel(corrected.molblock,"sdf")', viewer_html)
+            self.assertIn("parseSdfMolblockAtoms", viewer_html)
+            self.assertIn("ligandInteractionAtomsForPose(i)", viewer_html)
+            self.assertIn("addPiStackingInteractions(rows, ligAtoms, nearby);", viewer_html)
+            self.assertNotIn('rt==="A" && AROM.has(ra.resname)) return "π-stacking"', viewer_html)
 
             parsed_manifest = json.loads((Path(manifest["project_dir"]) / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(parsed_manifest["bond_mode"], "corrected_sdf_from_reference_fit")

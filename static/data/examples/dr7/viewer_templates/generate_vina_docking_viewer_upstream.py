@@ -592,6 +592,153 @@ function dist3(a,b) {
   return Math.sqrt(dx*dx+dy*dy+dz*dz);
 }
 
+const PI_STACKING_MAX_DIST = 5.5;
+const PI_STACKING_MAX_PLANE_SEP = 4.2;
+const PI_STACKING_MAX_OFFSET = 2.8;
+const PI_STACKING_MAX_NORMAL_ANGLE = 35;
+const AROMATIC_ATOM_NAMES = new Set([
+  "CG","CD1","CD2","CE1","CE2","CZ","OH",
+  "ND1","NE2",
+  "NE1","CE3","CZ2","CZ3","CH2"
+]);
+
+function centroid(atoms) {
+  const c = atoms.reduce((acc, a) => ({x:acc.x+a.x, y:acc.y+a.y, z:acc.z+a.z}), {x:0,y:0,z:0});
+  return {x:c.x/atoms.length, y:c.y/atoms.length, z:c.z/atoms.length};
+}
+
+function ringNormal(atoms, c) {
+  let best = {x:0, y:0, z:0}, bestLen = 0;
+  for (let i = 0; i < atoms.length; i++) {
+    const ax = atoms[i].x-c.x, ay = atoms[i].y-c.y, az = atoms[i].z-c.z;
+    for (let j = i + 1; j < atoms.length; j++) {
+      const bx = atoms[j].x-c.x, by = atoms[j].y-c.y, bz = atoms[j].z-c.z;
+      const cross = {
+        x: ay*bz - az*by,
+        y: az*bx - ax*bz,
+        z: ax*by - ay*bx
+      };
+      const len = Math.sqrt(cross.x*cross.x + cross.y*cross.y + cross.z*cross.z);
+      if (len > bestLen) { best = cross; bestLen = len; }
+    }
+  }
+  if (bestLen < 0.001) return null;
+  return {x:best.x/bestLen, y:best.y/bestLen, z:best.z/bestLen};
+}
+
+function maxRingPlaneDeviation(atoms, c, n) {
+  return Math.max(...atoms.map(a => Math.abs((a.x-c.x)*n.x + (a.y-c.y)*n.y + (a.z-c.z)*n.z)));
+}
+
+function makeRing(atoms, key, label, residue) {
+  if (!atoms || atoms.length < 5) return null;
+  const c = centroid(atoms);
+  const n = ringNormal(atoms, c);
+  if (!n) return null;
+  if (maxRingPlaneDeviation(atoms, c, n) > 0.35) return null;
+  return {atoms, key, label, residue, centroid:c, normal:n};
+}
+
+function aromaticComponents(atoms) {
+  const aromatic = atoms.filter(a => a.adtype === "A");
+  const visited = new Set();
+  const rings = [];
+  for (let i = 0; i < aromatic.length; i++) {
+    if (visited.has(i)) continue;
+    const queue = [i], component = [];
+    visited.add(i);
+    while (queue.length) {
+      const idx = queue.shift();
+      const atom = aromatic[idx];
+      component.push(atom);
+      for (let j = 0; j < aromatic.length; j++) {
+        if (visited.has(j)) continue;
+        if (dist3(atom, aromatic[j]) <= 1.9) {
+          visited.add(j);
+          queue.push(j);
+        }
+      }
+    }
+    const ring = makeRing(component, `lig-ring-${rings.length+1}`, `Lig ring ${rings.length+1}`, null);
+    if (ring) rings.push(ring);
+  }
+  return rings;
+}
+
+function receptorAromaticRings(atoms) {
+  const byRes = new Map();
+  for (const atom of atoms) {
+    if (!AROM.has(atom.resname)) continue;
+    if (atom.adtype !== "A" && !AROMATIC_ATOM_NAMES.has(atom.name)) continue;
+    const key = `${atom.chain}:${atom.resi}:${atom.resname}`;
+    if (!byRes.has(key)) byRes.set(key, []);
+    byRes.get(key).push(atom);
+  }
+
+  const rings = [];
+  byRes.forEach((resAtoms, key) => {
+    const first = resAtoms[0];
+    const label = `${first.resname} ${first.resi}:${first.chain}`;
+    const ring = makeRing(resAtoms, key, label, first);
+    if (ring) rings.push(ring);
+  });
+  return rings;
+}
+
+function isStackedRingPair(ligRing, recRing) {
+  const d = dist3(ligRing.centroid, recRing.centroid);
+  if (d > PI_STACKING_MAX_DIST) return false;
+  const dot = Math.abs(
+    ligRing.normal.x*recRing.normal.x +
+    ligRing.normal.y*recRing.normal.y +
+    ligRing.normal.z*recRing.normal.z
+  );
+  const angle = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+  if (angle > PI_STACKING_MAX_NORMAL_ANGLE) return false;
+
+  const vx = recRing.centroid.x-ligRing.centroid.x;
+  const vy = recRing.centroid.y-ligRing.centroid.y;
+  const vz = recRing.centroid.z-ligRing.centroid.z;
+  const planeSep = Math.abs(vx*recRing.normal.x + vy*recRing.normal.y + vz*recRing.normal.z);
+  const lateralOffset = Math.sqrt(Math.max(0, d*d - planeSep*planeSep));
+  return planeSep <= PI_STACKING_MAX_PLANE_SEP && lateralOffset <= PI_STACKING_MAX_OFFSET;
+}
+
+function addPiStackingInteractions(rows, ligAtoms, nearbyRecAtoms) {
+  const ligandRings = aromaticComponents(ligAtoms);
+  if (!ligandRings.length) return;
+  const receptorRings = receptorAromaticRings(nearbyRecAtoms);
+  const seen = new Set();
+  for (const ligRing of ligandRings) {
+    for (const recRing of receptorRings) {
+      if (!isStackedRingPair(ligRing, recRing)) continue;
+      const key = `${ligRing.key}|${recRing.key}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const d = dist3(ligRing.centroid, recRing.centroid);
+      const rec = recRing.residue || recRing.atoms[0];
+      rows.push({
+        ligand_atom    : ligRing.label,
+        ligand_adtype  : "A-ring",
+        ligand_charge  : "",
+        ligand_x       : ligRing.centroid.x,
+        ligand_y       : ligRing.centroid.y,
+        ligand_z       : ligRing.centroid.z,
+        receptor_chain : rec.chain,
+        receptor_resname:rec.resname,
+        receptor_resi  : rec.resi,
+        receptor_atom  : "ring centroid",
+        receptor_adtype: "A-ring",
+        receptor_x     : recRing.centroid.x,
+        receptor_y     : recRing.centroid.y,
+        receptor_z     : recRing.centroid.z,
+        distance       : d,
+        type           : "π-stacking"
+      });
+    }
+  }
+}
+
 function classifyPair(la, ra, d) {
   const lt=la.adtype, rt=ra.adtype;
   /* H-bond — heavy-atom donor/acceptor pairs only (≤3.5 Å)
@@ -607,8 +754,7 @@ function classifyPair(la, ra, d) {
     if (NEG[ra.resname]?.has(ra.name) && la.charge >  0.3) return "Salt bridge";
     if (POS[ra.resname]?.has(ra.name) && la.charge < -0.3) return "Salt bridge";
   }
-  /* π-stacking — both aromatic-type atoms, aromatic receptor residue (≤5.5 Å) */
-  if (d<=5.5 && lt==="A" && rt==="A" && AROM.has(ra.resname)) return "π-stacking";
+  /* π-stacking is computed once per aromatic ring pair from centroids/planes. */
   /* Hydrophobic — non-polar carbon/aromatic pairs (≤4.5 Å) */
   if (d<=4.5 && HYDR.has(lt) && HYDR.has(rt)) return "Hydrophobic";
   /* Van der Waals catch-all — exclude bare H contacts (≤3.8 Å) */
@@ -640,16 +786,23 @@ function computeInteractions(ligAtoms, recAtoms) {
         ligand_atom    : la.name,
         ligand_adtype  : la.adtype,
         ligand_charge  : la.charge.toFixed(3),
+        ligand_x       : la.x,
+        ligand_y       : la.y,
+        ligand_z       : la.z,
         receptor_chain : ra.chain,
         receptor_resname:ra.resname,
         receptor_resi  : ra.resi,
         receptor_atom  : ra.name,
         receptor_adtype: ra.adtype,
+        receptor_x     : ra.x,
+        receptor_y     : ra.y,
+        receptor_z     : ra.z,
         distance       : d,
         type
       });
     }
   }
+  addPiStackingInteractions(rows, ligAtoms, nearby);
   rows.sort((a,b)=>a.distance-b.distance);
   return rows;
 }

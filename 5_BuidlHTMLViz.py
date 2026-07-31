@@ -388,6 +388,32 @@ def inject_viewer_switch_context(viewer_html: str, entries: Sequence[Dict[str, A
     return viewer_html
 
 
+def ensure_ring_based_pi_stacking(viewer_html: str) -> str:
+    """Keep generated viewers from falling back to noisy atom-pair pi-stacking."""
+    old_atom_pair_rule = (
+        '  /* π-stacking — both aromatic-type atoms, aromatic receptor residue (≤5.5 Å) */\n'
+        '  if (d<=5.5 && lt==="A" && rt==="A" && AROM.has(ra.resname)) return "π-stacking";'
+    )
+    viewer_html = viewer_html.replace(
+        old_atom_pair_rule,
+        '  /* π-stacking is computed once per aromatic ring pair from centroids/planes. */',
+    )
+    if "function addPiStackingInteractions" not in viewer_html:
+        raise RuntimeError("Viewer template is missing ring-based π-stacking detection.")
+    if "addPiStackingInteractions(rows, ligAtoms, nearby);" not in viewer_html:
+        sort_marker = "  rows.sort((a,b)=>a.distance-b.distance);\n  return rows;"
+        if sort_marker not in viewer_html:
+            raise RuntimeError("Viewer template is missing the interaction sort marker.")
+        viewer_html = viewer_html.replace(
+            sort_marker,
+            "  addPiStackingInteractions(rows, ligAtoms, nearby);\n" + sort_marker,
+            1,
+        )
+    if 'rt==="A" && AROM.has(ra.resname)) return "π-stacking"' in viewer_html:
+        raise RuntimeError("Viewer template still contains atom-pair π-stacking detection.")
+    return viewer_html
+
+
 def build_viewer_html(
     page_title: str,
     receptor_label: str,
@@ -1419,7 +1445,7 @@ const TYPE_CSS = {
 """,
         1,
     )
-    return template
+    return ensure_ring_based_pi_stacking(template)
 
 
 def build_index_html(page_title: str, entries: List[Dict[str, Any]]) -> str:

@@ -357,7 +357,7 @@ def decorate_compacted_viewer_html(viewer_html: str) -> str:
         '    document.getElementById("hud-pose").textContent  = poses[i].variant ? `Pose ${i+1} of ${poses.length} · ${poses[i].variant}` : `Pose ${i+1} of ${poses.length}`;',
         1,
     )
-    return viewer_html
+    return BASE.ensure_ring_based_pi_stacking(viewer_html)
 
 
 def build_index_html(page_title: str, entries: List[Dict[str, Any]]) -> str:

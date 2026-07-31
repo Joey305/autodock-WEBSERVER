@@ -15,9 +15,9 @@ What this fixes
    Therefore "Top 5 poses per ligand" means Top 5 per ORIGINAL ligand/base,
    not Top 5 for every generated protomer/tautomer/conformer variant.
 
-2) Uses the OG PyMOL/ligand reconstruction behavior that kept ligands intact:
-      PDBQT pose coordinates -> Open Babel mol -> RDKit MCS rigid fit of the
-      generated/reference SDF chemistry onto the docked pose.
+2) Keeps ligand chemistry intact while preserving the actual docked pose:
+      PDBQT pose coordinates -> Open Babel mol -> RDKit MCS atom mapping ->
+      generated/reference SDF topology with docked PDBQT XYZ grafted onto it.
 
 3) Still understands the newer folder/CSV provenance columns and generated
    SDF layout from the conformer-generation workflow.
@@ -926,8 +926,9 @@ def _heavy_count(mol: Any) -> int:
 
 def rigid_fit_by_mcs(coords_full: Any, ref_full: Any, min_mcs_fraction: float = 0.80) -> Tuple[Optional[Any], str, int, str]:
     """
-    OG-style reconstruction: rigidly align the entire reference SDF chemistry onto
-    the docked coordinates using heavy-atom MCS.
+    Reconstruct docked ligand chemistry by keeping the reference SDF topology
+    and transferring the selected docked PDBQT coordinates onto matched heavy
+    atoms. MCS supplies the atom correspondence; coordinates come from PDBQT.
 
     Returns: fitted_mol, status, map_size, warning
     """
@@ -973,12 +974,17 @@ def rigid_fit_by_mcs(coords_full: Any, ref_full: Any, min_mcs_fraction: float = 
         atom_map.append((ref_idx_full, coords_idx_full))
 
     fitted = Chem.Mol(ref_full)
+    coords_conf = coords_full.GetConformer()
     try:
         rdMolAlign.AlignMol(fitted, coords_full, atomMap=atom_map)
     except Exception as exc:
         return None, "alignmol_failed", map_size, f"AlignMol failed: {exc}"
 
-    # Match OG: remove hydrogens after alignment to avoid disconnected/weird H artifacts.
+    fitted_conf = fitted.GetConformer()
+    for ref_idx_full, coords_idx_full in atom_map:
+        fitted_conf.SetAtomPosition(ref_idx_full, coords_conf.GetAtomPosition(coords_idx_full))
+
+    # Remove hydrogens after coordinate transfer to avoid disconnected/weird H artifacts.
     fitted = Chem.RemoveHs(Chem.Mol(fitted), sanitize=False)
     try:
         Chem.SanitizeMol(
@@ -998,7 +1004,7 @@ def rigid_fit_by_mcs(coords_full: Any, ref_full: Any, min_mcs_fraction: float = 
     elif map_size != ref_heavy:
         warning = f"MCS used {map_size}/{ref_heavy} heavy atoms; fitted reference kept intact."
 
-    return fitted, "og_mcs_rigid_fit", map_size, warning
+    return fitted, "mcs_coordinate_graft", map_size, warning
 
 
 def apply_hydrogen_mode(mol: Any, mode: str) -> Any:
@@ -1365,11 +1371,11 @@ def main() -> None:
             fit_warning = pose_warning or ""
 
             if ref_mol is not None:
-                progress("      fitting reference chemistry onto docked coordinates...")
+                progress("      transferring reference chemistry onto docked coordinates...")
                 fitted_mol, fit_status, mcs_size, warning = rigid_fit_by_mcs(
                     coords_mol, ref_mol, min_mcs_fraction=args.min_mcs_fraction
                 )
-                fit_method = "og_mcs_rigid_fit"
+                fit_method = "mcs_coordinate_graft"
                 if warning:
                     fit_warning = (fit_warning + " " + warning).strip()
 

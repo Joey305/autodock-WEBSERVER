@@ -115,6 +115,8 @@ class CompactedHtmlVizBuilderTests(unittest.TestCase):
             self.assertIn("pose.variant", viewer_html)
             self.assertIn("const STANDALONE_VIEWERS = [", viewer_html)
             self.assertIn('class="pose-score-box"', viewer_html)
+            self.assertIn("addPiStackingInteractions(rows, ligAtoms, nearby);", viewer_html)
+            self.assertNotIn('rt==="A" && AROM.has(ra.resname)) return "π-stacking"', viewer_html)
             self.assertIn("REMARK COMPACTED_VARIANT:", pose_text)
 
             parsed_manifest = json.loads((Path(manifest["project_dir"]) / "manifest.json").read_text(encoding="utf-8"))

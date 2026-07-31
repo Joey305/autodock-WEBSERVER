@@ -1528,10 +1528,13 @@
     }
     if (element === 'H' || element === 'HD' || element === 'HS') return null;
 
+    var parts = line.substring(54).trim().split(/\s+/);
+    var adtype = parts.length >= 4 ? parts[3] : '';
+
     return {
       record: rec, serial: ser, name: name,
       resName: rName, chain: chain, resSeq: rSeq,
-      x: x, y: y, z: z, element: element
+      x: x, y: y, z: z, element: element, adtype: adtype
     };
   }
 
@@ -1568,6 +1571,164 @@
   function atomDist(a, b) {
     var dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
     return Math.sqrt(dx*dx + dy*dy + dz*dz);
+  }
+
+  var PI_STACKING_MAX_DIST = 5.5;
+  var PI_STACKING_MAX_PLANE_SEP = 4.2;
+  var PI_STACKING_MAX_OFFSET = 2.8;
+  var PI_STACKING_MAX_NORMAL_ANGLE = 35;
+  var AROMATIC_ATOM_NAMES = {
+    CG: true, CD1: true, CD2: true, CE1: true, CE2: true, CZ: true, OH: true,
+    ND1: true, NE2: true,
+    NE1: true, CE3: true, CZ2: true, CZ3: true, CH2: true
+  };
+
+  function centroid(atoms) {
+    var c = { x: 0, y: 0, z: 0 };
+    for (var i = 0; i < atoms.length; i++) {
+      c.x += atoms[i].x; c.y += atoms[i].y; c.z += atoms[i].z;
+    }
+    return { x: c.x / atoms.length, y: c.y / atoms.length, z: c.z / atoms.length };
+  }
+
+  function ringNormal(atoms, c) {
+    var best = { x: 0, y: 0, z: 0 };
+    var bestLen = 0;
+    for (var i = 0; i < atoms.length; i++) {
+      var ax = atoms[i].x - c.x, ay = atoms[i].y - c.y, az = atoms[i].z - c.z;
+      for (var j = i + 1; j < atoms.length; j++) {
+        var bx = atoms[j].x - c.x, by = atoms[j].y - c.y, bz = atoms[j].z - c.z;
+        var cross = { x: ay*bz - az*by, y: az*bx - ax*bz, z: ax*by - ay*bx };
+        var len = Math.sqrt(cross.x*cross.x + cross.y*cross.y + cross.z*cross.z);
+        if (len > bestLen) { best = cross; bestLen = len; }
+      }
+    }
+    if (bestLen < 0.001) return null;
+    return { x: best.x / bestLen, y: best.y / bestLen, z: best.z / bestLen };
+  }
+
+  function maxRingPlaneDeviation(atoms, c, n) {
+    var maxDev = 0;
+    for (var i = 0; i < atoms.length; i++) {
+      var dev = Math.abs((atoms[i].x - c.x)*n.x + (atoms[i].y - c.y)*n.y + (atoms[i].z - c.z)*n.z);
+      maxDev = Math.max(maxDev, dev);
+    }
+    return maxDev;
+  }
+
+  function makeRing(atoms, key, label, residue) {
+    if (!atoms || atoms.length < 5) return null;
+    var c = centroid(atoms);
+    var n = ringNormal(atoms, c);
+    if (!n) return null;
+    if (maxRingPlaneDeviation(atoms, c, n) > 0.35) return null;
+    return { atoms: atoms, key: key, label: label, residue: residue, centroid: c, normal: n };
+  }
+
+  function ligandAromaticComponents(atoms) {
+    var aromatic = atoms.filter(function(atom) {
+      return atom.adtype === 'A' || (!atom.adtype && (atom.element === 'C' || atom.element === 'N'));
+    });
+    var visited = {};
+    var rings = [];
+    for (var i = 0; i < aromatic.length; i++) {
+      if (visited[i]) continue;
+      var queue = [i];
+      var component = [];
+      visited[i] = true;
+      while (queue.length) {
+        var idx = queue.shift();
+        var atom = aromatic[idx];
+        component.push(atom);
+        for (var j = 0; j < aromatic.length; j++) {
+          if (visited[j]) continue;
+          if (atomDist(atom, aromatic[j]) <= 1.9) {
+            visited[j] = true;
+            queue.push(j);
+          }
+        }
+      }
+      var ring = makeRing(component, 'lig-ring-' + (rings.length + 1), 'Lig ring ' + (rings.length + 1), null);
+      if (ring) rings.push(ring);
+    }
+    return rings;
+  }
+
+  function receptorAromaticRings(atoms) {
+    var byRes = {};
+    for (var i = 0; i < atoms.length; i++) {
+      var atom = atoms[i];
+      if (!isAromaticResidue(atom.resName)) continue;
+      if (!AROMATIC_ATOM_NAMES[atom.name]) continue;
+      var key = atom.chain + ':' + atom.resSeq + ':' + atom.resName;
+      if (!byRes[key]) byRes[key] = [];
+      byRes[key].push(atom);
+    }
+
+    var rings = [];
+    for (var ringKey in byRes) {
+      var resAtoms = byRes[ringKey];
+      var first = resAtoms[0];
+      var label = first.resName + ' ' + first.resSeq + ':' + first.chain;
+      var ring = makeRing(resAtoms, ringKey, label, first);
+      if (ring) rings.push(ring);
+    }
+    return rings;
+  }
+
+  function isStackedRingPair(ligRing, recRing) {
+    var d = atomDist(ligRing.centroid, recRing.centroid);
+    if (d > PI_STACKING_MAX_DIST) return false;
+    var dot = Math.abs(
+      ligRing.normal.x*recRing.normal.x +
+      ligRing.normal.y*recRing.normal.y +
+      ligRing.normal.z*recRing.normal.z
+    );
+    var angle = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+    if (angle > PI_STACKING_MAX_NORMAL_ANGLE) return false;
+
+    var vx = recRing.centroid.x - ligRing.centroid.x;
+    var vy = recRing.centroid.y - ligRing.centroid.y;
+    var vz = recRing.centroid.z - ligRing.centroid.z;
+    var planeSep = Math.abs(vx*recRing.normal.x + vy*recRing.normal.y + vz*recRing.normal.z);
+    var lateralOffset = Math.sqrt(Math.max(0, d*d - planeSep*planeSep));
+    return planeSep <= PI_STACKING_MAX_PLANE_SEP && lateralOffset <= PI_STACKING_MAX_OFFSET;
+  }
+
+  function addPiStackingInteractions(interactions, ligAtoms, recAtoms, poseIdx) {
+    var ligandRings = ligandAromaticComponents(ligAtoms);
+    if (!ligandRings.length) return;
+    var receptorRings = receptorAromaticRings(recAtoms);
+    var seen = {};
+    for (var i = 0; i < ligandRings.length; i++) {
+      for (var j = 0; j < receptorRings.length; j++) {
+        var ligRing = ligandRings[i];
+        var recRing = receptorRings[j];
+        if (!isStackedRingPair(ligRing, recRing)) continue;
+        var key = ligRing.key + '|' + recRing.key;
+        if (seen[key]) continue;
+        seen[key] = true;
+        var rec = recRing.residue || recRing.atoms[0];
+        var d = atomDist(ligRing.centroid, recRing.centroid);
+        interactions.push({
+          pose: poseIdx,
+          ligAtom: ligRing.label,
+          ligElement: 'A-ring',
+          ligSerial: '',
+          resName: rec.resName,
+          resChain: rec.chain,
+          resSeq: rec.resSeq,
+          recAtom: 'ring centroid',
+          recElement: 'A-ring',
+          recSerial: '',
+          type: '\u03C0-\u03C0 Stacking',
+          typeCls: 'pipi',
+          distance: d,
+          ligX: ligRing.centroid.x, ligY: ligRing.centroid.y, ligZ: ligRing.centroid.z,
+          recX: recRing.centroid.x, recY: recRing.centroid.y, recZ: recRing.centroid.z
+        });
+      }
+    }
   }
 
   // ── Interaction classification constants ──
@@ -1636,16 +1797,7 @@
       types.push({ type: 'Halogen Bond', cls: 'halogen', priority: 1 });
     }
 
-    // 4. pi-pi Stacking / Cation-pi (per-atom cutoffs)
-    if (dist <= 5.0 && isAromaticResidue(rec.resName)) {
-      if (lig.element === 'C' || lig.element === 'N') {
-        if (POSITIVE_RESIDUES[rec.resName]) {
-          types.push({ type: 'Cation-\u03C0', cls: 'catpi', priority: 2 });
-        } else {
-          types.push({ type: '\u03C0-\u03C0 Stacking', cls: 'pipi', priority: 2 });
-        }
-      }
-    }
+    // 4. pi-pi stacking is computed once per aromatic ring pair.
 
     // 5. Hydrophobic (4.0 A)
     if (dist <= 4.0 && isHydrophobic(lig) && isHydrophobic(rec)) {
@@ -1711,6 +1863,8 @@
         }
       }
     }
+
+    addPiStackingInteractions(interactions, ligAtoms, recAtoms, poseIdx);
 
     var typeOrder = { 'Hydrogen Bond': 0, 'Salt Bridge': 1, 'Halogen Bond': 2, 'Cation-\u03C0': 3, '\u03C0-\u03C0 Stacking': 4, 'Hydrophobic': 5, 'Van der Waals': 6 };
     interactions.sort(function(a, b) {

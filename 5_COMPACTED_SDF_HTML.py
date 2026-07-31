@@ -173,7 +173,7 @@ def build_corrected_pose_bundle(
             fitted_mol = None
             fit_warning = pose_warning or ""
             if ref_mol is not None:
-                progress("        fitting reference chemistry onto docked coordinates...")
+                progress("        transferring reference chemistry onto docked coordinates...")
                 fitted_mol, fit_status, _mcs_size, warning = PYMOL.rigid_fit_by_mcs(
                     coords_mol,
                     ref_mol,
@@ -226,7 +226,56 @@ def decorate_sdf_viewer_html(viewer_html: str, corrected_models: List[Dict[str, 
     viewer_html = viewer_html.replace(
         '  const poseData     = b64ToStr(POSE_B64);\n  const poses        = parsePoses(poseData);\n',
         '  const poseData     = b64ToStr(POSE_B64);\n  const poses        = parsePoses(poseData);\n'
-        f'  const correctedPoseData = JSON.parse(b64ToStr("{encoded_json}"));\n',
+        f'  const correctedPoseData = JSON.parse(b64ToStr("{encoded_json}"));\n'
+        '  function sdfElementToAdtype(element, aromatic) {\n'
+        '    const e = (element || "").trim();\n'
+        '    if (aromatic) return "A";\n'
+        '    if (e === "C") return "C";\n'
+        '    if (e === "N") return "NA";\n'
+        '    if (e === "O") return "OA";\n'
+        '    if (e === "S") return "SA";\n'
+        '    return e;\n'
+        '  }\n'
+        '  function parseSdfMolblockAtoms(molblock) {\n'
+        '    const lines = String(molblock || "").split("\\n");\n'
+        '    if (lines.length < 4) return [];\n'
+        '    const countParts = lines[3].trim().split(/\\s+/);\n'
+        '    const atomCount = parseInt(lines[3].substring(0, 3)) || parseInt(countParts[0]) || 0;\n'
+        '    const bondCount = parseInt(lines[3].substring(3, 6)) || parseInt(countParts[1]) || 0;\n'
+        '    const atomLines = lines.slice(4, 4 + atomCount);\n'
+        '    const bondLines = lines.slice(4 + atomCount, 4 + atomCount + bondCount);\n'
+        '    const aromaticAtoms = new Set();\n'
+        '    bondLines.forEach((line) => {\n'
+        '      const a1 = parseInt(line.substring(0, 3)) || parseInt(line.trim().split(/\\s+/)[0]) || 0;\n'
+        '      const a2 = parseInt(line.substring(3, 6)) || parseInt(line.trim().split(/\\s+/)[1]) || 0;\n'
+        '      const bondType = parseInt(line.substring(6, 9)) || parseInt(line.trim().split(/\\s+/)[2]) || 0;\n'
+        '      if (bondType === 4) { aromaticAtoms.add(a1); aromaticAtoms.add(a2); }\n'
+        '    });\n'
+        '    return atomLines.map((line, idx) => {\n'
+        '      const parts = line.trim().split(/\\s+/);\n'
+        '      const x = parseFloat(line.substring(0, 10)) || parseFloat(parts[0]);\n'
+        '      const y = parseFloat(line.substring(10, 20)) || parseFloat(parts[1]);\n'
+        '      const z = parseFloat(line.substring(20, 30)) || parseFloat(parts[2]);\n'
+        '      const element = (line.substring(31, 34).trim() || parts[3] || "C").replace(/[^A-Za-z]/g, "");\n'
+        '      const serial = idx + 1;\n'
+        '      const aromatic = aromaticAtoms.has(serial);\n'
+        '      return {\n'
+        '        serial,\n'
+        '        name: `${element || "C"}${serial}`,\n'
+        '        resname: "LIG",\n'
+        '        chain: "A",\n'
+        '        resi: 1,\n'
+        '        x, y, z,\n'
+        '        charge: 0,\n'
+        '        adtype: sdfElementToAdtype(element, aromatic)\n'
+        '      };\n'
+        '    }).filter((atom) => Number.isFinite(atom.x) && Number.isFinite(atom.y) && Number.isFinite(atom.z) && atom.adtype !== "H");\n'
+        '  }\n'
+        '  function ligandInteractionAtomsForPose(index) {\n'
+        '    const corrected = correctedPoseData[index];\n'
+        '    if (corrected && corrected.molblock) return parseSdfMolblockAtoms(corrected.molblock);\n'
+        '    return parseAtoms(poseToPDB(poses[index]));\n'
+        '  }\n',
         1,
     )
     viewer_html = viewer_html.replace(
@@ -236,6 +285,11 @@ def decorate_sdf_viewer_html(viewer_html: str, corrected_models: List[Dict[str, 
         '    if (corrected && corrected.molblock) return viewer.addModel(corrected.molblock,"sdf");\n'
         '    return viewer.addModel(poseToPDB(p),"pdb");\n'
         '  });',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        '  const ligandAtomsByPose = poses.map((_,i)=>parseAtoms(poseToPDB(poses[i])));',
+        '  const ligandAtomsByPose = poses.map((_,i)=>ligandInteractionAtomsForPose(i));',
         1,
     )
     viewer_html = viewer_html.replace(
@@ -254,7 +308,7 @@ def decorate_sdf_viewer_html(viewer_html: str, corrected_models: List[Dict[str, 
         '      toast("Viewer ready (corrected SDF bond orders enabled)");',
         1,
     )
-    return viewer_html
+    return COMPACT.BASE.ensure_ring_based_pi_stacking(viewer_html)
 
 
 def build_project(
