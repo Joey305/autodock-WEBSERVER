@@ -27,6 +27,7 @@ from center_resolver import (
     filter_atoms,
     group_instances,
     instance_metadata,
+    list_hetatm_instances_from_file,
     parse_pdb_atoms,
     resolve_center_from_file,
     resolve_xyz,
@@ -2127,6 +2128,257 @@ def create_app() -> Flask:
             result["receptor_rel"] = rel
         return result, rel, src
 
+    def _hetatm_instances_payload(jobname: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        ws = _ws(jobname)
+        if not ws.exists():
+            raise CenterResolutionError("workspace_missing", f"Workspace {jobname} does not exist.", status_code=404)
+        st = _load_state(ws)
+        rel, src = _resolve_receptor_for_api(ws, st, payload)
+        if src is None or not rel:
+            raise CenterResolutionError(
+                "receptor_not_found",
+                "A matching receptor file was not found in the workspace.",
+                {"receptor": payload.get("receptor") or payload.get("rel")},
+                404,
+            )
+        include_water = str(payload.get("include_water", "")).strip().lower() in {"1", "true", "yes", "on"}
+        instances = list_hetatm_instances_from_file(src, include_water=include_water)
+        return {
+            "jobname": jobname,
+            "receptor": Path(rel).name,
+            "receptor_rel": rel,
+            "instances": instances,
+            "count": len(instances),
+        }
+
+    def _prepare_workspace_receptors_for_api(jobname: str, ws: Path, payload: Dict[str, Any]) -> Dict[str, Any]:
+        st = _load_state(ws)
+        recs = st.get("receptors", [])
+        if not recs:
+            raise CenterResolutionError("no_receptors", "Add receptors first.")
+        csv_map = _read_centers(ws, st)
+        expected = [_receptor_pdbqt_name(r["rel"]) for r in recs]
+        if not all(n in csv_map for n in expected):
+            raise CenterResolutionError(
+                "centers_incomplete",
+                "Save a center for each receptor first.",
+                {"expected_pdbqt": expected},
+            )
+
+        remove_hets: List[str] = []
+        remove_all_hets = False
+        raw_hets = payload.get("remove_het_csv") or payload.get("remove_hets") or ""
+        if isinstance(raw_hets, list):
+            remove_hets = [str(x).strip().upper() for x in raw_hets if str(x).strip()]
+        elif str(raw_hets).lower() == "all":
+            remove_all_hets = True
+        elif raw_hets:
+            remove_hets = [x.strip().upper() for x in str(raw_hets).split(",") if x.strip()]
+        raw_chains = payload.get("remove_chains_csv") or payload.get("remove_chains") or ""
+        remove_chains = (
+            [str(x).strip().upper() for x in raw_chains if str(x).strip()]
+            if isinstance(raw_chains, list)
+            else [x.strip().upper() for x in str(raw_chains).split(",") if x.strip()]
+        )
+        altloc_mode = payload.get("altloc", "collapse")
+        rec_dir = ensure_subdir(ws, "Receptors")
+        out_dir = (rec_dir.parent / "Receptors_PDBQT").resolve()
+        log_path = (ws / "prep3a.log").resolve()
+        out_dir.mkdir(exist_ok=True)
+
+        with open(log_path, "w") as logf:
+            for r in recs:
+                in_path = _ensure_receptor_pdb_snapshot(ws, r["rel"], altloc_mode=altloc_mode)
+                cleaned_path = ws / f"{Path(r['rel']).stem}_clean.pdb"
+                out_path = out_dir / Path(r["rel"]).with_suffix(".pdbqt").name
+                _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
+                cmd = ["obabel", str(cleaned_path), "-O", str(out_path), "-xr"]
+                logf.write(f"Running: {' '.join(cmd)}\n")
+
+                try:
+                    result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
+                except FileNotFoundError as exc:
+                    st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
+                    _save_state(ws, st)
+                    raise CenterResolutionError(
+                        "obabel_missing",
+                        "Open Babel CLI executable `obabel` is not installed or not available on PATH.",
+                        {
+                            "cmd": cmd,
+                            "log": str(log_path),
+                            "hint": "Install Open Babel on Heroku using an Aptfile or another buildpack/system dependency method.",
+                        },
+                        500,
+                    ) from exc
+
+                if result.returncode != 0 or not out_path.exists():
+                    st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
+                    _save_state(ws, st)
+                    raise CenterResolutionError(
+                        "receptor_conversion_failed",
+                        f"Failed to convert receptor {Path(r['rel']).name} to PDBQT.",
+                        {"cmd": cmd, "returncode": result.returncode, "log": str(log_path)},
+                        500,
+                    )
+
+        st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
+        _mark_prepped_from_output(ws, st, out_dir)
+        _save_state(ws, st)
+        return {"jobname": jobname, "done": True, "out_dir": str(out_dir), "log": str(log_path)}
+
+    def _apply_curated_ligands_for_api(ws: Path, library_key: str) -> Dict[str, Any]:
+        curated = _curated_ligand_source(library_key)
+        if not curated:
+            raise CenterResolutionError("curated_library_missing", "Curated ligand library not found.", status_code=404)
+
+        lig_dir = ensure_subdir(ws, "Ligands")
+        source_path = curated["path"]
+        target_path = lig_dir / source_path.name
+        shutil.copy2(source_path, target_path)
+        result = {
+            "accepted_files": [target_path.name],
+            "accepted_count": 1,
+            "ignored_files": [],
+            "warnings": [],
+            "is_csv": True,
+            "filetypes": [".csv"],
+            "ligands_root": str(lig_dir),
+            "headers": curated["headers"],
+            "suggested_smiles_col": curated["suggested_smiles_col"],
+            "suggested_id_col": curated["suggested_id_col"],
+            "curated_library": {
+                "key": curated["key"],
+                "label": curated["label"],
+                "description": curated["description"],
+            },
+        }
+
+        st = _load_state(ws)
+        st["ligands_uploaded"] = True
+        st["ligand_info"] = {"upload_mode": "curated", "filename": source_path.name, **result}
+        _save_state(ws, st)
+        return st["ligand_info"]
+
+    def _build_workspace_package_for_api(jobname: str, ws: Path, package_opts: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+        package_mode = normalize_package_mode(
+            package_opts,
+            current_app.config["DEFAULT_PACKAGE_MODE"],
+            current_app.config["ENABLE_LSF_PACKAGE"],
+        )
+        st = _load_state(ws)
+        if not st.get("receptors"):
+            raise CenterResolutionError("no_receptors", "Add receptors first.")
+        csv_map = _read_centers(ws, st)
+        expected = [_receptor_pdbqt_name(r["rel"]) for r in st["receptors"]]
+        if not all(n in csv_map for n in expected):
+            raise CenterResolutionError("centers_incomplete", "Centers CSV is incomplete.", {"expected_pdbqt": expected})
+        if not st.get("ligands_uploaded"):
+            raise CenterResolutionError("ligands_missing", "Upload ligands before building a package.")
+
+        ligand_info = st.get("ligand_info") or {}
+        jobroot, warnings = assemble_job_tree(ws, ws / "Receptors", ws / "Ligands", package_mode=package_mode)
+
+        def _int_value(*keys, default):
+            for key in keys:
+                if package_opts.get(key) not in (None, ""):
+                    try:
+                        return int(package_opts.get(key))
+                    except Exception:
+                        pass
+            return int(default)
+
+        def _str_value(*keys, default=""):
+            for key in keys:
+                if package_opts.get(key) not in (None, ""):
+                    return str(package_opts.get(key)).strip()
+            return default
+
+        poses_conf = _int_value("confgen_poses", "poses_conf", "poses", default=64)
+        poses_vina = _int_value("vina_poses", "poses_vina", default=20)
+        inferred_lig_mode, inferred_lig_filetype, inferred_single_sdf = infer_ligand_workflow(ligand_info)
+        lig_mode = _str_value("lig_mode", default=inferred_lig_mode)
+        lig_filetype = _str_value("lig_filetype", "filetype", default=inferred_lig_filetype)
+        csv_smiles_col = _str_value("csv_smiles_col", "smiles_col", default="")
+        csv_id_col = _str_value("csv_id_col", "id_col", default="")
+        single_sdf_rel = _str_value("single_sdf_rel", "single_sdf", default=inferred_single_sdf or "")
+        if lig_mode == "1" and not csv_smiles_col:
+            raise CenterResolutionError("csv_smiles_column_required", "Select a CSV SMILES column before building.")
+
+        profile = profile_for_mode(
+            package_mode,
+            {
+                **package_opts,
+                "lsf_email": _str_value("lsf_email", "email", default=""),
+                "notify_begin": package_opts.get("notify_begin"),
+                "notify_end": package_opts.get("notify_end"),
+                "queue": _str_value("queue", default="general"),
+                "project": _str_value("project", default=""),
+                "workers": _int_value("workers", "ncores", default=16),
+                "mem_per_core": _int_value("mem_per_core", "mem", default=2000),
+                "confgen_walltime": _str_value("confgen_walltime", "walltime_confgen", default="48:00"),
+                "vina_walltime": _str_value("vina_walltime", "walltime_vina", "walltime", default="96:00"),
+                "conda_sh": _str_value("conda_sh", default=""),
+                "conda_env": _str_value("conda_env", default=""),
+                "vina_path": _str_value("vina_path", "vina_exe", default=""),
+                "python_command": _str_value("python_command", default="$(command -v python3 || command -v python)"),
+                "setup_commands": package_opts.get("setup_commands") or _str_value("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
+            },
+        )
+        if package_mode in {"joey_lsf", "mainak_lsf", "custom_lsf"}:
+            build_confgen_lsfs(
+                jobroot, jobroot, profile=profile, poses=poses_conf,
+                lig_mode=lig_mode,
+                lig_filetype=lig_filetype,
+                csv_smiles_col=csv_smiles_col,
+                csv_id_col=csv_id_col,
+                single_sdf_rel=(single_sdf_rel or None),
+            )
+            build_vina_lsfs(jobroot, jobroot, profile=profile, poses=poses_vina)
+        else:
+            build_portable_runners(jobroot)
+        rename_centers_with_tags(jobroot)
+        z = zip_job_tree(jobroot)
+        return {"zip": str(z), "download_url": url_for("download", path=str(z)), "package_mode": package_mode}, warnings
+
+    def _headless_receptor_for_api(payload: Dict[str, Any], jobname: str, ws: Path) -> str:
+        receptor_payload = payload.get("receptor") if isinstance(payload.get("receptor"), dict) else {}
+        st = _load_state(ws)
+        rel = (receptor_payload.get("rel") or receptor_payload.get("receptor") or payload.get("receptor_rel") or "").strip()
+        if rel:
+            resolved_rel, src = _resolve_receptor_for_api(ws, st, {"receptor": rel})
+            if src is None or not resolved_rel:
+                raise CenterResolutionError("receptor_not_found", "A matching receptor file was not found in the workspace.", {"receptor": rel}, 404)
+            return resolved_rel
+
+        pdbid = (receptor_payload.get("pdb_id") or receptor_payload.get("pdb") or payload.get("pdb_id") or payload.get("pdb") or "").strip()
+        if not pdbid:
+            receptors = st.get("receptors", [])
+            if len(receptors) == 1:
+                return receptors[0].get("rel", "")
+            raise CenterResolutionError("missing_receptor", "Provide receptor.pdb_id, pdb_id, or receptor.rel.")
+
+        chains = receptor_payload.get("chains") or payload.get("chains") or ""
+        if isinstance(chains, list):
+            chains = ",".join(str(c) for c in chains)
+        try:
+            out = fetch_pdb_and_prep(pdbid, ensure_subdir(ws, "Receptors"), chains=str(chains).strip())
+        except ValueError as exc:
+            raise CenterResolutionError("receptor_fetch_failed", str(exc), status_code=400) from exc
+        rel = str(Path("Receptors") / Path(out["pdb_path"]).name)
+        _register_receptors(ws, _load_state(ws), [rel])
+        return rel
+
+    def _selection_from_bound_ligand(payload: Dict[str, Any]) -> Dict[str, Any]:
+        bound = payload.get("bound_ligand") if isinstance(payload.get("bound_ligand"), dict) else {}
+        ligand = payload.get("ligand") if isinstance(payload.get("ligand"), dict) else {}
+        return {
+            "resname": bound.get("resname") or bound.get("het") or bound.get("ligand") or ligand.get("resname") or ligand.get("het"),
+            "chain": bound.get("chain") or ligand.get("chain"),
+            "resi": bound.get("resi") or ligand.get("resi"),
+            "insertion_code": bound.get("insertion_code") or bound.get("icode") or ligand.get("insertion_code") or ligand.get("icode"),
+            "filename": bound.get("filename") or ligand.get("filename"),
+        }
+
     @app.get("/api/v1/health")
     @login_required
     def api_v1_health():
@@ -2232,6 +2484,15 @@ def create_app() -> Flask:
             return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
         return _v1_ok({"receptors": _load_state(ws).get("receptors", [])})
 
+    @app.get("/api/v1/workspaces/<jobname>/hetatms")
+    @login_required
+    def api_v1_hetatms_list(jobname: str):
+        try:
+            payload = dict(request.args.items())
+            return _v1_ok(_hetatm_instances_payload(jobname, payload))
+        except CenterResolutionError as exc:
+            return _v1_error(exc.error, exc.message, exc.status_code, exc.details)
+
     @app.post("/api/v1/workspaces/<jobname>/centers/resolve")
     @login_required
     def api_v1_centers_resolve(jobname: str):
@@ -2283,73 +2544,10 @@ def create_app() -> Flask:
         ws = _ws(jobname)
         if not ws.exists():
             return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
-        st = _load_state(ws)
-        recs = st.get("receptors", [])
-        if not recs:
-            return _v1_error("no_receptors", "Add receptors first.", 400)
-        csv_map = _read_centers(ws, st)
-        expected = [_receptor_pdbqt_name(r["rel"]) for r in recs]
-        if not all(n in csv_map for n in expected):
-            return _v1_error("centers_incomplete", "Save a center for each receptor first.", 400, {"expected_pdbqt": expected})
-        remove_hets = []
-        remove_all_hets = False
-        raw_hets = payload.get("remove_het_csv") or payload.get("remove_hets") or ""
-        if isinstance(raw_hets, list):
-            remove_hets = [str(x).strip().upper() for x in raw_hets if str(x).strip()]
-        elif str(raw_hets).lower() == "all":
-            remove_all_hets = True
-        elif raw_hets:
-            remove_hets = [x.strip().upper() for x in str(raw_hets).split(",") if x.strip()]
-        raw_chains = payload.get("remove_chains_csv") or payload.get("remove_chains") or ""
-        remove_chains = [str(x).strip().upper() for x in raw_chains] if isinstance(raw_chains, list) else [x.strip().upper() for x in str(raw_chains).split(",") if x.strip()]
-        altloc_mode = payload.get("altloc", "collapse")
-        rec_dir = ensure_subdir(ws, "Receptors")
-        out_dir = (rec_dir.parent / "Receptors_PDBQT").resolve()
-        log_path = (ws / "prep3a.log").resolve()
-        out_dir.mkdir(exist_ok=True)
-        with open(log_path, "w") as logf:
-            for r in recs:
-                in_path = _ensure_receptor_pdb_snapshot(ws, r["rel"], altloc_mode=altloc_mode)
-                cleaned_path = ws / f"{Path(r['rel']).stem}_clean.pdb"
-                out_path = out_dir / Path(r["rel"]).with_suffix(".pdbqt").name
-                _clean_pdb(in_path, cleaned_path, remove_hets, remove_chains, remove_all_hets, altloc_mode)
-                cmd = ["obabel", str(cleaned_path), "-O", str(out_path), "-xr"]
-                logf.write(f"Running: {' '.join(cmd)}\n")
-
-                try:
-                    result = subprocess.run(cmd, stdout=logf, stderr=subprocess.STDOUT)
-                except FileNotFoundError:
-                    logf.write("[ERROR] obabel executable was not found on PATH.\n")
-                    st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
-                    _save_state(ws, st)
-                    return _v1_error(
-                        "obabel_missing",
-                        "Open Babel CLI executable `obabel` is not installed or not available on PATH.",
-                        500,
-                        {
-                            "cmd": cmd,
-                            "log": str(log_path),
-                            "hint": "Install Open Babel on Heroku using an Aptfile or another buildpack/system dependency method."
-                        }
-                    )
-
-                if result.returncode != 0 or not out_path.exists():
-                    logf.write(f"[ERROR] Failed to convert {in_path}\n")
-                    st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
-                    _save_state(ws, st)
-                    return _v1_error(
-                        "receptor_conversion_failed",
-                        f"Failed to convert receptor {Path(r['rel']).name} to PDBQT.",
-                        500,
-                        {
-                            "cmd": cmd,
-                            "returncode": result.returncode,
-                            "log": str(log_path)
-                        }
-                    )
-        st["prep_job"] = {"pid": None, "log": str(log_path), "out_dir": str(out_dir)}
-        _save_state(ws, st)
-        return _v1_ok({"jobname": jobname, "done": True, "out_dir": str(out_dir), "log": str(log_path)})
+        try:
+            return _v1_ok(_prepare_workspace_receptors_for_api(jobname, ws, payload))
+        except CenterResolutionError as exc:
+            return _v1_error(exc.error, exc.message, exc.status_code, exc.details)
 
     @app.get("/api/v1/workspaces/<jobname>/prep/status")
     @login_required
@@ -2501,78 +2699,11 @@ def create_app() -> Flask:
         if not ws.exists():
             return _v1_error("workspace_missing", f"Workspace {jobname} does not exist.", 404)
         package_opts = payload.get("package") if isinstance(payload.get("package"), dict) else payload
-        package_mode = normalize_package_mode(package_opts, current_app.config["DEFAULT_PACKAGE_MODE"], current_app.config["ENABLE_LSF_PACKAGE"])
-        st = _load_state(ws)
-        if not st.get("receptors"):
-            return _v1_error("no_receptors", "Add receptors first.", 400)
-        csv_map = _read_centers(ws, st)
-        expected = [_receptor_pdbqt_name(r["rel"]) for r in st["receptors"]]
-        if not all(n in csv_map for n in expected):
-            return _v1_error("centers_incomplete", "Centers CSV is incomplete.", 400, {"expected_pdbqt": expected})
-        if not st.get("ligands_uploaded"):
-            return _v1_error("ligands_missing", "Upload ligands before building a package.", 400)
-        ligand_info = st.get("ligand_info") or {}
-        jobroot, warnings = assemble_job_tree(ws, ws / "Receptors", ws / "Ligands", package_mode=package_mode)
-        def _int_value(*keys, default):
-            for key in keys:
-                if package_opts.get(key) not in (None, ""):
-                    try:
-                        return int(package_opts.get(key))
-                    except Exception:
-                        pass
-            return int(default)
-        def _str_value(*keys, default=""):
-            for key in keys:
-                if package_opts.get(key) not in (None, ""):
-                    return str(package_opts.get(key)).strip()
-            return default
-        poses_conf = _int_value("confgen_poses", "poses_conf", "poses", default=64)
-        poses_vina = _int_value("vina_poses", "poses_vina", default=20)
-        inferred_lig_mode, inferred_lig_filetype, inferred_single_sdf = infer_ligand_workflow(ligand_info)
-        lig_mode = _str_value("lig_mode", default=inferred_lig_mode)
-        lig_filetype = _str_value("lig_filetype", "filetype", default=inferred_lig_filetype)
-        csv_smiles_col = _str_value("csv_smiles_col", "smiles_col", default="")
-        csv_id_col = _str_value("csv_id_col", "id_col", default="")
-        single_sdf_rel = _str_value("single_sdf_rel", "single_sdf", default=inferred_single_sdf or "")
-        if lig_mode == "1" and not csv_smiles_col:
-            return _v1_error("csv_smiles_column_required", "Select a CSV SMILES column before building.", 400)
-        profile = profile_for_mode(
-            package_mode,
-            {
-                **package_opts,
-                "lsf_email": _str_value("lsf_email", "email", default=""),
-                "notify_begin": package_opts.get("notify_begin"),
-                "notify_end": package_opts.get("notify_end"),
-                "queue": _str_value("queue", default="general"),
-                "project": _str_value("project", default=""),
-                "workers": _int_value("workers", "ncores", default=16),
-                "mem_per_core": _int_value("mem_per_core", "mem", default=2000),
-                "confgen_walltime": _str_value("confgen_walltime", "walltime_confgen", default="48:00"),
-                "vina_walltime": _str_value("vina_walltime", "walltime_vina", "walltime", default="96:00"),
-                "conda_sh": _str_value("conda_sh", default=""),
-                "conda_env": _str_value("conda_env", default=""),
-                "vina_path": _str_value("vina_path", "vina_exe", default=""),
-                "python_command": _str_value("python_command", default='$(command -v python3 || command -v python)'),
-                "setup_commands": package_opts.get("setup_commands") or _str_value("env_line", default=current_app.config["DEFAULT_ENV_LINE"]),
-            },
-        )
-        if package_mode in {"joey_lsf", "mainak_lsf", "custom_lsf"}:
-            build_confgen_lsfs(
-                jobroot, jobroot, profile=profile, poses=poses_conf,
-                lig_mode=lig_mode,
-                lig_filetype=lig_filetype,
-                csv_smiles_col=csv_smiles_col,
-                csv_id_col=csv_id_col,
-                single_sdf_rel=(single_sdf_rel or None),
-            )
-            build_vina_lsfs(
-                jobroot, jobroot, profile=profile, poses=poses_vina,
-            )
-        else:
-            build_portable_runners(jobroot)
-        rename_centers_with_tags(jobroot)
-        z = zip_job_tree(jobroot)
-        return _v1_ok({"zip": str(z), "download_url": url_for("download", path=str(z)), "package_mode": package_mode}, warnings=warnings)
+        try:
+            data, warnings = _build_workspace_package_for_api(jobname, ws, package_opts)
+            return _v1_ok(data, warnings=warnings)
+        except CenterResolutionError as exc:
+            return _v1_error(exc.error, exc.message, exc.status_code, exc.details)
 
     @app.get("/api/v1/workspaces/<jobname>/artifacts")
     @login_required
@@ -2608,12 +2739,106 @@ def create_app() -> Flask:
     @app.post("/api/v1/headless/package")
     @login_required
     def api_v1_headless_package():
-        return _v1_error(
-            "staged_workflow_required",
-            "Use the staged /api/v1 workspace, receptor, center, ligand, prep, and build endpoints for this release.",
-            501,
-            {"docs": "/documentation", "reason": "Full one-call orchestration is deferred to avoid hiding prep/build failures."},
-        )
+        payload = _json_payload()
+        jobname = ""
+        try:
+            jobname, ws, reused = _new_jobname(
+                payload.get("workspace_name") or payload.get("jobname") or "",
+                bool(payload.get("reuse", True)),
+            )
+            if not reused:
+                _save_state(ws, _initial_state())
+
+            rel = _headless_receptor_for_api(payload, jobname, ws)
+            center_payload = payload.get("center") if isinstance(payload.get("center"), dict) else {}
+            bound_selection = _selection_from_bound_ligand(payload)
+            center_method = (center_payload.get("method") or "same_as_bound_ligand").strip().lower()
+            if center_method in {"same_as_bound_ligand", "bound_ligand", "ligand", "het", "hetatm"}:
+                if not bound_selection.get("resname"):
+                    raise CenterResolutionError("bound_ligand_required", "Provide bound_ligand.resname, het, or ligand.")
+                save_center_payload = {
+                    "method": "hetatm",
+                    "receptor": rel,
+                    "het": bound_selection.get("resname"),
+                    "chain": bound_selection.get("chain"),
+                    "resi": bound_selection.get("resi"),
+                    "insertion_code": bound_selection.get("insertion_code"),
+                    "size": center_payload.get("size") or payload.get("size") or 20,
+                }
+            elif center_method == "xyz":
+                save_center_payload = {
+                    "method": "xyz",
+                    "receptor": rel,
+                    "center": center_payload.get("center") or payload.get("center_xyz"),
+                    "size": center_payload.get("size") or payload.get("size") or 20,
+                }
+            else:
+                save_center_payload = {**center_payload, "receptor": center_payload.get("receptor") or rel}
+
+            center_result, _center_rel, _src = _resolve_center_payload(jobname, save_center_payload)
+            st = _load_state(ws)
+            _upsert_center_row(ws, st, _receptor_pdbqt_name(rel), tuple(center_result["center"]), center_result["size"])
+            for receptor in st.get("receptors", []):
+                if receptor.get("rel") == rel:
+                    receptor["status"] = "centered"
+            _save_state(ws, st)
+
+            ligand_payload = payload.get("ligand") if isinstance(payload.get("ligand"), dict) else {}
+            ligand_source = (ligand_payload.get("source") or "").strip().lower()
+            ligand_info: Dict[str, Any] = {}
+            extracted: Dict[str, Any] = {}
+            if ligand_source in {"", "bound", "bound_ligand", "hetatm"} and bound_selection.get("resname"):
+                extracted = _extract_bound_ligand_sdf(
+                    ws,
+                    rel,
+                    bound_selection,
+                    requested_name=(bound_selection.get("filename") or ""),
+                )
+                lig_dir = ensure_subdir(ws, "Ligands")
+                ligand_info = _ligand_files_metadata(lig_dir, "extracted", extracted["target_name"], source=extracted["source"])
+                st = _load_state(ws)
+                st["ligands_uploaded"] = True
+                st["ligand_info"] = ligand_info
+                _save_state(ws, st)
+            elif ligand_source == "curated":
+                ligand_info = _apply_curated_ligands_for_api(ws, ligand_payload.get("library") or ligand_payload.get("library_key") or "")
+            elif _load_state(ws).get("ligands_uploaded"):
+                ligand_info = _load_state(ws).get("ligand_info") or {}
+            else:
+                raise CenterResolutionError(
+                    "ligands_missing",
+                    "Provide ligand.source=bound_ligand, ligand.source=curated, or upload ligands with the staged API first.",
+                )
+
+            prep_payload = payload.get("prep") if isinstance(payload.get("prep"), dict) else {}
+            prep_result: Dict[str, Any] = {}
+            if prep_payload.get("run", True) is not False:
+                prep_defaults = {"remove_hets": "all", "remove_chains": [], "altloc": "collapse"}
+                prep_result = _prepare_workspace_receptors_for_api(jobname, ws, {**prep_defaults, **prep_payload})
+
+            package_payload = payload.get("package") if isinstance(payload.get("package"), dict) else {}
+            built, warnings = _build_workspace_package_for_api(jobname, ws, package_payload)
+            summary = _summary_data(jobname, ws)
+            return _v1_ok(
+                {
+                    "jobname": jobname,
+                    "workspace": str(ws),
+                    "receptor_rel": rel,
+                    "center": center_result,
+                    "extracted": extracted,
+                    "ligand_info": ligand_info,
+                    "prep": prep_result,
+                    "artifact": built,
+                    "summary": summary,
+                },
+                warnings=warnings,
+                status=201 if not reused else 200,
+            )
+        except CenterResolutionError as exc:
+            details = {**exc.details}
+            if jobname:
+                details.setdefault("jobname", jobname)
+            return _v1_error(exc.error, exc.message, exc.status_code, details)
 
 
     # ---------- DOWNLOAD ----------

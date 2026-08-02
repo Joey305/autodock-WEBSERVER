@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from center_resolver import CenterResolutionError, resolve_center_from_file
+from center_resolver import CenterResolutionError, list_hetatm_instances_from_file, resolve_center_from_file
 
 
 FIXTURE = """\
@@ -75,6 +75,20 @@ class CenterResolverTests(unittest.TestCase):
         result = resolve_center_from_file(self.path, {"method": "hetatm", "het": "DR7", "chain": "A", "resi": "100"})
         self.assertEqual(result["center"], [11.0, 21.0, 31.0])
         self.assertEqual(result["matched"]["atom_count"], 2)
+
+    def test_list_hetatm_instances_omits_water_by_default(self):
+        fixture = self.path.read_text()
+        self.path.write_text(
+            fixture
+            + "HETATM    8  O   HOH A 400       9.000   9.000   9.000  1.00 20.00           O\n"
+        )
+        instances = list_hetatm_instances_from_file(self.path)
+        labels = [(item["resname"], item["chain"], item["resi"], item["atom_count"]) for item in instances]
+        self.assertIn(("DR7", "A", "100", 2), labels)
+        self.assertNotIn(("HOH", "A", "400", 1), labels)
+
+        with_water = list_hetatm_instances_from_file(self.path, include_water=True)
+        self.assertIn(("HOH", "A", "400", 1), [(item["resname"], item["chain"], item["resi"], item["atom_count"]) for item in with_water])
 
     def test_no_match_error(self):
         with self.assertRaises(CenterResolutionError) as ctx:

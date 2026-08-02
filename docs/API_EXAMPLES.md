@@ -3,7 +3,13 @@
 Set a base URL:
 
 ```bash
-BASE="${BASE_URL:-http://127.0.0.1:5050}"
+BASE="${BASE_URL:-https://autodockvina.com}"
+```
+
+For local development, use:
+
+```bash
+BASE="http://127.0.0.1:5050"
 ```
 
 ## Health
@@ -54,6 +60,13 @@ curl -s -X POST "$BASE/api/v1/workspaces/api-example/centers/save" \
   | python -m json.tool
 ```
 
+## List Bound HETATM Ligands
+
+```bash
+curl -s "$BASE/api/v1/workspaces/api-example/hetatms?receptor=3eky.pdb" \
+  | python -m json.tool
+```
+
 ## Save Explicit XYZ Center
 
 ```bash
@@ -101,6 +114,32 @@ curl -s "$BASE/api/v1/workspaces/api-example/prep/status" | python -m json.tool
 curl -s -X POST "$BASE/api/v1/workspaces/api-example/build" \
   -H "Content-Type: application/json" \
   -d '{"package_mode":"portable","poses_conf":64,"poses_vina":9}' | python -m json.tool
+```
+
+## One-Call Bound-Ligand Redocking
+
+```bash
+curl -s -X POST "$BASE/api/v1/headless/package" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspace_name": "9g94-redock",
+    "reuse": true,
+    "receptor": {"pdb_id": "9G94"},
+    "bound_ligand": {"resname": "A1D73", "chain": "A", "resi": "101"},
+    "center": {"method": "same_as_bound_ligand", "size": 20},
+    "prep": {"remove_hets": "all", "remove_chains": ["B", "C"]},
+    "package": {"package_mode": "portable", "poses_conf": 64, "poses_vina": 9}
+  }' | python -m json.tool
+```
+
+Interactive wrapper:
+
+```bash
+python docs/examples/headless_redock_bound_ligand.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --download-dir "$HOME/Docking"
 ```
 
 ## Python Skeleton

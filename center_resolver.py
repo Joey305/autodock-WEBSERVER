@@ -43,6 +43,7 @@ class StructureAtom:
 
 
 SUPPORTED_STRUCTURE_SUFFIXES = {".pdb", ".ent", ".pdbqt", ".cif", ".mmcif"}
+WATER_NAMES = {"HOH", "WAT", "H2O"}
 
 
 def parse_pdb_atoms(path: Path) -> List[StructureAtom]:
@@ -202,6 +203,43 @@ def resolve_center_from_file(path: Path, payload: Dict[str, Any]) -> Dict[str, A
             {"receptor": path.name},
         )
     return resolve_center_from_atoms(atoms, payload, receptor_name=path.name)
+
+
+def list_hetatm_instances_from_file(path: Path, include_water: bool = False) -> List[Dict[str, Any]]:
+    atoms = parse_pdb_atoms(path)
+    groups = group_instances(atom for atom in atoms if atom.record == "HETATM")
+    instances: List[Dict[str, Any]] = []
+    for group_atoms in groups.values():
+        if not group_atoms:
+            continue
+        meta = instance_metadata(group_atoms)
+        resname = str(meta.get("resname") or "").upper()
+        is_water = resname in WATER_NAMES
+        if is_water and not include_water:
+            continue
+        instances.append(
+            {
+                **meta,
+                "atom_count": len(group_atoms),
+                "atom_names": sorted({atom.atom_name for atom in group_atoms}),
+                "center": [
+                    round(sum(atom.x for atom in group_atoms) / len(group_atoms), 6),
+                    round(sum(atom.y for atom in group_atoms) / len(group_atoms), 6),
+                    round(sum(atom.z for atom in group_atoms) / len(group_atoms), 6),
+                ],
+                "is_water": is_water,
+            }
+        )
+    return sorted(
+        instances,
+        key=lambda item: (
+            bool(item.get("is_water")),
+            str(item.get("resname", "")),
+            str(item.get("chain", "")),
+            _resi_sort_key(str(item.get("resi", ""))),
+            str(item.get("insertion_code", "")),
+        ),
+    )
 
 
 def resolve_center_from_atoms(
@@ -419,6 +457,13 @@ def instance_metadata(atoms: Sequence[StructureAtom]) -> Dict[str, Any]:
         "resi": first.resi,
         "insertion_code": first.insertion_code,
     }
+
+
+def _resi_sort_key(value: str) -> Tuple[int, str]:
+    try:
+        return (0, f"{int(value):08d}")
+    except Exception:
+        return (1, value)
 
 
 def atom_metadata(atom: StructureAtom) -> Dict[str, Any]:

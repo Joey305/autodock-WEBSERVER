@@ -15,6 +15,7 @@ The API is additive. Existing browser routes under `/api/...` and the `/build` w
 | POST | `/api/v1/workspaces/<jobname>/receptors/upload` | Upload receptor file, ZIP, or folder-style multipart files. |
 | POST | `/api/v1/workspaces/<jobname>/receptors/fetch` | Fetch a receptor from RCSB by PDB ID. |
 | GET | `/api/v1/workspaces/<jobname>/receptors` | List receptors. |
+| GET | `/api/v1/workspaces/<jobname>/hetatms` | List grouped HETATM ligand/heterogen instances and centroids. |
 | POST | `/api/v1/workspaces/<jobname>/centers/resolve` | Compute a center without saving it. |
 | POST | `/api/v1/workspaces/<jobname>/centers/save` | Compute and save a center to `vina_centers.csv`. |
 | GET | `/api/v1/workspaces/<jobname>/centers` | List saved centers. |
@@ -26,7 +27,7 @@ The API is additive. Existing browser routes under `/api/...` and the `/build` w
 | POST | `/api/v1/workspaces/<jobname>/build` | Build a portable or optional LSF package. |
 | GET | `/api/v1/workspaces/<jobname>/artifacts` | List generated ZIP artifacts. |
 | GET | `/api/v1/workspaces/<jobname>/download` | Download the latest or selected workspace artifact. |
-| POST | `/api/v1/headless/package` | Reserved. Returns a staged-workflow response in this release. |
+| POST | `/api/v1/headless/package` | One-call headless receptor, center, bound-ligand extraction, prep, and package workflow. |
 
 ## Response Shape
 
@@ -68,7 +69,18 @@ Upload receptors with multipart form data:
 - `mode=zip`, `file=@Receptors.zip`
 - `mode=folder`, repeated `files=@...`
 
-The browser accepts `.pdb`, `.cif`, `.mmcif`, `.ent`, and `.pdbqt`. Headless center resolution currently supports PDB, ENT, and PDBQT-like fixed-column coordinate records. CIF/mmCIF upload remains accepted by the workflow, but selector-based headless center resolution for CIF/mmCIF is documented as a current limitation.
+The browser accepts `.pdb`, `.cif`, `.mmcif`, `.ent`, and `.pdbqt`. Headless center resolution supports PDB, ENT, PDBQT-like fixed-column coordinate records, and common mmCIF atom-site loops.
+
+## HETATM Discovery
+
+List candidate bound ligands and heterogens after receptor intake:
+
+```bash
+curl -s "$BASE/api/v1/workspaces/api-example/hetatms?receptor=9g94.cif" \
+  | python -m json.tool
+```
+
+Water is hidden by default. Add `include_water=true` when water positions are relevant.
 
 ## Center Selection Modes
 
@@ -121,6 +133,46 @@ After uploading or fetching a receptor, a bound HETATM ligand instance can be re
 ```
 
 `ligands/extract` writes an SDF into `Ligands/`, marks ligand input as uploaded, and returns `ambiguous_selection` if the selector matches multiple HETATM instances. Open Babel must be available on the server for SDF conversion.
+
+## One-Call Redocking Package
+
+For a local deployment or the hosted site:
+
+```bash
+BASE="${BASE_URL:-https://autodockvina.com}"
+```
+
+Create a portable redocking package for RCSB entry `9G94`, using bound ligand `A1D73` from chain `A`, residue `101` as both the ligand input and docking-box center:
+
+```bash
+curl -s -X POST "$BASE/api/v1/headless/package" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workspace_name": "9g94-redock",
+    "reuse": true,
+    "receptor": {"pdb_id": "9G94"},
+    "bound_ligand": {"resname": "A1D73", "chain": "A", "resi": "101"},
+    "center": {"method": "same_as_bound_ligand", "size": 20},
+    "prep": {"remove_hets": "all", "remove_chains": ["B", "C"], "altloc": "collapse"},
+    "package": {"package_mode": "portable", "poses_conf": 64, "poses_vina": 9}
+  }' | python -m json.tool
+```
+
+The response includes `artifact.download_url`. Download it with that returned path:
+
+```bash
+curl -L -o 9g94-redock.zip "$BASE<artifact.download_url>"
+```
+
+For an interactive command-line wrapper:
+
+```bash
+python docs/examples/headless_redock_bound_ligand.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --download-dir "$HOME/Docking"
+```
 
 ## Prep And Build
 
@@ -177,6 +229,5 @@ This API follows the app's existing public/no-login behavior when public mode is
 ## Limitations
 
 - No production queue system is introduced; prep currently follows the app's lightweight synchronous conversion behavior.
-- CIF/mmCIF selector-based center resolution is not implemented in the headless resolver.
-- `/api/v1/headless/package` is reserved and returns a staged-workflow response.
+- One-call JSON packaging supports fetched or existing workspace receptors. Local ligand files still use the staged multipart upload endpoint or the example CLI wrapper.
 - Authentication, rate limiting, and quotas are not implemented by this task.

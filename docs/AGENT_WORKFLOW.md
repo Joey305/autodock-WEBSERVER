@@ -53,4 +53,4 @@ The API can write files, run receptor conversion, and create downloadable packag
 
 ## One-Call Package Endpoint
 
-`/api/v1/headless/package` is reserved but intentionally returns a staged-workflow response in this release. A future one-call endpoint should still expose intermediate validation and artifact status rather than hiding failures behind a single opaque job.
+`/api/v1/headless/package` provides a one-call fetched/existing-receptor redocking workflow. It returns intermediate center, ligand extraction, prep, artifact, and summary data so command-line clients can still surface failures and artifacts clearly.
