@@ -484,33 +484,6 @@ flask --app app:create_app run --debug --port 5050
 
 ---
 
-## Environment Variables
-
-| Variable               | Purpose                                                       |
-| ---------------------- | ------------------------------------------------------------- |
-| `PORTAL_SECRET`        | Flask secret key                                              |
-| `PORTAL_DB`            | SQLAlchemy database URI                                       |
-| `PORTAL_TMP`           | Workspace root; defaults to `/tmp/autodock_prep`              |
-| `PORTAL_MAX_RECEPTORS` | Maximum receptors allowed in one workspace                    |
-| `PORTAL_ENV_LINE`      | Optional environment line inserted into generated LSF scripts |
-| `PORTAL_PUBLIC_EMAIL`  | Placeholder identity for public mode                          |
-| `PUBLIC_MODE`          | Enables public mode when true                                 |
-| `ENABLE_AUTH`          | Enables login/auth behavior when true                         |
-| `ENABLE_LSF_PACKAGE`   | Allows LSF package generation                                 |
-| `DEFAULT_PACKAGE_MODE` | Default package mode: `portable`, `joey_lsf`, or legacy `lsf` |
-| `BABEL_LIBDIR`         | Open Babel plugin directory, important for some deployments   |
-
-Example local environment:
-
-```bash
-export PORTAL_SECRET="change-me"
-export PUBLIC_MODE=true
-export ENABLE_AUTH=false
-export PORTAL_TMP="/tmp/autodock_prep"
-```
-
----
-
 <a id="headless-command-line-quick-start"></a>
 
 ## Headless Command-Line Quick Start
