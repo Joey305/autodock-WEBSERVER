@@ -9,6 +9,7 @@ The API is additive. Existing browser routes under `/api/...` and the `/build` w
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/api/v1/health` | Check service and API version. |
+| GET | `/api/v1/clients/headless_redock_bound_ligand.py` | Download the command-line redocking client script. |
 | POST | `/api/v1/workspaces` | Create or reuse a workspace. |
 | GET | `/api/v1/workspaces/<jobname>` | Read workspace state. |
 | GET | `/api/v1/workspaces/<jobname>/summary` | Read workflow status and artifact summary. |
@@ -167,7 +168,20 @@ curl -L -o 9g94-redock.zip "$BASE<artifact.download_url>"
 For an interactive command-line wrapper:
 
 ```bash
-python docs/examples/headless_redock_bound_ligand.py \
+curl -fsSLo autodock-redock-bound-ligand.py \
+  "$BASE/api/v1/clients/headless_redock_bound_ligand.py"
+
+python autodock-redock-bound-ligand.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --download-dir "$HOME/Docking"
+```
+
+In bash or zsh, you can run it without saving a local copy:
+
+```bash
+python <(curl -fsSL "$BASE/api/v1/clients/headless_redock_bound_ligand.py") \
   --base-url "$BASE" \
   --pdb-id 9G94 \
   --ligand A1D73 \

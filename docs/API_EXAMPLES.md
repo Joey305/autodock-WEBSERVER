@@ -135,7 +135,20 @@ curl -s -X POST "$BASE/api/v1/headless/package" \
 Interactive wrapper:
 
 ```bash
-python docs/examples/headless_redock_bound_ligand.py \
+curl -fsSLo autodock-redock-bound-ligand.py \
+  "$BASE/api/v1/clients/headless_redock_bound_ligand.py"
+
+python autodock-redock-bound-ligand.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --download-dir "$HOME/Docking"
+```
+
+Or run without saving the wrapper when using bash or zsh:
+
+```bash
+python <(curl -fsSL "$BASE/api/v1/clients/headless_redock_bound_ligand.py") \
   --base-url "$BASE" \
   --pdb-id 9G94 \
   --ligand A1D73 \

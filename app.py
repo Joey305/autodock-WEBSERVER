@@ -551,6 +551,18 @@ def create_app() -> Flask:
     def readme_markdown():
         return send_file(APP_ROOT / "README.md", mimetype="text/markdown")
 
+    @app.get("/api/v1/clients/headless_redock_bound_ligand.py")
+    def api_v1_client_headless_redock_bound_ligand():
+        script_path = APP_ROOT / "docs" / "examples" / "headless_redock_bound_ligand.py"
+        if not script_path.exists():
+            return ("client script not found", 404)
+        return send_file(
+            script_path,
+            mimetype="text/x-python; charset=utf-8",
+            as_attachment=False,
+            download_name="autodock-redock-bound-ligand.py",
+        )
+
     @app.get("/contact")
     def contact():
         return render_template(
