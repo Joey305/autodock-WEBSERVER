@@ -137,6 +137,7 @@ AutoDock-Vina PrepServer is part of a growing structure-guided molecular design 
 * [Environment Setup](#environment-setup)
 * [Manual Vina Binary Install](#manual-vina-binary-install)
 * [Running Locally](#running-locally)
+* [Headless Command-Line Quick Start](#headless-command-line-quick-start)
 * [Headless API Tutorial](#headless-api-tutorial)
 * [Real Example Walkthrough](#real-example-walkthrough)
 * [What is inside the downloaded ZIP?](#what-is-inside-the-downloaded-zip)
@@ -506,6 +507,204 @@ export PORTAL_SECRET="change-me"
 export PUBLIC_MODE=true
 export ENABLE_AUTH=false
 export PORTAL_TMP="/tmp/autodock_prep"
+```
+
+---
+
+<a id="headless-command-line-quick-start"></a>
+
+## Headless Command-Line Quick Start
+
+You do not need to clone this repository to create a docking package from the command line. The public site serves a small Python client that can be downloaded or run directly from any workstation, cluster login node, or remote server with Python and internet access.
+
+The command-line client talks to:
+
+```text
+https://autodockvina.com
+```
+
+It can:
+
+* fetch a receptor from RCSB by PDB ID
+* list non-water HETATM ligands/cofactors/ions found in the receptor
+* use a selected HETATM centroid as the docking-box center
+* use the crystal ligand, a hosted Phase 4 or Phase 2 ligand library, or your own local ligand files
+* prepare the receptor, build a portable docking ZIP, download it, and optionally unpack it
+
+### Option A — Guided Interactive Mode
+
+This is the easiest mode for most users:
+
+```bash
+python <(curl -fsSL https://autodockvina.com/api/v1/clients/headless_redock_interactive.py)
+```
+
+The script will ask for:
+
+* PDB ID
+* workspace name
+* optional receptor chain filter
+* docking center mode: selected HETATM ligand centroid or custom XYZ
+* ligand input source
+* package mode
+* download folder
+* whether to unpack the downloaded ZIP
+
+When HETATM entries are present, waters are ignored by default and the script displays choices like:
+
+```text
+Available non-water HETATM instances:
+ 1. A1D73 chain=A resi=101 atoms=12 center=1.526,-25.008,-4.756
+ 2. A1D73 chain=B resi=101 atoms=12 center=18.831,-16.120,-23.921
+ 3. A1D73 chain=C resi=101 atoms=12 center=17.316,-37.410,18.808
+```
+
+### Option B — 9G94 Redocking With The Crystal Ligand
+
+This uses RCSB entry `9G94`, selects bound ligand `A1D73` on chain `A` residue `101`, uses that ligand centroid as the docking center, extracts that same ligand as the ligand input, and downloads the package to `~/Docking`.
+
+```bash
+python <(curl -fsSL https://autodockvina.com/api/v1/clients/headless_redock_interactive.py) \
+  --base-url https://autodockvina.com \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --remove-chains B,C \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
+### Option C — Use The HETATM As Center, But Dock Phase 4 Or Phase 2 Libraries
+
+Use the crystal ligand only to define the docking box, then dock the hosted Phase 4 approved-drug CSV:
+
+```bash
+python <(curl -fsSL https://autodockvina.com/api/v1/clients/headless_redock_interactive.py) \
+  --base-url https://autodockvina.com \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source phase4 \
+  --remove-chains B,C \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
+Use the Phase 2-or-higher library instead:
+
+```bash
+python <(curl -fsSL https://autodockvina.com/api/v1/clients/headless_redock_interactive.py) \
+  --base-url https://autodockvina.com \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source phase2 \
+  --remove-chains B,C \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
+### Option D — Use The HETATM As Center, But Dock Your Own Ligands
+
+Upload one local ligand file:
+
+```bash
+python <(curl -fsSL https://autodockvina.com/api/v1/clients/headless_redock_interactive.py) \
+  --base-url https://autodockvina.com \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source local \
+  --ligand-path "$HOME/ligands/my_ligands.sdf" \
+  --remove-chains B,C \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
+Upload a ZIP or folder of ligands:
+
+```bash
+python <(curl -fsSL https://autodockvina.com/api/v1/clients/headless_redock_interactive.py) \
+  --base-url https://autodockvina.com \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source local \
+  --ligand-path "$HOME/ligands" \
+  --remove-chains B,C \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
+Supported local ligand inputs are `.sdf`, `.smiles`, `.smi`, `.csv`, `.zip`, or a folder containing those files. For CSV uploads, the interactive script can ask which column contains SMILES. In non-interactive mode, pass the columns explicitly:
+
+```bash
+python <(curl -fsSL https://autodockvina.com/api/v1/clients/headless_redock_interactive.py) \
+  --base-url https://autodockvina.com \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source local \
+  --ligand-path "$HOME/ligands/compounds.csv" \
+  --csv-smiles-col canonical_smiles \
+  --csv-id-col compound_id \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
+### Option E — Save The Client Script Locally
+
+If your shell does not support process substitution, download the client first:
+
+```bash
+curl -fsSLo autodock-redock-interactive.py \
+  https://autodockvina.com/api/v1/clients/headless_redock_interactive.py
+
+python autodock-redock-interactive.py
+```
+
+The flag-driven client is also available for workflows that should fail instead of prompting:
+
+```bash
+curl -fsSLo autodock-redock-bound-ligand.py \
+  https://autodockvina.com/api/v1/clients/headless_redock_bound_ligand.py
+```
+
+### What You Get Back
+
+The client prints the workspace, selected center, download URL, and local ZIP path. A successful run creates a ZIP such as:
+
+```text
+$HOME/Docking/9g94-redock.zip
+```
+
+If unpacking is enabled, it also creates:
+
+```text
+$HOME/Docking/9g94-redock/job/
+```
+
+Inside the package, check:
+
+```text
+job/vina_centers.csv
+job/Receptors/
+job/Ligands/
+job/README_RUN_LOCAL.md
+job/run_all_local.sh
+```
+
+Run the downloaded package on a machine where `python`, `obabel`, and `vina` are available:
+
+```bash
+cd "$HOME/Docking/9g94-redock/job"
+./run_all_local.sh
 ```
 
 ---
