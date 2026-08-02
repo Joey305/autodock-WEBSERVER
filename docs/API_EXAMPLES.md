@@ -132,7 +132,18 @@ curl -s -X POST "$BASE/api/v1/headless/package" \
   }' | python -m json.tool
 ```
 
-Interactive wrapper:
+Guided interactive wrapper:
+
+```bash
+curl -fsSLo autodock-redock-interactive.py \
+  "$BASE/api/v1/clients/headless_redock_interactive.py"
+
+python autodock-redock-interactive.py
+```
+
+The guided wrapper fetches the receptor, shows non-water HETATM candidates with centroids, and lets you choose the ligand/center/package/download options.
+
+Flag-driven wrapper:
 
 ```bash
 curl -fsSLo autodock-redock-bound-ligand.py \
@@ -148,11 +159,20 @@ python autodock-redock-bound-ligand.py \
 Or run without saving the wrapper when using bash or zsh:
 
 ```bash
-python <(curl -fsSL "$BASE/api/v1/clients/headless_redock_bound_ligand.py") \
+python <(curl -fsSL "$BASE/api/v1/clients/headless_redock_interactive.py")
+```
+
+Non-interactive server run:
+
+```bash
+python <(curl -fsSL "$BASE/api/v1/clients/headless_redock_interactive.py") \
   --base-url "$BASE" \
   --pdb-id 9G94 \
   --ligand A1D73 \
-  --download-dir "$HOME/Docking"
+  --chain A \
+  --resi 101 \
+  --download-dir "$HOME/Docking" \
+  --yes
 ```
 
 ## Python Skeleton

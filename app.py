@@ -563,6 +563,18 @@ def create_app() -> Flask:
             download_name="autodock-redock-bound-ligand.py",
         )
 
+    @app.get("/api/v1/clients/headless_redock_interactive.py")
+    def api_v1_client_headless_redock_interactive():
+        script_path = APP_ROOT / "docs" / "examples" / "headless_redock_interactive.py"
+        if not script_path.exists():
+            return ("client script not found", 404)
+        return send_file(
+            script_path,
+            mimetype="text/x-python; charset=utf-8",
+            as_attachment=False,
+            download_name="autodock-redock-interactive.py",
+        )
+
     @app.get("/contact")
     def contact():
         return render_template(

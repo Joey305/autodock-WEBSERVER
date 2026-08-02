@@ -9,7 +9,8 @@ The API is additive. Existing browser routes under `/api/...` and the `/build` w
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/api/v1/health` | Check service and API version. |
-| GET | `/api/v1/clients/headless_redock_bound_ligand.py` | Download the command-line redocking client script. |
+| GET | `/api/v1/clients/headless_redock_bound_ligand.py` | Download the flag-driven command-line redocking client script. |
+| GET | `/api/v1/clients/headless_redock_interactive.py` | Download the guided interactive command-line redocking client script. |
 | POST | `/api/v1/workspaces` | Create or reuse a workspace. |
 | GET | `/api/v1/workspaces/<jobname>` | Read workspace state. |
 | GET | `/api/v1/workspaces/<jobname>/summary` | Read workflow status and artifact summary. |
@@ -165,7 +166,27 @@ The response includes `artifact.download_url`. Download it with that returned pa
 curl -L -o 9g94-redock.zip "$BASE<artifact.download_url>"
 ```
 
-For an interactive command-line wrapper:
+For the guided interactive wrapper:
+
+```bash
+curl -fsSLo autodock-redock-interactive.py \
+  "$BASE/api/v1/clients/headless_redock_interactive.py"
+
+python autodock-redock-interactive.py
+```
+
+The interactive client asks for PDB ID, workspace, chain filters, docking center mode, package mode, download folder, and then lists non-water HETATM candidates with their centroids so you can choose the bound ligand.
+
+You can also seed some answers and let the script ask only for the rest:
+
+```bash
+python autodock-redock-interactive.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --download-dir "$HOME/Docking"
+```
+
+For the flag-driven wrapper:
 
 ```bash
 curl -fsSLo autodock-redock-bound-ligand.py \
@@ -181,11 +202,20 @@ python autodock-redock-bound-ligand.py \
 In bash or zsh, you can run it without saving a local copy:
 
 ```bash
-python <(curl -fsSL "$BASE/api/v1/clients/headless_redock_bound_ligand.py") \
+python <(curl -fsSL "$BASE/api/v1/clients/headless_redock_interactive.py")
+```
+
+Non-interactive server run with defaults for missing prompt values:
+
+```bash
+python <(curl -fsSL "$BASE/api/v1/clients/headless_redock_interactive.py") \
   --base-url "$BASE" \
   --pdb-id 9G94 \
   --ligand A1D73 \
-  --download-dir "$HOME/Docking"
+  --chain A \
+  --resi 101 \
+  --download-dir "$HOME/Docking" \
+  --yes
 ```
 
 ## Prep And Build
