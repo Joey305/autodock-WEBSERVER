@@ -177,6 +177,14 @@ python autodock-redock-interactive.py
 
 The interactive client asks for PDB ID, workspace, chain filters, docking center mode, package mode, download folder, and then lists non-water HETATM candidates with their centroids so you can choose the bound ligand.
 
+Ligand input is a separate choice from docking center. The guided client can use:
+
+- the selected bound HETATM ligand from the receptor
+- the hosted ChEMBL Phase 4 approved-drug CSV
+- the hosted ChEMBL Phase 2-or-higher CSV
+- a local `.sdf`, `.smiles`, `.smi`, `.csv`, `.zip`, or folder of ligand files uploaded from the machine running the client
+- ligands already uploaded into the selected workspace
+
 You can also seed some answers and let the script ask only for the rest:
 
 ```bash
@@ -184,6 +192,35 @@ python autodock-redock-interactive.py \
   --base-url "$BASE" \
   --pdb-id 9G94 \
   --download-dir "$HOME/Docking"
+```
+
+Use a curated ligand library while keeping the HETATM as the docking center:
+
+```bash
+python autodock-redock-interactive.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source phase4 \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
+Upload your own ligand file, ZIP, or folder:
+
+```bash
+python autodock-redock-interactive.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source local \
+  --ligand-path "$HOME/ligands/my_ligands.sdf" \
+  --download-dir "$HOME/Docking" \
+  --yes
 ```
 
 For the flag-driven wrapper:

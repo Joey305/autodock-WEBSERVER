@@ -63,6 +63,23 @@ def prompt_choice(label: str, choices: list[str], default: str) -> str:
         print(f"Choose one of: {', '.join(choices)}")
 
 
+def prompt_numbered_choice(label: str, choices: list[tuple[str, str]], default_key: str) -> str:
+    print(f"\n{label}:")
+    for idx, (_key, description) in enumerate(choices, start=1):
+        print(f"{idx}. {description}")
+    default_index = next((idx for idx, (key, _desc) in enumerate(choices, start=1) if key == default_key), 1)
+    while True:
+        raw = prompt_text("Choose number", str(default_index))
+        try:
+            choice = int(raw)
+        except Exception:
+            print("Enter a number from the list.")
+            continue
+        if 1 <= choice <= len(choices):
+            return choices[choice - 1][0]
+        print("That number is not in the list.")
+
+
 def format_instance(item):
     center = item.get("center") or [0, 0, 0]
     return (
@@ -82,7 +99,7 @@ def filter_candidates(instances, ligand="", chain="", resi=""):
     return candidates
 
 
-def choose_instance(instances, ligand="", chain="", resi=""):
+def choose_instance(instances, ligand="", chain="", resi="", auto_first: bool = False):
     candidates = filter_candidates(instances, ligand, chain, resi)
     if len(candidates) == 1:
         return candidates[0]
@@ -92,6 +109,9 @@ def choose_instance(instances, ligand="", chain="", resi=""):
     if not candidates:
         print("No non-water HETATM instances were available for selection.", file=sys.stderr)
         sys.exit(1)
+    if auto_first:
+        print(f"auto_selected={format_instance(candidates[0])}")
+        return candidates[0]
 
     print("\nAvailable non-water HETATM instances:")
     for idx, item in enumerate(candidates, start=1):
@@ -107,6 +127,79 @@ def choose_instance(instances, ligand="", chain="", resi=""):
         if 1 <= choice <= len(candidates):
             return candidates[choice - 1]
         print("That number is not in the list.")
+
+
+def choose_csv_columns(ligand_info: dict, args, interactive: bool) -> dict:
+    if not ligand_info.get("is_csv"):
+        return {}
+    headers = ligand_info.get("headers") or []
+    suggested_smiles = args.csv_smiles_col or ligand_info.get("suggested_smiles_col") or ""
+    suggested_id = args.csv_id_col or ligand_info.get("suggested_id_col") or ""
+    if interactive and headers:
+        print("\nCSV columns:")
+        for header in headers:
+            print(f"- {header}")
+        suggested_smiles = prompt_text("SMILES column", suggested_smiles)
+        suggested_id = prompt_text("ID/name column", suggested_id)
+    if not suggested_smiles:
+        print("CSV ligand input needs a SMILES column. Pass --csv-smiles-col or choose one interactively.", file=sys.stderr)
+        sys.exit(1)
+    opts = {"lig_mode": "1", "lig_filetype": "csv", "csv_smiles_col": suggested_smiles}
+    if suggested_id:
+        opts["csv_id_col"] = suggested_id
+    return opts
+
+
+def upload_local_ligands(session, base_url: str, job: str, raw_paths: list[str]):
+    paths = [Path(item).expanduser().resolve() for item in raw_paths if item.strip()]
+    missing = [str(path) for path in paths if not path.exists()]
+    if missing:
+        print(f"Missing ligand path(s): {', '.join(missing)}", file=sys.stderr)
+        sys.exit(1)
+    files_to_send = []
+    for path in paths:
+        if path.is_dir():
+            for child in sorted(path.rglob("*")):
+                if child.is_file():
+                    files_to_send.append((child.relative_to(path).as_posix(), child))
+        elif path.is_file():
+            files_to_send.append((path.name, path))
+    if not files_to_send:
+        print("No ligand files were found in the selected path(s).", file=sys.stderr)
+        sys.exit(1)
+
+    url = f"{base_url}/api/v1/workspaces/{job}/ligands/upload"
+    handles = []
+    try:
+        if len(files_to_send) == 1 and files_to_send[0][1].suffix.lower() == ".zip":
+            name, path = files_to_send[0]
+            handle = path.open("rb")
+            handles.append(handle)
+            return check(session.post(url, data={"mode": "zip"}, files={"file": (name, handle)}))
+        if len(files_to_send) == 1:
+            name, path = files_to_send[0]
+            handle = path.open("rb")
+            handles.append(handle)
+            return check(session.post(url, data={"mode": "single"}, files={"file": (name, handle)}))
+
+        multipart = []
+        for name, path in files_to_send:
+            handle = path.open("rb")
+            handles.append(handle)
+            multipart.append(("files", (name, handle)))
+        return check(session.post(url, data={"mode": "folder", "folder_name": "Ligands"}, files=multipart))
+    finally:
+        for handle in handles:
+            handle.close()
+
+
+def use_curated_library(session, base_url: str, job: str, library_key: str):
+    return check(
+        session.post(
+            f"{base_url}/api/v1/workspaces/{job}/ligands/curated",
+            data={"library": library_key},
+        )
+    )
 
 
 def suggest_remove_chains(instances, picked) -> str:
@@ -158,6 +251,10 @@ def main():
     parser.add_argument("--ligand", default="")
     parser.add_argument("--chain", default="")
     parser.add_argument("--resi", default="")
+    parser.add_argument("--ligand-source", choices=["bound", "phase2", "phase4", "local", "uploaded"], default="")
+    parser.add_argument("--ligand-path", action="append", default=[], help="Local ligand file, ZIP, or directory. Can be repeated.")
+    parser.add_argument("--csv-smiles-col", default="")
+    parser.add_argument("--csv-id-col", default="")
     parser.add_argument("--size", type=float)
     parser.add_argument("--remove-chains", default="")
     parser.add_argument("--package-mode", default="")
@@ -199,11 +296,9 @@ def main():
             params={"receptor": fetched["rel"]},
         )
     )
-    picked = choose_instance(hetatms["instances"], args.ligand, args.chain, args.resi)
-    print(f"selected={format_instance(picked)}")
-
     size = args.size if args.size is not None else 20.0
     center_payload = {"method": "same_as_bound_ligand", "size": size}
+    picked = None
     if interactive:
         center_mode = prompt_choice("Docking center", ["ligand", "xyz"], "ligand")
         if center_mode == "xyz":
@@ -218,9 +313,56 @@ def main():
                 except Exception as exc:
                     print(exc)
         else:
+            picked = choose_instance(hetatms["instances"], args.ligand, args.chain, args.resi)
+            print(f"center_ligand={format_instance(picked)}")
             center_payload["size"] = prompt_float("Box size", size)
+    else:
+        picked = choose_instance(hetatms["instances"], args.ligand, args.chain, args.resi, auto_first=args.yes)
+        print(f"center_ligand={format_instance(picked)}")
 
-    suggested_remove = suggest_remove_chains(hetatms["instances"], picked)
+    ligand_source = args.ligand_source or "bound"
+    if interactive:
+        ligand_source = prompt_numbered_choice(
+            "Ligand input source",
+            [
+                ("bound", "Use/extract a bound HETATM ligand from the receptor"),
+                ("phase4", "Use curated ChEMBL Phase 4 approved-drug CSV"),
+                ("phase2", "Use curated ChEMBL Phase 2-or-higher CSV"),
+                ("local", "Upload my own local ligand file, ZIP, or folder"),
+                ("uploaded", "Use ligands already uploaded to this workspace"),
+            ],
+            ligand_source,
+        )
+
+    ligand_info = {}
+    ligand_request = {"source": "bound_ligand"}
+    if ligand_source == "bound":
+        if picked is None:
+            picked = choose_instance(hetatms["instances"], args.ligand, args.chain, args.resi, auto_first=args.yes)
+        print(f"ligand_input={format_instance(picked)}")
+    elif ligand_source in {"phase2", "phase4"}:
+        ligand_info = use_curated_library(session, base_url, job, ligand_source)
+        ligand_request = {"source": "uploaded"}
+        print(f"ligand_input={ligand_info.get('curated_library', {}).get('label', ligand_source)}")
+    elif ligand_source == "local":
+        ligand_paths = args.ligand_path
+        if interactive:
+            raw = prompt_text("Local ligand path(s), comma-separated")
+            ligand_paths = [item.strip() for item in raw.split(",") if item.strip()]
+        if not ligand_paths:
+            print("Local ligand source requires --ligand-path or an interactive path.", file=sys.stderr)
+            sys.exit(1)
+        ligand_info = upload_local_ligands(session, base_url, job, ligand_paths)
+        ligand_request = {"source": "uploaded"}
+        print(f"ligand_input=uploaded {ligand_info.get('accepted_count')} file(s)")
+    elif ligand_source == "uploaded":
+        ligand_request = {"source": "uploaded"}
+        print("ligand_input=existing workspace ligands")
+    else:
+        print(f"Unsupported ligand source: {ligand_source}", file=sys.stderr)
+        sys.exit(1)
+
+    suggested_remove = suggest_remove_chains(hetatms["instances"], picked) if picked else ""
     remove_chains = args.remove_chains
     if interactive:
         remove_chains = prompt_text("Remove receptor chains during prep", remove_chains or suggested_remove)
@@ -241,6 +383,9 @@ def main():
         download_dir = prompt_text("Download folder", download_dir)
         unpack = prompt_yes_no("Unpack downloaded ZIP", unpack)
 
+    package_request = {"package_mode": package_mode, "poses_conf": 64, "poses_vina": 9}
+    package_request.update(choose_csv_columns(ligand_info, args, interactive))
+
     print("\nBuilding package...")
     built = check(
         session.post(
@@ -250,11 +395,12 @@ def main():
                 "reuse": True,
                 "receptor": {"rel": fetched["rel"]},
                 "bound_ligand": {
-                    "resname": picked["resname"],
-                    "chain": picked["chain"],
-                    "resi": picked["resi"],
-                    "insertion_code": picked.get("insertion_code") or "",
+                    "resname": picked["resname"] if picked else "",
+                    "chain": picked["chain"] if picked else "",
+                    "resi": picked["resi"] if picked else "",
+                    "insertion_code": picked.get("insertion_code") or "" if picked else "",
                 },
+                "ligand": ligand_request,
                 "center": center_payload,
                 "prep": {
                     "run": run_prep,
@@ -262,7 +408,7 @@ def main():
                     "remove_chains": split_csv(remove_chains),
                     "altloc": "collapse",
                 },
-                "package": {"package_mode": package_mode, "poses_conf": 64, "poses_vina": 9},
+                "package": package_request,
             },
         )
     )

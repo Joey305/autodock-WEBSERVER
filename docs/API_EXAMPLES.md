@@ -143,6 +143,37 @@ python autodock-redock-interactive.py
 
 The guided wrapper fetches the receptor, shows non-water HETATM candidates with centroids, and lets you choose the ligand/center/package/download options.
 
+Ligand source choices include the selected bound HETATM ligand, hosted Phase 4/Phase 2 CSV libraries, local ligand files or folders, and ligands already uploaded to the workspace.
+
+Curated Phase 4 example:
+
+```bash
+python autodock-redock-interactive.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source phase4 \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
+Local ligand file/folder example:
+
+```bash
+python autodock-redock-interactive.py \
+  --base-url "$BASE" \
+  --pdb-id 9G94 \
+  --ligand A1D73 \
+  --chain A \
+  --resi 101 \
+  --ligand-source local \
+  --ligand-path "$HOME/ligands/my_ligands.sdf" \
+  --download-dir "$HOME/Docking" \
+  --yes
+```
+
 Flag-driven wrapper:
 
 ```bash
