@@ -199,6 +199,9 @@ def build_corrected_pose_bundle(
         ligand_variant = row.get("LigandVariant", "")
         ligand_base = row.get("LigandBase", "")
         state_tag = row.get("StateTag", "")
+        protomer_tag = row.get("ProtomerTag", "")
+        tautomer_tag = row.get("TautomerTag", "")
+        conformer_tag = row.get("ConformerTag", "")
         pose_index = int(COMPACT.safe_float(row.get("Pose", "1") or 1, 1))
         affinity = COMPACT.safe_float(row.get("Binding_Affinity", ""))
         outfile = Path(row.get("OutFile", "")).expanduser()
@@ -275,6 +278,9 @@ def build_corrected_pose_bundle(
                     "variant": ligand_variant,
                     "ligand_base": ligand_base,
                     "state": state_tag,
+                    "protomer": protomer_tag,
+                    "tautomer": tautomer_tag,
+                    "conformer": conformer_tag,
                     "source_pose": pose_index,
                     "score": affinity,
                     "fit_status": fit_status,
@@ -298,6 +304,17 @@ def decorate_sdf_viewer_html(viewer_html: str, corrected_models: List[Dict[str, 
         '  const poseData     = b64ToStr(POSE_B64);\n  const poses        = parsePoses(poseData);\n',
         '  const poseData     = b64ToStr(POSE_B64);\n  const poses        = parsePoses(poseData);\n'
         f'  const correctedPoseData = JSON.parse(b64ToStr("{encoded_json}"));\n'
+        '  correctedPoseData.forEach((corrected, i) => {\n'
+        '    const pose = poses[i];\n'
+        '    if (!pose || !corrected) return;\n'
+        '    pose.variant = pose.variant || corrected.variant || "";\n'
+        '    pose.ligandBase = pose.ligandBase || corrected.ligand_base || "";\n'
+        '    pose.protomer = pose.protomer || corrected.protomer || "";\n'
+        '    pose.tautomer = pose.tautomer || corrected.tautomer || "";\n'
+        '    pose.conformer = pose.conformer || corrected.conformer || "";\n'
+        '    pose.state = pose.state || corrected.state || "";\n'
+        '    pose.sourcePose = pose.sourcePose || corrected.source_pose || "";\n'
+        '  });\n'
         '  function sdfElementToAdtype(element, aromatic) {\n'
         '    const e = (element || "").trim();\n'
         '    if (aromatic) return "A";\n'
@@ -364,22 +381,11 @@ def decorate_sdf_viewer_html(viewer_html: str, corrected_models: List[Dict[str, 
         1,
     )
     viewer_html = viewer_html.replace(
-        '          <div class="pose-sub">${pose.variant || `Pose ${i+1}`} ${pose.state ? `· ${pose.state}` : ""}</div>',
-        '          <div class="pose-sub">${pose.variant || correctedPoseData[i]?.variant || `Pose ${i+1}`} ${(pose.state || correctedPoseData[i]?.state) ? `· ${pose.state || correctedPoseData[i]?.state}` : ""}</div>',
-        1,
-    )
-    viewer_html = viewer_html.replace(
-        '    document.getElementById("hud-pose").textContent  = poses[i].variant ? `Pose ${i+1} of ${poses.length} · ${poses[i].variant}` : `Pose ${i+1} of ${poses.length}`;',
-        '    const activeVariant = poses[i].variant || correctedPoseData[i]?.variant;\n'
-        '    document.getElementById("hud-pose").textContent  = activeVariant ? `Pose ${i+1} of ${poses.length} · ${activeVariant}` : `Pose ${i+1} of ${poses.length}`;',
-        1,
-    )
-    viewer_html = viewer_html.replace(
         '      toast("Viewer ready");',
         '      toast("Viewer ready (corrected SDF bond orders enabled)");',
         1,
     )
-    return COMPACT.BASE.ensure_ring_based_pi_stacking(viewer_html)
+    return COMPACT.BASE.validate_decorated_viewer_html(COMPACT.BASE.ensure_ring_based_pi_stacking(viewer_html))
 
 
 def write_receptor_library_js(project_dir: Path, receptor_payloads: Dict[str, Dict[str, str]]) -> Optional[Path]:

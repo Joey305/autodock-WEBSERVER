@@ -414,6 +414,28 @@ def ensure_ring_based_pi_stacking(viewer_html: str) -> str:
     return viewer_html
 
 
+def validate_decorated_viewer_html(viewer_html: str) -> str:
+    """Reject a viewer whose JavaScript controls are missing from its DOM."""
+    required_ids = (
+        "pose-list",
+        "all-poses-toggle",
+        "pose-count",
+        "pocket-toggle",
+        "sidebar-toggle",
+        "toggle-interaction-lines",
+        "toggle-interaction-legend",
+        "rec-palette-select",
+        "lig-palette-select",
+        "pocket-style-btns",
+    )
+    for element_id in required_ids:
+        count = viewer_html.count(f'id="{element_id}"')
+        if count != 1:
+            detail = "does not contain it" if count == 0 else f"contains it {count} times"
+            raise RuntimeError(f"Viewer decoration failed: expected #{element_id} exactly once but generated HTML {detail}.")
+    return viewer_html
+
+
 def build_viewer_html(
     page_title: str,
     receptor_label: str,
@@ -573,6 +595,20 @@ function installStandaloneLigandSwitcher(ligandName) {
 .pose-score-box{flex:0 0 58px;min-width:58px;text-align:right}
 .pose-rank,.pose-rmsd,.pose-sub{min-width:0;overflow-wrap:anywhere}
 .pose-sub{line-height:1.35}
+.pose-list-toolbar{
+  position:sticky;top:0;z-index:2;margin:0 0 8px;padding:6px 8px;
+  border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.94);
+  box-shadow:0 5px 12px rgba(15,23,42,.05);
+}
+.pose-list-toolbar .toggle-row{margin:0;font-size:10px}
+.pose-list-toolbar .pose-toolbar-hint{margin-left:auto;color:var(--txt-dim);font-size:8px}
+.binding-poses-section{min-height:0}
+.binding-poses-header{display:flex;align-items:center;gap:8px}
+.binding-poses-header .sec-label{flex:1;min-width:0}
+.pose-count{flex:0 0 auto;color:var(--txt-dim);font:600 8px var(--mono);white-space:nowrap}
+.pose-list-scroll{max-height:clamp(260px,42vh,520px);overflow-y:auto;padding-right:3px;scrollbar-width:thin;scrollbar-color:var(--border-hi) transparent}
+.pose-list-scroll::-webkit-scrollbar{width:4px}
+.pose-list-scroll::-webkit-scrollbar-thumb{background:var(--border-hi);border-radius:3px}
 .hud-card{pointer-events:auto}
 .hud-interaction-card{width:132px}
 .hud-interaction-toggle{
@@ -628,8 +664,7 @@ function installStandaloneLigandSwitcher(ligandName) {
 """,
         1,
     )
-    template = template.replace(
-        """      <!-- POSES -->
+    original_binding_poses = """      <!-- POSES -->
       <div class="section">
         <div class="sec-label">Binding Poses</div>
         <div id="pose-list"></div>
@@ -637,31 +672,40 @@ function installStandaloneLigandSwitcher(ligandName) {
 
       <div class="divider"></div>
 
-      <!-- RECEPTOR STYLE -->""",
-        """      <!-- POSES -->
-      <div class="section">
-        <div class="sec-label">Binding Poses</div>
-        <div id="pose-list"></div>
-        <label class="toggle-row pose-list-toggle">
-          <input type="checkbox" id="all-poses-toggle" checked>
-          <span>Show all poses</span>
-        </label>
+      <!-- RECEPTOR STYLE -->"""
+    final_binding_poses = """      <!-- POSES -->
+      <div class="section binding-poses-section">
+        <div class="binding-poses-header">
+          <div class="sec-label">Binding Poses</div>
+          <div class="pose-count" id="pose-count">—</div>
+        </div>
+        <div class="pose-list-toolbar">
+          <label class="toggle-row pose-list-toggle">
+            <input type="checkbox" id="all-poses-toggle" checked>
+            <span>Show all poses</span>
+            <span class="pose-toolbar-hint">Off = selected only</span>
+          </label>
+        </div>
+        <div class="pose-list-scroll">
+          <div id="pose-list"></div>
+        </div>
       </div>
 
       <div class="divider"></div>
 
-      <!-- RECEPTOR STYLE -->""",
-        1,
-    )
-    template = template.replace(
-        """        <label class="toggle-row">
+      <!-- RECEPTOR STYLE -->"""
+    if original_binding_poses not in template:
+        raise RuntimeError("Viewer decoration failed: upstream Binding Poses markup was not found.")
+    template = template.replace(original_binding_poses, final_binding_poses, 1)
+
+    old_ligand_toggle = """        <label class="toggle-row">
           <input type="checkbox" id="all-poses-toggle" checked>
           <span>Show all poses</span>
         </label>
-""",
-        "",
-        1,
-    )
+"""
+    if old_ligand_toggle not in template:
+        raise RuntimeError("Viewer decoration failed: upstream ligand Show all poses toggle was not found.")
+    template = template.replace(old_ligand_toggle, "", 1)
     template = template.replace(
         """      <div class="hud-card">
         <div class="hud-lbl">Active Pose</div>
@@ -1242,6 +1286,10 @@ const TYPE_CSS = {
   const pocketSelections = poses.map((_,i)=>
     buildPocketSelection(ligandAtomsByPose[i], recAtoms, POCKET_DISTANCE_CUTOFF)
   );
+  const poseCountEl = document.getElementById("pose-count");
+  if (poseCountEl) {
+    poseCountEl.textContent = `${poses.length} pose${poses.length===1?"":"s"}`;
+  }
 """,
         1,
     )
@@ -1303,9 +1351,12 @@ const TYPE_CSS = {
   document.getElementById("pocket-toggle").addEventListener("change",e=>{
     pocketOn=e.target.checked; applyRecStyle(); viewer.render();
   });
-  document.getElementById("all-poses-toggle").addEventListener("change",e=>{
-    showAll=e.target.checked; applyLigStyles(); viewer.render();
-  });
+  const allPosesToggle = document.getElementById("all-poses-toggle");
+  if (allPosesToggle) {
+    allPosesToggle.addEventListener("change",e=>{
+      showAll=e.target.checked; applyLigStyles(); viewer.render();
+    });
+  }
   document.getElementById("sidebar-toggle").addEventListener("click",()=>{
     document.getElementById("app").classList.toggle("sidebar-collapsed");
   });
@@ -1497,7 +1548,7 @@ const TYPE_CSS = {
 """,
         1,
     )
-    return ensure_ring_based_pi_stacking(template)
+    return validate_decorated_viewer_html(ensure_ring_based_pi_stacking(template))
 
 
 def build_index_html(page_title: str, entries: List[Dict[str, Any]]) -> str:

@@ -77,11 +77,11 @@ class PymolBuilderTests(unittest.TestCase):
         self.assertEqual(label, "#4 UMF-607-Z | pose 1 | Vina -9.44 kcal/mol")
         self.assertNotIn("p01_t01_c003", label)
 
-    def test_score_label_cli_options_default_to_all(self):
+    def test_score_label_cli_options_default_to_off(self):
         module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_score_label_args")
         with mock.patch("sys.argv", ["5C_BuildPymolSesh.py"]):
             defaults = module.build_args()
-        self.assertEqual(defaults.score_labels, "all")
+        self.assertEqual(defaults.score_labels, "off")
         self.assertEqual(defaults.score_label_size, 14.0)
 
         with mock.patch("sys.argv", [
@@ -305,13 +305,45 @@ class PymolBuilderTests(unittest.TestCase):
             self.assertNotIn("ATOM A", text)
             self.assertEqual(warning, "")
 
-    def test_group_names_do_not_collide_with_receptor_object(self):
+    def test_panel_names_append_a_pymol_safe_score_to_each_pose(self):
         module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_groups")
-        names = module.build_pymol_names("3eky", "DR7", "DR7_p01_t02_c005", 1)
+        row = {
+            "ProtomerTag": "p01",
+            "TautomerTag": "t02",
+            "ConformerTag": "c005",
+        }
+        names = module.build_pymol_names(
+            "3eky", "DR7", "DR7_p01_t02_c005", 1,
+            pose_index=2,
+            binding_affinity="-9.44",
+            best_binding_affinity="-9.73",
+            row=row,
+        )
         self.assertEqual(names["receptor_obj"], "obj_3eky")
         self.assertEqual(names["receptor_group"], "grp_3eky")
-        self.assertEqual(names["ligand_group"], "grp_3eky_DR7")
+        self.assertEqual(names["ligand_group"], "DR7")
+        self.assertEqual(names["ligand_obj"], "DR7__pose_01__score_m9_44")
         self.assertNotEqual(names["receptor_obj"], names["receptor_group"])
+
+    def test_compact_state_tag_uses_canonical_fields_before_variant_parsing(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_panel_state")
+        state = module.compact_state_tag(
+            {"ProtomerTag": "p03", "TautomerTag": "t02", "ConformerTag": "c010"},
+            "incorrect_p01_t01_c001",
+        )
+        self.assertEqual(state, "p03_t02_c010")
+
+    def test_panel_pose_ranks_restart_for_each_base_ligand(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_panel_ranks")
+        rows = [
+            {"LigandBase": "UMF-607-E", "Binding_Affinity": "-9.61"},
+            {"LigandBase": "UMF-609", "Binding_Affinity": "-9.21"},
+            {"LigandBase": "UMF-607-E", "Binding_Affinity": "-9.73"},
+        ]
+        ranks = module.build_panel_rank_lookup(rows)
+        self.assertEqual(ranks[id(rows[2])], (1, "-9.73"))
+        self.assertEqual(ranks[id(rows[0])], (2, "-9.73"))
+        self.assertEqual(ranks[id(rows[1])], (1, "-9.21"))
 
     def _build_test_mol(self):
         from rdkit import Chem

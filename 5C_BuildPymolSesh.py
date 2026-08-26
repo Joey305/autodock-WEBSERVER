@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import os
 import re
@@ -240,11 +241,11 @@ def build_args() -> argparse.Namespace:
     parser.add_argument(
         "--score-labels",
         choices=["all", "hidden", "off"],
-        default="all",
+        default="off",
         help=(
             "PyMOL score-label behavior. 'all' shows one Vina score label per ligand, "
             "'hidden' stores the labels/titles but hides them initially, and 'off' omits viewport labels. "
-            "Default: all."
+            "Default: off."
         ),
     )
     parser.add_argument(
@@ -587,6 +588,8 @@ class ReferenceResolver:
         self._index()
 
     def _should_index_sdf(self, path: Path) -> bool:
+        if path.suffix.lower() != ".sdf":
+            return False
         if _is_hidden_or_junk_path(path):
             return False
         if not self.include_previous_outputs_as_reference and _is_previous_output_path(path):
@@ -787,7 +790,7 @@ class ReferenceResolver:
         for manifest_path, manifest_row in self.manifest_rows.get(variant, []):
             for candidate in self._manifest_candidate_paths(manifest_path, manifest_row):
                 checked.append(str(candidate))
-                if candidate.exists():
+                if candidate.is_file() and self._should_index_sdf(candidate):
                     return pack(candidate, "manifest_exact", "exact_reference_sdf")
 
         # 2) Exact filename/stem search.
@@ -812,7 +815,7 @@ class ReferenceResolver:
                     root / f"{variant}.sdf",
                 ]:
                     checked.append(str(candidate))
-                    if candidate.exists():
+                    if candidate.is_file() and self._should_index_sdf(candidate):
                         return pack(candidate, "structured_tmp_inference", "exact_reference_sdf")
 
         # 4) Optional base/original fallback. This can still work with OG MCS fitting,
@@ -822,7 +825,7 @@ class ReferenceResolver:
             if source_input:
                 for candidate in [self.cwd / source_input, self.cwd / "Ligands" / Path(source_input).name]:
                     checked.append(str(candidate))
-                    if candidate.exists():
+                    if candidate.is_file() and self._should_index_sdf(candidate):
                         return pack(
                             candidate,
                             "source_input_fallback",
@@ -1139,6 +1142,91 @@ def format_binding_affinity(value: Any) -> str:
     return f"{score:.2f}"
 
 
+def pymol_panel_token(value: Any, *, fallback: str) -> str:
+    """Return a PyMOL-safe, human-readable token for the object panel.
+
+    PyMOL object identifiers are deliberately kept to letters, digits, and
+    underscores: punctuation such as '-' and '.' can make later selections
+    ambiguous.  ``m9_73`` is therefore the panel-safe rendering of ``-9.73``.
+    The full, conventional score remains in SDF properties, titles, and audit
+    records.
+    """
+    score = format_binding_affinity(value)
+    if not score:
+        return fallback
+    return sanitize_pymol_name(score.replace("-", "m").replace("+", "p").replace(".", "_"))
+
+
+def compact_state_tag(row: Dict[str, Any], ligand_variant: str) -> str:
+    """Build the compact state display from canonical CSV metadata."""
+    fields = [
+        str(row.get("ProtomerTag") or "").strip(),
+        str(row.get("TautomerTag") or "").strip(),
+        str(row.get("ConformerTag") or "").strip(),
+    ]
+    state = "_".join(value for value in fields if value)
+    if state:
+        return sanitize_pymol_name(state)
+    parsed = parse_ligand_name(ligand_variant)
+    return sanitize_pymol_name(parsed.get("StateTag") or "state")
+
+
+def build_pymol_names(
+    receptor: str,
+    ligand_base: str,
+    ligand_variant: str,
+    rank_for_ligand: int,
+    pose_index: int = 1,
+    binding_affinity: Any = "",
+    best_binding_affinity: Any = "",
+    row: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    """Name pose objects for direct score reading in PyMOL's object panel."""
+    base = sanitize_pymol_name(ligand_base or ligand_variant or "ligand")
+    score_token = pymol_panel_token(binding_affinity, fallback="score")
+    return {
+        "receptor_obj": sanitize_pymol_name("obj_" + receptor),
+        "receptor_group": sanitize_pymol_name("grp_" + receptor),
+        "ligand_group": base,
+        "ligand_obj": f"{base}__pose_{rank_for_ligand:02d}__score_{score_token}",
+    }
+
+
+def build_docking_results_manifest(session_path: Path, audit_rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    receptors: Dict[str, Dict[str, Any]] = {}
+    for row in audit_rows:
+        if not row.get("pymol_object"):
+            continue
+        receptor = str(row.get("receptor") or "")
+        base = str(row.get("base_ligand") or "")
+        ligand_rows = receptors.setdefault(receptor, {"ligands": {}})["ligands"].setdefault(base, [])
+        ligand_rows.append({
+            "rank": int(row.get("pymol_pose_rank_for_ligand") or 0), "score": float(row.get("binding_affinity")),
+            "protomer": row.get("protomer_tag", ""), "tautomer": row.get("tautomer_tag", ""),
+            "conformer": row.get("conformer_tag", ""), "state": row.get("state_tag", ""),
+            "vina_pose": row.get("vina_pose", ""), "object": row.get("pymol_object", ""),
+            "ligand_variant": row.get("ligand_variant", ""), "corrected_sdf": row.get("saved_corrected_sdf", ""),
+            "source_pdbqt": row.get("dock_pdbqt", ""), "fit_status": row.get("fit_status", ""),
+        })
+    return {"session": session_path.name, "receptors": receptors}
+
+
+def build_panel_rank_lookup(selected_rows: Sequence[Dict[str, Any]]) -> Dict[int, Tuple[int, Any]]:
+    """Return per-base-ligand pose ranks without changing the selected rows."""
+    panel_ranks: Dict[int, Tuple[int, Any]] = {}
+    rows_by_base: Dict[str, List[Tuple[int, Dict[str, Any]]]] = defaultdict(list)
+    for selected_index, selected_row in enumerate(selected_rows):
+        rows_by_base[(selected_row.get("LigandBase") or "").strip()].append((selected_index, selected_row))
+    for base_rows in rows_by_base.values():
+        ordered_base_rows = sorted(base_rows, key=lambda item: (row_binding_score(item[1]), item[0]))
+        best_binding = ordered_base_rows[0][1].get(
+            "Binding_Affinity", ordered_base_rows[0][1].get("Binding_Affinity_kcal_per_mol", "")
+        )
+        for rank_for_ligand, (_, selected_row) in enumerate(ordered_base_rows, start=1):
+            panel_ranks[id(selected_row)] = (rank_for_ligand, best_binding)
+    return panel_ranks
+
+
 def build_pymol_score_label(
     ligand_base: str,
     ligand_variant: str,
@@ -1303,6 +1391,7 @@ AUDIT_COLUMNS = [
     "saved_raw_pdbqt",
     "pymol_object",
     "pymol_group",
+    "pymol_pose_rank_for_ligand",
     "pymol_score_label",
     "pymol_score_label_mode",
     "skipped_reason",
@@ -1390,6 +1479,8 @@ def main() -> None:
     pymol_enabled = launch_pymol()
     loaded_receptors: Dict[str, str] = {}
     audit_rows = []
+    panel_name_counts: Dict[str, int] = defaultdict(int)
+    panel_group_owners: Dict[str, Tuple[str, str]] = {}
 
     total_selected = sum(len(selected_rows) for selected_rows in grouped.values())
     progress("\n🔬 Building corrected ligand exports and PyMOL session...")
@@ -1408,6 +1499,7 @@ def main() -> None:
         progress(f"   receptor file: {receptor_file}")
         rec_obj = load_receptor_once(pymol_enabled, receptor_file, rec_name, loaded_receptors)
         receptor_group = sanitize_pymol_name("grp_" + rec_name)
+        panel_ranks = build_panel_rank_lookup(selected_rows)
 
         for rank_for_receptor, row in enumerate(selected_rows, 1):
             processed_rows += 1
@@ -1448,6 +1540,7 @@ def main() -> None:
                 "saved_complex_pdb": "",
                 "pymol_object": "",
                 "pymol_group": "",
+                "pymol_pose_rank_for_ligand": "",
                 "pymol_score_label": "",
                 "pymol_score_label_mode": args.score_labels,
                 "hydrogen_mode": args.hydrogen_mode,
@@ -1557,8 +1650,34 @@ def main() -> None:
                 audit_rows.append(audit)
                 continue
 
-            ligand_obj = sanitize_pymol_name(f"lig_{rec_name}_Top{rank_for_receptor:02d}_{ligand_variant}_pose{pose_index}")
-            ligand_group = sanitize_pymol_name(f"grp_{rec_name}_{ligand_base}")
+            rank_for_ligand, best_binding = panel_ranks.get(id(row), (1, binding))
+            panel_names = build_pymol_names(
+                rec_name,
+                ligand_base,
+                ligand_variant,
+                rank_for_ligand,
+                pose_index=pose_index,
+                binding_affinity=binding,
+                best_binding_affinity=best_binding,
+                row=row,
+            )
+            ligand_obj = panel_names["ligand_obj"]
+            ligand_group = panel_names["ligand_group"]
+            audit["pymol_pose_rank_for_ligand"] = rank_for_ligand
+            # PyMOL object/group names are global, even though they appear under
+            # receptor groups in the panel. Keep the concise name unless a rare
+            # duplicate would otherwise merge two independent panel rows.
+            group_owner = (rec_name, ligand_base)
+            existing_owner = panel_group_owners.get(ligand_group)
+            if existing_owner is None:
+                panel_group_owners[ligand_group] = group_owner
+            elif existing_owner != group_owner:
+                panel_name_counts[ligand_group] += 1
+                ligand_group = f"{ligand_group}__set{panel_name_counts[ligand_group] + 1}"
+                panel_group_owners[ligand_group] = group_owner
+            panel_name_counts[ligand_obj] += 1
+            if panel_name_counts[ligand_obj] > 1:
+                ligand_obj = f"{ligand_obj}__row{panel_name_counts[ligand_obj]}"
 
             if pymol_enabled:
                 try:
@@ -1602,6 +1721,8 @@ def main() -> None:
 
     audit_csv = out_dir_pdb / f"top_hits_audit_{timestamp}.csv"
     write_audit(audit_csv, audit_rows)
+    results_json = session_path.with_suffix(".results.json")
+    results_json.write_text(json.dumps(build_docking_results_manifest(session_path, audit_rows), indent=2), encoding="utf-8")
 
     progress("\n🎉 Done!")
     if pymol_enabled:
@@ -1610,6 +1731,7 @@ def main() -> None:
     progress(f"📦 Corrected SDFs: {out_dir_sdf}")
     progress(f"📦 Raw selected PDBQT: {out_dir_pdbqt}")
     progress(f"🧾 Audit CSV: {audit_csv}")
+    progress(f"📊 Docking Results manifest: {results_json}")
 
 
 if __name__ == "__main__":

@@ -50,6 +50,9 @@ class CompactedSdfHtmlBuilderTests(unittest.TestCase):
                         "variant": "LigA_p01_t01_c001",
                         "ligand_base": "LigA",
                         "state": "p01_t01",
+                        "protomer": "p01",
+                        "tautomer": "t01",
+                        "conformer": "c001",
                         "source_pose": 1,
                         "score": -9.1,
                         "fit_status": "og_mcs_rigid_fit",
@@ -89,6 +92,12 @@ class CompactedSdfHtmlBuilderTests(unittest.TestCase):
 
             viewer_html = (Path(manifest["project_dir"]) / entry["viewer_file"]).read_text(encoding="utf-8")
             self.assertIn("correctedPoseData", viewer_html)
+            self.assertIn("poseDisplayMetadata", viewer_html)
+            self.assertIn("renderPoseIdentity", viewer_html)
+            self.assertIn("pose.ligandBase = pose.ligandBase || corrected.ligand_base", viewer_html)
+            self.assertIn('const ligandAtomsByPose = poses.map((_,i)=>ligandInteractionAtomsForPose(i));', viewer_html)
+            self.assertIn('pocketSelection = pocketSelections[i] || []', viewer_html)
+            self.assertIn('class="pose-list-scroll"', viewer_html)
             self.assertIn('viewer.addModel(corrected.molblock,"sdf")', viewer_html)
             self.assertIn('let recStyle="cartoon", recColor="spectrum"', viewer_html)
             self.assertIn('let pocketOn=false, pocketStyle="line";', viewer_html)
@@ -96,6 +105,7 @@ class CompactedSdfHtmlBuilderTests(unittest.TestCase):
             self.assertIn('<option value="9" selected>Futuro</option>', viewer_html)
             self.assertIn('class="toggle-row pose-list-toggle"', viewer_html)
             self.assertLess(viewer_html.index('id="all-poses-toggle"'), viewer_html.index('id="rec-style-btns"'))
+            self.assertLess(viewer_html.index('id="all-poses-toggle"'), viewer_html.index('id="pose-list"'))
             self.assertIn('className = "viewer-switch-panel"', viewer_html)
             self.assertIn('ligandLabel.textContent = "Ligand";', viewer_html)
             self.assertIn('receptorEntries(receptorSelect.value)', viewer_html)

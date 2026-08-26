@@ -314,6 +314,9 @@ def compose_pose_block(row: Dict[str, str], block_text: str, model_index: int) -
     variant = row.get("LigandVariant", "")
     base = row.get("LigandBase", "")
     state = row.get("StateTag", "")
+    protomer = row.get("ProtomerTag", "")
+    tautomer = row.get("TautomerTag", "")
+    conformer = row.get("ConformerTag", "")
     source_pose = str(row.get("Pose", "")).strip() or str(model_index)
     source_outfile = str(row.get("OutFile", "")).strip()
     affinity = str(row.get("Binding_Affinity", "")).strip()
@@ -326,6 +329,9 @@ def compose_pose_block(row: Dict[str, str], block_text: str, model_index: int) -
         f"REMARK COMPACTED_BASE_LIGAND: {base}",
         f"REMARK COMPACTED_VARIANT: {variant}",
         f"REMARK COMPACTED_STATE: {state}",
+        f"REMARK COMPACTED_PROTOMER: {protomer}",
+        f"REMARK COMPACTED_TAUTOMER: {tautomer}",
+        f"REMARK COMPACTED_CONFORMER: {conformer}",
         f"REMARK COMPACTED_SOURCE_POSE: {source_pose}",
         f"REMARK COMPACTED_SOURCE_OUTFILE: {source_outfile}",
     ]
@@ -366,8 +372,15 @@ def build_combined_pose_text(selected_rows: Sequence[Dict[str, str]]) -> tuple[s
 
 def decorate_compacted_viewer_html(viewer_html: str) -> str:
     viewer_html = viewer_html.replace(
-        ".pose-rmsd{font:12px var(--mono);color:var(--txt-muted)}",
-        ".pose-rmsd{font:12px var(--mono);color:var(--txt-muted)}\n.pose-sub{margin-top:4px;font:11px var(--mono);color:var(--accent);word-break:break-word}",
+        ".pose-rmsd{font-family:var(--mono);font-size:7.5px;color:var(--txt-dim);margin-top:2px}",
+        ".pose-rmsd{font-family:var(--mono);font-size:7.5px;color:var(--txt-dim);margin-top:2px}\n"
+        ".pose-ligand-name{margin-top:6px;font:700 13px/1.25 var(--font);color:var(--txt);overflow-wrap:anywhere}\n"
+        ".pose-state-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}\n"
+        ".pose-state-badge{max-width:100%;padding:2px 5px;border:1px solid;border-radius:999px;font:600 8px/1.25 var(--mono);white-space:normal;overflow-wrap:anywhere}\n"
+        ".pose-state-badge.protomer{border-color:rgba(13,148,136,.25);background:rgba(13,148,136,.09);color:#0f766e}\n"
+        ".pose-state-badge.tautomer{border-color:rgba(124,58,237,.24);background:rgba(124,58,237,.08);color:#6d28d9}\n"
+        ".pose-state-badge.conformer{border-color:rgba(217,119,6,.26);background:rgba(217,119,6,.09);color:#b45309}\n"
+        ".pose-state-badge.source-pose{border-color:rgba(37,99,235,.24);background:rgba(37,99,235,.08);color:#2563eb}",
         1,
     )
     viewer_html = viewer_html.replace(
@@ -382,8 +395,20 @@ def decorate_compacted_viewer_html(viewer_html: str) -> str:
       if (line.startsWith("REMARK COMPACTED_VARIANT:")) {
         cur.variant = line.replace("REMARK COMPACTED_VARIANT:","").trim();
       }
+      if (line.startsWith("REMARK COMPACTED_BASE_LIGAND:")) {
+        cur.ligandBase = line.replace("REMARK COMPACTED_BASE_LIGAND:","").trim();
+      }
       if (line.startsWith("REMARK COMPACTED_STATE:")) {
         cur.state = line.replace("REMARK COMPACTED_STATE:","").trim();
+      }
+      if (line.startsWith("REMARK COMPACTED_PROTOMER:")) {
+        cur.protomer = line.replace("REMARK COMPACTED_PROTOMER:","").trim();
+      }
+      if (line.startsWith("REMARK COMPACTED_TAUTOMER:")) {
+        cur.tautomer = line.replace("REMARK COMPACTED_TAUTOMER:","").trim();
+      }
+      if (line.startsWith("REMARK COMPACTED_CONFORMER:")) {
+        cur.conformer = line.replace("REMARK COMPACTED_CONFORMER:","").trim();
       }
       if (line.startsWith("REMARK COMPACTED_SOURCE_POSE:")) {
         cur.sourcePose = line.replace("REMARK COMPACTED_SOURCE_POSE:","").trim();
@@ -391,17 +416,53 @@ def decorate_compacted_viewer_html(viewer_html: str) -> str:
         1,
     )
     viewer_html = viewer_html.replace(
+        """  const bestScore  = Math.min(...poses.map(p=>p.score));
+  const worstScore = Math.max(...poses.map(p=>p.score));""",
+        r'''  function escapePoseHtml(value) {
+    return String(value || "").replace(/[&<>'"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[char]));
+  }
+
+  function poseDisplayMetadata(pose) {
+    const variant = String(pose.variant || "").trim();
+    const ligandBase = String(pose.ligandBase || "").trim();
+    const badges = [];
+    const indexLabel = (tag, label, type, preserveZeroes=false) => {
+      const value = String(tag || "").trim();
+      if (!value) return;
+      const digits = value.match(/\d+$/);
+      const display = digits ? (preserveZeroes ? digits[0] : String(parseInt(digits[0], 10))) : value;
+      badges.push({type, label: `${label} ${display}`, title: label === "Protomer" ? `Protonation/protomer state ${value}` : ""});
+    };
+    indexLabel(pose.protomer, "Protomer", "protomer");
+    indexLabel(pose.tautomer, "Tautomer", "tautomer");
+    indexLabel(pose.conformer, "Conformer", "conformer", true);
+    if (pose.sourcePose) badges.push({type: "source-pose", label: `Vina pose ${pose.sourcePose}`, title: ""});
+    return {name: ligandBase || variant || "Ligand", variant, badges};
+  }
+
+  function renderPoseIdentity(pose) {
+    const identity = poseDisplayMetadata(pose);
+    const technicalTitle = identity.variant ? `Technical variant: ${identity.variant}` : "";
+    const badges = identity.badges.map(badge => `<span class="pose-state-badge ${badge.type}"${badge.title ? ` title="${escapePoseHtml(badge.title)}"` : ""}>${escapePoseHtml(badge.label)}</span>`).join("");
+    return `<div class="pose-ligand-name"${technicalTitle ? ` title="${escapePoseHtml(technicalTitle)}"` : ""}>${escapePoseHtml(identity.name)}</div>${badges ? `<div class="pose-state-badges">${badges}</div>` : ""}`;
+  }
+
+  const bestScore  = Math.min(...poses.map(p=>p.score));
+  const worstScore = Math.max(...poses.map(p=>p.score));''',
+        1,
+    )
+    viewer_html = viewer_html.replace(
         """          <div class="pose-rmsd">lb ${pose.rmsd_lb.toFixed(2)} / ub ${pose.rmsd_ub.toFixed(2)} Å</div>""",
         """          <div class="pose-rmsd">lb ${pose.rmsd_lb.toFixed(2)} / ub ${pose.rmsd_ub.toFixed(2)} Å</div>
-          <div class="pose-sub">${pose.variant || `Pose ${i+1}`} ${pose.state ? `· ${pose.state}` : ""}</div>""",
+          ${renderPoseIdentity(pose)}""",
         1,
     )
     viewer_html = viewer_html.replace(
         '    document.getElementById("hud-pose").textContent  = `Pose ${i+1} of ${poses.length}`;',
-        '    document.getElementById("hud-pose").textContent  = poses[i].variant ? `Pose ${i+1} of ${poses.length} · ${poses[i].variant}` : `Pose ${i+1} of ${poses.length}`;',
+        '    document.getElementById("hud-pose").textContent  = `Pose ${i+1} of ${poses.length} · ${poseDisplayMetadata(poses[i]).name}`;',
         1,
     )
-    return BASE.ensure_ring_based_pi_stacking(viewer_html)
+    return BASE.validate_decorated_viewer_html(BASE.ensure_ring_based_pi_stacking(viewer_html))
 
 
 def build_index_html(page_title: str, entries: List[Dict[str, Any]]) -> str:
