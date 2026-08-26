@@ -36,6 +36,7 @@
         data-viewer-url="{{ entry.viewer_url }}"
         data-project-url="{{ entry.project_view_url }}"
         data-title="{{ entry.ligand_variant or entry.ligand }}"
+        data-receptor="{{ entry.receptor }}"
       >
         <span class="viz-entry-top">{{ entry.receptor }}</span>
         <strong>{{ entry.ligand_variant or entry.ligand }}</strong>
@@ -132,6 +133,12 @@
   max-height: 70vh;
   overflow: auto;
 }
+.viz-entry-filter-note {
+  margin: 0;
+  padding: 0.85rem 1rem 0;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
 .viz-entry {
   text-align: left;
   border: 1px solid var(--app-border);
@@ -204,17 +211,52 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("toggleVizListInline"),
   ].filter(Boolean);
   const buttons = [...document.querySelectorAll(".viz-entry")];
+  const list = document.querySelector(".viz-entry-list");
   const entryModels = buttons.map((button, index) => ({
     index,
     button,
     viewerUrl: button.dataset.viewerUrl,
     projectUrl: button.dataset.projectUrl,
     title: button.dataset.title || "Docking viewer",
+    receptor: button.dataset.receptor || "",
   }));
+  let activeReceptor = entryModels[{{ selected_index if selected_index is defined else 0 }}]?.receptor || entryModels[0]?.receptor || "";
 
   function currentEntryIndex() {
     const active = buttons.findIndex((button) => button.classList.contains("is-active"));
     return active >= 0 ? active : 0;
+  }
+
+  function filteredEntryModels() {
+    if (!activeReceptor) return entryModels;
+    return entryModels.filter((entry) => entry.receptor === activeReceptor);
+  }
+
+  function renderEntryList(activeIndex = currentEntryIndex()) {
+    if (!list) return;
+    list.innerHTML = "";
+    if (activeReceptor) {
+      const note = document.createElement("p");
+      note.className = "viz-entry-filter-note";
+      note.textContent = `Showing ${activeReceptor}`;
+      list.appendChild(note);
+    }
+    filteredEntryModels().forEach((entry) => {
+      const button = entry.button;
+      button.classList.toggle("is-active", entry.index === activeIndex);
+      list.appendChild(button);
+    });
+  }
+
+  function findEntryIndexFromFrame() {
+    if (!frame) return -1;
+    let href = "";
+    try {
+      href = frame.contentWindow?.location?.href || "";
+    } catch (error) {
+      href = "";
+    }
+    return entryModels.findIndex((entry) => entry.viewerUrl === href || frame.src === entry.viewerUrl);
   }
 
   function syncVizToggleButtons() {
@@ -375,8 +417,8 @@ document.addEventListener("DOMContentLoaded", () => {
   function activateEntry(index) {
     const entry = entryModels[index];
     if (!entry) return;
-    buttons.forEach((button) => button.classList.remove("is-active"));
-    entry.button.classList.add("is-active");
+    activeReceptor = entry.receptor || "";
+    renderEntryList(index);
     if (frame) {
       frame.src = entry.viewerUrl;
     }
@@ -398,13 +440,21 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   syncVizToggleButtons();
+  renderEntryList(currentEntryIndex());
 
   buttons.forEach((button, index) => {
     button.addEventListener("click", () => activateEntry(index));
   });
 
   if (frame) {
-    frame.addEventListener("load", () => installLigandDropdown(currentEntryIndex()));
+    frame.addEventListener("load", () => {
+      const frameIndex = findEntryIndexFromFrame();
+      if (frameIndex >= 0 && frameIndex !== currentEntryIndex()) {
+        activeReceptor = entryModels[frameIndex]?.receptor || "";
+        renderEntryList(frameIndex);
+      }
+      installLigandDropdown(currentEntryIndex());
+    });
     installLigandDropdown(currentEntryIndex());
   }
 });

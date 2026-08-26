@@ -60,6 +60,39 @@ VINA_BODY = (
 )
 
 
+CSV_RESOLVER_BODY = r'''CSV="${CSV:-}"
+if [ -z "$CSV" ]; then
+  CSV="$(ls -1t ALL_Docking_Results_with_provenance_*.csv *vina_docking_scores_sorted.csv 2>/dev/null | head -n 1 || true)"
+fi
+if [ -z "$CSV" ] || [ ! -f "$CSV" ]; then
+  echo "No docking score CSV found. Set CSV=/path/to/scores.csv or run 4_ParseScores.py/4C_ConcatenateScores.py first."
+  exit 2
+fi
+echo "Using score CSV: $CSV"
+'''
+
+PYMOL_BODY = r'''"$PYBIN" 5C_BuildPymolSesh.py \
+  --csv "$CSV" \
+  --mode "${PYMOL_MODE:-per_receptor}" \
+  --top "${PYMOL_TOP:-5}" \
+  --receptor-roots ${RECEPTOR_ROOTS:-Receptors Receptors_PDBQT .} \
+  --outdir "${PYMOL_OUTDIR:-.}" \
+  --hydrogen-mode "${HYDROGEN_MODE:-none}" \
+  --non-interactive ${PYMOL_EXTRA_ARGS:-}
+'''
+
+COMPACTED_SDF_HTML_BODY = r'''"$PYBIN" 5_COMPACTED_SDF_HTML.py \
+  --csv "$CSV" \
+  --outdir "${COMPACTED_OUTDIR:-.}" \
+  --receptor-roots ${RECEPTOR_ROOTS:-Receptors Receptors_PDBQT .} \
+  --top-ligands "${COMPACTED_TOP_LIGANDS:-25}" \
+  --top-poses "${COMPACTED_TOP_POSES:-25}" \
+  --project-name "${COMPACTED_PROJECT_NAME:-Docking_HTML_Viz_Project_Compacted_SDF}" \
+  --page-title "${COMPACTED_PAGE_TITLE:-Compacted SDF Docking Visualization Project}" \
+  --hydrogen-mode "${HYDROGEN_MODE:-none}" ${COMPACTED_EXTRA_ARGS:-}
+'''
+
+
 def build_confgen_lsfs(
     jobroot: Path,
     lsf_dir: Path,
@@ -148,3 +181,89 @@ def build_vina_lsfs(
     submit = lsf_dir / "submit_all_vina.sh"
     submit.write_text(f"#!/bin/bash\nbsub < {out.name}\n")
     _chmod_executable(submit)
+
+
+def _write_output_submitter(lsf_dir: Path):
+    candidates = [
+        "run_pymol_job.lsf",
+        "run_compacted_sdf_html_job.lsf",
+    ]
+    existing = [name for name in candidates if (lsf_dir / name).is_file()]
+    if not existing:
+        return
+    submit = lsf_dir / "submit_all_outputs.sh"
+    lines = [
+        "#!/bin/bash",
+        "set -euo pipefail",
+        f'echo "Submitting {len(existing)} output builder job(s)..."',
+    ]
+    for name in existing:
+        lines.append(f"bsub < {name}")
+    submit.write_text("\n".join(lines) + "\n")
+    _chmod_executable(submit)
+
+
+def build_pymol_lsf(
+    jobroot: Path,
+    lsf_dir: Path,
+    *,
+    profile: HPCProfile,
+    mode: str = "per_receptor",
+    top: int = 5,
+):
+    jobroot = Path(jobroot)
+    lsf_dir = Path(lsf_dir)
+    lsf_dir.mkdir(parents=True, exist_ok=True)
+    save_packaged_profile(jobroot, profile)
+
+    jobtag = sanitize_name(f"pymol_{jobroot.name}")
+    header = _header_with_timestamp(
+        profile,
+        jobname=jobtag,
+        log_prefix=f"pymol_{jobroot.name}",
+        walltime=profile.vina_walltime,
+    )
+    body = (
+        f'export PYMOL_MODE="${{PYMOL_MODE:-{mode}}}"\n'
+        f'export PYMOL_TOP="${{PYMOL_TOP:-{int(top)}}}"\n'
+        + CSV_RESOLVER_BODY
+        + PYMOL_BODY
+    )
+
+    out = lsf_dir / "run_pymol_job.lsf"
+    out.write_text(header + render_setup_block(profile) + _python_export(profile) + body)
+    _chmod_executable(out)
+    _write_output_submitter(lsf_dir)
+
+
+def build_compacted_sdf_html_lsf(
+    jobroot: Path,
+    lsf_dir: Path,
+    *,
+    profile: HPCProfile,
+    top_ligands: int = 25,
+    top_poses: int = 25,
+):
+    jobroot = Path(jobroot)
+    lsf_dir = Path(lsf_dir)
+    lsf_dir.mkdir(parents=True, exist_ok=True)
+    save_packaged_profile(jobroot, profile)
+
+    jobtag = sanitize_name(f"compact_sdf_{jobroot.name}")
+    header = _header_with_timestamp(
+        profile,
+        jobname=jobtag,
+        log_prefix=f"compact_sdf_{jobroot.name}",
+        walltime=profile.vina_walltime,
+    )
+    body = (
+        f'export COMPACTED_TOP_LIGANDS="${{COMPACTED_TOP_LIGANDS:-{int(top_ligands)}}}"\n'
+        f'export COMPACTED_TOP_POSES="${{COMPACTED_TOP_POSES:-{int(top_poses)}}}"\n'
+        + CSV_RESOLVER_BODY
+        + COMPACTED_SDF_HTML_BODY
+    )
+
+    out = lsf_dir / "run_compacted_sdf_html_job.lsf"
+    out.write_text(header + render_setup_block(profile) + _python_export(profile) + body)
+    _chmod_executable(out)
+    _write_output_submitter(lsf_dir)

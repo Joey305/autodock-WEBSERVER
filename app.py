@@ -3,7 +3,7 @@
 # ==============================
 from __future__ import annotations
 
-import os, json, time, csv, subprocess, re, shutil
+import os, json, time, csv, subprocess, re, shutil, io, zipfile, uuid, stat
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -15,7 +15,7 @@ from flask_login import LoginManager, login_required
 from models import db, User
 from auth import auth_bp
 from hpc_profiles import normalize_package_mode as normalize_hpc_package_mode, profile_for_mode
-from lsf_templates import build_confgen_lsfs, build_vina_lsfs
+from lsf_templates import build_compacted_sdf_html_lsf, build_confgen_lsfs, build_pymol_lsf, build_vina_lsfs
 from packager import (
     make_workspace, ensure_subdir, save_uploaded_zip,
     assemble_job_tree, zip_job_tree, fetch_pdb_and_prep, rename_centers_with_tags,
@@ -350,6 +350,9 @@ class Config:
     ENABLE_AUTH = _env_bool("ENABLE_AUTH", False)
     ENABLE_LSF_PACKAGE = _env_bool("ENABLE_LSF_PACKAGE", True)
     DEFAULT_PACKAGE_MODE = os.getenv("DEFAULT_PACKAGE_MODE", "portable").strip().lower() or "portable"
+    RESULTS_ZIP_MAX_BYTES = int(os.getenv("RESULTS_ZIP_MAX_BYTES", str(50 * 1024 * 1024)))
+    RESULTS_ZIP_MAX_UNCOMPRESSED_BYTES = int(os.getenv("RESULTS_ZIP_MAX_UNCOMPRESSED_BYTES", str(300 * 1024 * 1024)))
+    RESULTS_ZIP_MAX_FILES = int(os.getenv("RESULTS_ZIP_MAX_FILES", "2000"))
 
 
 class PublicUser:
@@ -489,9 +492,110 @@ def create_app() -> Flask:
 
     def _path_within(base: Path, candidate: Path) -> bool:
         try:
-            return str(candidate.resolve()).startswith(str(base.resolve()))
+            candidate.resolve().relative_to(base.resolve())
+            return True
         except Exception:
             return False
+
+    def _results_zip_member_path(name: str) -> Optional[Path]:
+        normalized = (name or "").replace("\\", "/")
+        if not normalized or normalized.startswith("/"):
+            return None
+        cleaned = normalized.rstrip("/")
+        if not cleaned:
+            return None
+        rel = Path(cleaned)
+        if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
+            return None
+        if rel.parts and rel.parts[0].endswith(":"):
+            return None
+        return rel
+
+    def _is_zip_symlink(info: zipfile.ZipInfo) -> bool:
+        mode = (info.external_attr >> 16) & 0xFFFF
+        return bool(mode and stat.S_ISLNK(mode))
+
+    def _valid_results_manifest(manifest_path: Path) -> Optional[Dict[str, Any]]:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("entries"), list):
+            return None
+        valid_entries = 0
+        for entry in manifest.get("entries", []):
+            if not isinstance(entry, dict):
+                continue
+            viewer_rel = str(entry.get("viewer_file") or "").replace("\\", "/").strip()
+            rel = _results_zip_member_path(viewer_rel)
+            if rel is None or rel.suffix.lower() not in {".html", ".htm"}:
+                continue
+            viewer_path = (manifest_path.parent / rel).resolve()
+            if _path_within(manifest_path.parent, viewer_path) and viewer_path.is_file():
+                valid_entries += 1
+        if valid_entries <= 0:
+            return None
+        manifest["_validated_viewer_count"] = valid_entries
+        return manifest
+
+    def _extract_results_zip(file_storage, ws: Path) -> Tuple[Path, Dict[str, Any]]:
+        max_bytes = int(current_app.config["RESULTS_ZIP_MAX_BYTES"])
+        payload = file_storage.stream.read(max_bytes + 1)
+        if len(payload) > max_bytes:
+            raise ValueError(f"ZIP exceeds the {max_bytes // (1024 * 1024)} MB upload limit.")
+        if not payload:
+            raise ValueError("The uploaded ZIP is empty.")
+
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(payload))
+        except zipfile.BadZipFile as exc:
+            raise ValueError("The uploaded file is not a valid ZIP archive.") from exc
+
+        with zf:
+            all_infos = zf.infolist()
+            for info in all_infos:
+                if _results_zip_member_path(info.filename) is None:
+                    raise ValueError(f"Unsafe ZIP path: {info.filename}")
+                if _is_zip_symlink(info):
+                    raise ValueError(f"Symlinks are not allowed in visualization ZIPs: {info.filename}")
+
+            infos = [info for info in all_infos if not info.is_dir()]
+            if len(infos) > int(current_app.config["RESULTS_ZIP_MAX_FILES"]):
+                raise ValueError("The visualization ZIP contains too many files.")
+            total_uncompressed = sum(max(0, int(info.file_size)) for info in infos)
+            if total_uncompressed > int(current_app.config["RESULTS_ZIP_MAX_UNCOMPRESSED_BYTES"]):
+                raise ValueError("The visualization ZIP is too large after extraction.")
+
+            extracted = 0
+            for info in infos:
+                rel = _results_zip_member_path(info.filename)
+                if rel is None:
+                    raise ValueError(f"Unsafe ZIP path: {info.filename}")
+                if any(part in {"__MACOSX", ".DS_Store"} or part.startswith("._") for part in rel.parts):
+                    continue
+                target = (ws / rel).resolve()
+                if not _path_within(ws, target):
+                    raise ValueError(f"Unsafe ZIP path: {info.filename}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info, "r") as src, target.open("wb") as dst:
+                    shutil.copyfileobj(src, dst, length=1024 * 1024)
+                extracted += 1
+
+        if extracted <= 0:
+            raise ValueError("The ZIP did not contain any usable visualization files.")
+
+        candidates: List[Tuple[Path, Dict[str, Any]]] = []
+        for manifest_path in ws.rglob("manifest.json"):
+            if not manifest_path.is_file():
+                continue
+            manifest = _valid_results_manifest(manifest_path)
+            if manifest is not None:
+                candidates.append((manifest_path.resolve(), manifest))
+        if not candidates:
+            raise ValueError("No valid visualization manifest.json with matching viewer HTML files was found.")
+        if len(candidates) > 1:
+            raise ValueError("The ZIP contains multiple visualization projects. Upload one project ZIP at a time.")
+        return candidates[0]
 
     # ---------- PAGES ----------
     @app.get("/robots.txt")
@@ -628,7 +732,7 @@ def create_app() -> Flask:
                     **entry,
                     "entry_index": idx,
                     "viewer_url": url_for(
-                        "api_wsinline",
+                        "docking_visualization_file",
                         jobname=jobname,
                         rel=str((Path(rel).parent / viewer_rel).as_posix()),
                     ),
@@ -725,6 +829,41 @@ def create_app() -> Flask:
 
     def _save_state(ws: Path, obj: Dict[str, Any]):
         (ws / "_state.json").write_text(json.dumps(obj, indent=2))
+
+    @app.post("/api/results/upload")
+    @login_required
+    def api_results_upload():
+        uploaded = request.files.get("project_zip")
+        if uploaded is None or not (uploaded.filename or "").strip():
+            return jsonify({"ok": False, "error": "missing_file", "message": "Choose a visualization ZIP to upload."}), 400
+        original_name = Path(uploaded.filename).name
+        if Path(original_name).suffix.lower() != ".zip":
+            return jsonify({"ok": False, "error": "bad_file_type", "message": "Visualization uploads must be .zip files."}), 400
+
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(original_name).stem).strip(".-_") or "visualization"
+        jobname = f"viz-{time.strftime('%Y%m%d-%H%M%S')}-{stem[:28]}-{uuid.uuid4().hex[:8]}"
+        ws = _ws(jobname)
+        ws.mkdir(parents=True, exist_ok=False)
+        try:
+            manifest_path, manifest = _extract_results_zip(uploaded, ws)
+        except ValueError as exc:
+            shutil.rmtree(ws, ignore_errors=True)
+            return jsonify({"ok": False, "error": "invalid_visualization_zip", "message": str(exc)}), 400
+        except Exception:
+            shutil.rmtree(ws, ignore_errors=True)
+            current_app.logger.exception("Visualization ZIP upload failed")
+            return jsonify({"ok": False, "error": "upload_failed", "message": "The visualization ZIP could not be processed."}), 500
+
+        rel = manifest_path.relative_to(ws.resolve()).as_posix()
+        project_url = url_for("docking_visualization_project", jobname=jobname, rel=rel)
+        return jsonify({
+            "ok": True,
+            "jobname": jobname,
+            "manifest": rel,
+            "project_url": project_url,
+            "project_name": manifest.get("project_name") or manifest_path.parent.name,
+            "entry_count": int(manifest.get("_validated_viewer_count") or manifest.get("entry_count") or 0),
+        })
 
     def _safe_ligand_filename_stem(value: str) -> str:
         stem = re.sub(r"[^A-Za-z0-9._-]+", "_", (value or "").strip()).strip("._")
@@ -1165,6 +1304,24 @@ def create_app() -> Flask:
         if p is None:
             return ("not found", 404)
         return send_file(p)
+
+    @app.get("/viz/file/<jobname>/<path:rel>")
+    @login_required
+    def docking_visualization_file(jobname: str, rel: str):
+        ws = _ws(jobname)
+        if not ws.exists():
+            return ("workspace missing", 404)
+        p = _resolve_workspace_file(ws, rel)
+        if p is None or not _path_within(ws, p) or not p.is_file():
+            return ("not found", 404)
+        response = send_file(p, as_attachment=False, download_name=p.name)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        if p.suffix.lower() in {".html", ".htm"}:
+            response.headers["Content-Security-Policy"] = (
+                "sandbox allow-scripts allow-forms allow-popups allow-downloads; "
+                "base-uri 'none'; object-src 'none'"
+            )
+        return response
 
     @app.get("/api/wsinline")
     @login_required
@@ -2005,6 +2162,8 @@ def create_app() -> Flask:
             build_vina_lsfs(
                 jobroot, lsf_dir, profile=profile, poses=poses_vina
             )
+            build_pymol_lsf(jobroot, lsf_dir, profile=profile)
+            build_compacted_sdf_html_lsf(jobroot, lsf_dir, profile=profile)
         else:
             build_portable_runners(jobroot)
 
@@ -2358,6 +2517,8 @@ def create_app() -> Flask:
                 single_sdf_rel=(single_sdf_rel or None),
             )
             build_vina_lsfs(jobroot, jobroot, profile=profile, poses=poses_vina)
+            build_pymol_lsf(jobroot, jobroot, profile=profile)
+            build_compacted_sdf_html_lsf(jobroot, jobroot, profile=profile)
         else:
             build_portable_runners(jobroot)
         rename_centers_with_tags(jobroot)

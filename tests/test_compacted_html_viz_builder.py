@@ -49,6 +49,37 @@ class CompactedHtmlVizBuilderTests(unittest.TestCase):
         self.assertIn("best=-9.377  poses=1", output)
         self.assertIn("best=-9.344  poses=2", output)
 
+    def test_streaming_selection_matches_materialized_selection(self):
+        module = load_script_module("5_CompactedHTMLViz.py", "compacted_html_viz_streaming")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "scores.csv"
+            csv_path.write_text(
+                "Receptor,Ligand,LigandBase,LigandVariant,Pose,Binding_Affinity,OutFile\n"
+                "recA,LigA,LigA,LigA_p01_t01_c001,1,-9.1,/tmp/a\n"
+                "recA,LigA,LigA,LigA_p01_t01_c002,1,-8.0,/tmp/b\n"
+                "recA,LigB,LigB,LigB_p01_t01_c001,1,-9.4,/tmp/c\n"
+                "recA,LigB,LigB,LigB_p01_t01_c002,2,-9.3,/tmp/d\n"
+                "recA,LigC,LigC,LigC_p01_t01_c001,1,-7.0,/tmp/e\n"
+                "recB,LigD,LigD,LigD_p01_t01_c001,1,-6.0,/tmp/f\n",
+                encoding="utf-8",
+            )
+
+            rows = module.load_rows(csv_path)
+            materialized = module.select_compacted_groups(rows, top_ligands=2, top_poses=1)
+            streamed, row_count = module.select_compacted_groups_from_csv(csv_path, top_ligands=2, top_poses=1)
+
+        self.assertEqual(row_count, 6)
+        self.assertEqual(
+            [
+                (group["receptor"], group["ligand_base"], [row["LigandVariant"] for row in group["selected_rows"]])
+                for group in streamed
+            ],
+            [
+                (group["receptor"], group["ligand_base"], [row["LigandVariant"] for row in group["selected_rows"]])
+                for group in materialized
+            ],
+        )
+
     def test_build_project_compacts_multiple_variants_into_one_viewer(self):
         module = load_script_module("5_CompactedHTMLViz.py", "compacted_html_viz_module")
         with tempfile.TemporaryDirectory() as tmpdir:

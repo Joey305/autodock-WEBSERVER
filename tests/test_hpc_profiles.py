@@ -14,7 +14,7 @@ from hpc_profiles import (
     render_setup_block,
     save_packaged_profile,
 )
-from lsf_templates import build_confgen_lsfs, build_vina_lsfs
+from lsf_templates import build_compacted_sdf_html_lsf, build_confgen_lsfs, build_pymol_lsf, build_vina_lsfs
 
 
 class HpcProfileTests(unittest.TestCase):
@@ -103,10 +103,14 @@ class HpcProfileTests(unittest.TestCase):
                 single_sdf_rel=None,
             )
             build_vina_lsfs(root, root, profile=profile, poses=20)
+            build_pymol_lsf(root, root, profile=profile)
+            build_compacted_sdf_html_lsf(root, root, profile=profile)
 
             packaged = json.loads((root / "hpc_profile.json").read_text(encoding="utf-8"))
             confgen = (root / "run_confgen_job.lsf").read_text(encoding="utf-8")
             vina = (root / "run_vina_job.lsf").read_text(encoding="utf-8")
+            pymol = (root / "run_pymol_job.lsf").read_text(encoding="utf-8")
+            compacted_sdf = (root / "run_compacted_sdf_html_job.lsf").read_text(encoding="utf-8")
 
         self.assertEqual(packaged["queue"], "gpu")
         self.assertEqual(packaged["python_command"], "/opt/python/bin/python3")
@@ -115,6 +119,10 @@ class HpcProfileTests(unittest.TestCase):
         self.assertNotIn("#BSUB -P", confgen)
         self.assertIn("#BSUB -u cluster@example.org", vina)
         self.assertIn('"$PYBIN" 3_Complete_batch_docking.py', vina)
+        self.assertIn('"$PYBIN" 5C_BuildPymolSesh.py', pymol)
+        self.assertIn("--non-interactive", pymol)
+        self.assertIn('"$PYBIN" 5_COMPACTED_SDF_HTML.py', compacted_sdf)
+        self.assertIn("--top-ligands", compacted_sdf)
 
 
 if __name__ == "__main__":

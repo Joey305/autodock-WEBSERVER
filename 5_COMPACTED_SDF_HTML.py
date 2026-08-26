@@ -5,6 +5,7 @@ import argparse
 import base64
 import importlib.util
 import json
+import re
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -88,9 +89,7 @@ def resolve_args(args: argparse.Namespace) -> argparse.Namespace:
     suggested_outdir = str(csv_path.resolve().parent)
     args.outdir = COMPACT.BASE.prompt_text("Output directory", suggested_outdir)
 
-    roots_default = " ".join(COMPACT.BASE.default_receptor_roots_for(csv_path))
-    receptor_roots_raw = COMPACT.BASE.prompt_text("Receptor search roots (space-separated)", roots_default)
-    args.receptor_roots = receptor_roots_raw.split()
+    args.receptor_roots = prompt_receptor_roots(csv_path)
 
     args.top_ligands = COMPACT.BASE.prompt_int("Top base ligands per receptor", args.top_ligands)
     args.top_poses = COMPACT.BASE.prompt_int("Top poses per base ligand", args.top_poses)
@@ -105,6 +104,78 @@ def b64encode_text(text: str) -> str:
 
 def progress(message: str) -> None:
     print(message, flush=True)
+
+
+def _display_path(path: Path, base_dir: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(base_dir.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def discover_receptor_root_candidates(csv_path: Path) -> List[Path]:
+    search_bases = [Path.cwd(), csv_path.resolve().parent]
+    candidates: List[Path] = []
+    seen: set[Path] = set()
+
+    for base in search_bases:
+        if not base.exists():
+            continue
+        for path in sorted(base.iterdir(), key=lambda item: item.name.lower()):
+            if not path.is_dir() or not path.name.startswith("Receptor"):
+                continue
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            candidates.append(resolved)
+
+    return candidates
+
+
+def prompt_receptor_roots(csv_path: Path) -> List[str]:
+    base_dir = csv_path.resolve().parent
+    candidates = discover_receptor_root_candidates(csv_path)
+    if not candidates:
+        roots_default = " ".join(COMPACT.BASE.default_receptor_roots_for(csv_path))
+        receptor_roots_raw = COMPACT.BASE.prompt_text("Receptor search roots (space-separated)", roots_default)
+        return receptor_roots_raw.split()
+
+    print("\nSelect receptor search folder(s):")
+    for index, path in enumerate(candidates, start=1):
+        print(f" [{index}] {_display_path(path, base_dir)}")
+    print("Enter one or more indexes, e.g. 1,2, or type folder paths directly.")
+    print("Press Enter to use all detected Receptor* folders.")
+
+    while True:
+        raw = input("Receptor search roots: ").strip()
+        if not raw:
+            return [_display_path(path, base_dir) for path in candidates]
+
+        selected: List[str] = []
+        bad_tokens: List[str] = []
+        for token in raw.replace(",", " ").split():
+            if token.isdigit():
+                index = int(token)
+                if 1 <= index <= len(candidates):
+                    selected.append(_display_path(candidates[index - 1], base_dir))
+                else:
+                    bad_tokens.append(token)
+                continue
+
+            typed_path = Path(token).expanduser()
+            if not typed_path.is_absolute():
+                typed_path = (base_dir / typed_path).resolve()
+            if typed_path.exists() and typed_path.is_dir():
+                selected.append(_display_path(typed_path, base_dir))
+            else:
+                bad_tokens.append(token)
+
+        if selected and not bad_tokens:
+            return list(dict.fromkeys(selected))
+        if bad_tokens:
+            print(f"Could not resolve: {', '.join(bad_tokens)}")
+        print("Please choose valid indexes from the list or type existing folder paths.")
 
 
 def build_corrected_pose_bundle(
@@ -311,6 +382,248 @@ def decorate_sdf_viewer_html(viewer_html: str, corrected_models: List[Dict[str, 
     return COMPACT.BASE.ensure_ring_based_pi_stacking(viewer_html)
 
 
+def write_receptor_library_js(project_dir: Path, receptor_payloads: Dict[str, Dict[str, str]]) -> Optional[Path]:
+    if len(receptor_payloads) <= 1:
+        return None
+    payload = {
+        key: {
+            "label": value["label"],
+            "data_b64": b64encode_text(value["text"]),
+        }
+        for key, value in sorted(receptor_payloads.items())
+    }
+    library_path = project_dir / "inputs" / "receptor_library.js"
+    library_path.write_text(
+        "window.VINA_RECEPTOR_LIBRARY = "
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        + ";\n",
+        encoding="utf-8",
+    )
+    return library_path
+
+
+def use_shared_receptor_library(viewer_html: str, receptor_key: str) -> str:
+    if "../inputs/receptor_library.js" not in viewer_html:
+        viewer_html = viewer_html.replace(
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.4.0/3Dmol-min.js"></script>',
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.4.0/3Dmol-min.js"></script>\n'
+            '<script src="../inputs/receptor_library.js"></script>',
+            1,
+        )
+    viewer_html = viewer_html.replace(
+        'const POSE_B64     = ',
+        f'const PROJECT_RECEPTOR_KEY = {json.dumps(receptor_key)};\nconst POSE_B64     = ',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        '  const receptorData = b64ToStr(RECEPTOR_B64);\n',
+        '  function projectReceptorText(key) {\n'
+        '    const library = window.VINA_RECEPTOR_LIBRARY || {};\n'
+        '    const record = library[key];\n'
+        '    if (record && record.data_b64) return b64ToStr(record.data_b64);\n'
+        '    return b64ToStr(RECEPTOR_B64);\n'
+        '  }\n'
+        '  const receptorData = projectReceptorText(PROJECT_RECEPTOR_KEY);\n',
+        1,
+    )
+    return viewer_html
+
+
+def install_multi_receptor_switcher(viewer_html: str) -> str:
+    replacement = r'''function installStandaloneLigandSwitcher(ligandName) {
+  const chip = document.getElementById("ligand-label");
+  if (!chip) return;
+  const entries = Array.isArray(window.__VINA_VIEWER_CONTEXT__) && window.__VINA_VIEWER_CONTEXT__.length
+    ? window.__VINA_VIEWER_CONTEXT__
+    : STANDALONE_VIEWERS;
+  if (!entries || entries.length <= 1) return;
+
+  const currentHref = window.location.href.split("#")[0];
+  const currentEntry = entries.findIndex((entry) =>
+    entry.viewer_file === CURRENT_VIEWER_FILE ||
+    (entry.url && currentHref.endsWith(entry.url)) ||
+    (entry.title === ligandName && (!entry.receptor || entries.filter(e => e.title === ligandName).length === 1))
+  );
+  const activeIndex = currentEntry >= 0 ? currentEntry : 0;
+  const activeEntry = entries[activeIndex] || {};
+  const activeReceptor = activeEntry.receptor || "";
+  const uniqueReceptors = [...new Set(entries.map(entry => entry.receptor || "").filter(Boolean))].sort();
+  const icon = chip.querySelector("svg");
+
+  const panel = document.createElement("div");
+  panel.className = "viewer-switch-panel" + (uniqueReceptors.length > 1 ? " has-receptors" : "");
+  const receptorWrap = document.createElement("div");
+  receptorWrap.className = "viewer-switch-control";
+  const receptorLabel = document.createElement("label");
+  receptorLabel.textContent = "Receptor";
+  const receptorSelect = document.createElement("select");
+  receptorSelect.setAttribute("aria-label", "Select receptor viewer");
+  const ligandWrap = document.createElement("div");
+  ligandWrap.className = "viewer-switch-control";
+  const ligandLabel = document.createElement("label");
+  ligandLabel.textContent = "Ligand";
+  const ligandSelect = document.createElement("select");
+  ligandSelect.setAttribute("aria-label", "Select ligand viewer");
+
+  function receptorEntries(receptor) {
+    return entries.filter(entry => !receptor || entry.receptor === receptor);
+  }
+
+  function fillLigands(receptor) {
+    const available = receptorEntries(receptor);
+    ligandSelect.innerHTML = "";
+    available.forEach((entry) => {
+      const option = document.createElement("option");
+      const entryIndex = entries.indexOf(entry);
+      option.value = String(entryIndex);
+      const score = entry.score ? ` (${entry.score} kcal/mol)` : "";
+      option.textContent = `${entry.title || "Ligand"}${score}`;
+      ligandSelect.appendChild(option);
+    });
+    const selected = available.includes(activeEntry) ? activeIndex : entries.indexOf(available[0]);
+    if (selected >= 0) ligandSelect.value = String(selected);
+  }
+
+  function navigateTo(entry) {
+    if (!entry || !entry.url) return;
+    window.location.href = entry.url;
+  }
+
+  const receptorOptions = uniqueReceptors.length ? uniqueReceptors : [activeReceptor || "Receptor"];
+  receptorOptions.forEach((receptor) => {
+    const option = document.createElement("option");
+    option.value = receptor;
+    option.textContent = receptor;
+    receptorSelect.appendChild(option);
+  });
+  receptorSelect.value = activeReceptor || receptorOptions[0];
+  receptorSelect.addEventListener("change", () => {
+    fillLigands(receptorSelect.value);
+    const preferredLigand = activeEntry.title || ligandName;
+    const candidates = receptorEntries(receptorSelect.value);
+    const target = candidates.find(entry => entry.title === preferredLigand) || candidates[0];
+    navigateTo(target);
+  });
+
+  fillLigands(activeReceptor);
+  ligandSelect.addEventListener("change", () => {
+    navigateTo(entries[Number(ligandSelect.value)]);
+  });
+
+  chip.classList.add("ligand-chip-select");
+  chip.innerHTML = "";
+  if (icon) chip.appendChild(icon);
+  const chipText = document.createElement("span");
+  chipText.textContent = activeEntry.title ? `Ligand: ${activeEntry.title}` : `Ligand: ${ligandName}`;
+  chip.appendChild(chipText);
+  receptorWrap.appendChild(receptorLabel);
+  receptorWrap.appendChild(receptorSelect);
+  ligandWrap.appendChild(ligandLabel);
+  ligandWrap.appendChild(ligandSelect);
+  panel.appendChild(receptorWrap);
+  panel.appendChild(ligandWrap);
+  chip.insertAdjacentElement("afterend", panel);
+}'''
+    viewer_html = re.sub(
+        r'function installStandaloneLigandSwitcher\(ligandName\) \{.*?\n\}\n\n// ═══════════════════════════════════════════════════════════════════\n//  MAIN',
+        replacement + "\n\n// ═══════════════════════════════════════════════════════════════════\n//  MAIN",
+        viewer_html,
+        count=1,
+        flags=re.S,
+    )
+    viewer_html = viewer_html.replace(
+        '.ligand-chip-select select:focus{color:var(--accent)}',
+        '.ligand-chip-select select:focus{color:var(--accent)}\n'
+        '.viewer-switch-panel{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:10px 0 0;padding:10px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,.72)}\n'
+        '.viewer-switch-panel.has-receptors{grid-template-columns:minmax(0,1fr) minmax(0,1.12fr)}\n'
+        '.viewer-switch-control{min-width:0}.viewer-switch-control label{display:block;margin:0 0 4px;color:var(--txt-muted);font:700 8px var(--mono);letter-spacing:.12em;text-transform:uppercase}\n'
+        '.viewer-switch-control select{width:100%;min-width:0;padding:7px 8px;border-radius:8px;border:1px solid rgba(13,148,136,.20);background:#fff;color:var(--txt);font:600 10px var(--mono);letter-spacing:0;outline:0}\n'
+        '.viewer-switch-control select:focus{border-color:rgba(13,148,136,.52);color:var(--accent)}\n'
+        '@media(max-width:680px){.viewer-switch-panel.has-receptors{grid-template-columns:minmax(0,1fr)}}',
+        1,
+    )
+    return viewer_html
+
+
+def apply_compacted_viewer_defaults(viewer_html: str) -> str:
+    viewer_html = viewer_html.replace(
+        'let recStyle="stick", recColor="element", recSurfObj=null, surfObj=null, surfOn=false;',
+        'let recStyle="cartoon", recColor="spectrum", recSurfObj=null, surfObj=null, surfOn=false;',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        '<button class="btn" data-v="cartoon">Cartoon</button>\n'
+        '            <button class="btn" data-v="surface">Surface</button>\n'
+        '            <button class="btn" data-v="line">Lines</button>\n'
+        '            <button class="btn active" data-v="stick">Sticks</button>',
+        '<button class="btn active" data-v="cartoon">Cartoon</button>\n'
+        '            <button class="btn" data-v="surface">Surface</button>\n'
+        '            <button class="btn" data-v="line">Lines</button>\n'
+        '            <button class="btn" data-v="stick">Sticks</button>',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        '<button class="btn active" data-v="stick">Sticks</button>\n'
+        '            <button class="btn" data-v="sphere">Spheres</button>\n'
+        '            <button class="btn" data-v="line">Lines</button>\n'
+        '            <button class="btn" data-v="surface">Surface</button>',
+        '<button class="btn" data-v="stick">Sticks</button>\n'
+        '            <button class="btn" data-v="sphere">Spheres</button>\n'
+        '            <button class="btn active" data-v="line">Lines</button>\n'
+        '            <button class="btn" data-v="surface">Surface</button>',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        'let pocketOn=true, pocketStyle="stick";',
+        'let pocketOn=true, pocketStyle="line";',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        'let pocketOn=true, pocketStyle="line";',
+        'let pocketOn=false, pocketStyle="line";',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        '<input type="checkbox" id="pocket-toggle" checked>',
+        '<input type="checkbox" id="pocket-toggle">',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        'let ligPaletteMode="10", recPaletteMode="0";',
+        'let ligPaletteMode="10", recPaletteMode="9";',
+        1,
+    )
+    viewer_html = viewer_html.replace(
+        '<option value="9">Futuro</option>',
+        '<option value="9" selected>Futuro</option>',
+        1,
+    )
+    return viewer_html
+
+
+def finalize_sdf_project_viewers(
+    project_dir: Path,
+    manifest_entries: List[Dict[str, Any]],
+    receptor_payloads: Dict[str, Dict[str, str]],
+) -> None:
+    receptor_library = write_receptor_library_js(project_dir, receptor_payloads)
+    multiple_receptors = len(receptor_payloads) > 1
+    for entry in manifest_entries:
+        viewer_path = project_dir / str(entry.get("viewer_file", ""))
+        if not viewer_path.exists():
+            continue
+        viewer_html = COMPACT.BASE.inject_viewer_switch_context(
+            viewer_path.read_text(encoding="utf-8"),
+            manifest_entries,
+            str(entry["viewer_file"]),
+        )
+        viewer_html = install_multi_receptor_switcher(viewer_html)
+        viewer_html = apply_compacted_viewer_defaults(viewer_html)
+        if multiple_receptors and receptor_library is not None:
+            viewer_html = use_shared_receptor_library(viewer_html, str(entry.get("receptor_key") or ""))
+        viewer_path.write_text(viewer_html, encoding="utf-8")
+
+
 def build_project(
     csv_path: Path,
     outdir: Optional[Path] = None,
@@ -338,9 +651,12 @@ def build_project(
     viewers_dir.mkdir(exist_ok=True)
     inputs_dir.mkdir(exist_ok=True)
 
-    rows = COMPACT.load_rows(csv_path)
-    progress(f"📄 Loaded {len(rows)} score rows from {csv_path}")
-    groups = COMPACT.select_compacted_groups(rows, top_ligands=top_ligands, top_poses=top_poses)
+    groups, row_count = COMPACT.select_compacted_groups_from_csv(
+        csv_path,
+        top_ligands=top_ligands,
+        top_poses=top_poses,
+    )
+    progress(f"📄 Streamed {row_count} score rows from {csv_path}")
     COMPACT.print_selection_summary(groups, top_ligands=top_ligands, top_poses=top_poses)
     progress(f"🧭 Output project: {project_dir}")
 
@@ -371,6 +687,7 @@ def build_project(
     manifest_entries: List[Dict[str, Any]] = []
     missing_entries: List[Dict[str, Any]] = []
     receptor_copy_map: Dict[str, str] = {}
+    receptor_payloads: Dict[str, Dict[str, str]] = {}
     used_input_names: set[str] = set()
 
     total_groups = len(groups)
@@ -451,6 +768,10 @@ def build_project(
             receptor_copy.write_text(receptor_text, encoding="utf-8")
             receptor_copy_rel = str(receptor_copy.relative_to(project_dir))
             receptor_copy_map[receptor_key] = receptor_copy_rel
+        receptor_payloads[receptor_copy_rel] = {
+            "label": receptor_name,
+            "text": receptor_text,
+        }
 
         ligand_copy = inputs_dir / f"{slug}_poses.pdbqt"
         corrected_sdf_copy = inputs_dir / f"{slug}_corrected_poses.sdf"
@@ -488,6 +809,7 @@ def build_project(
                 "bond_mode": "corrected_sdf_from_reference_fit",
                 "receptor_file": str(receptor_file),
                 "viewer_file": str(viewer_file.relative_to(project_dir)),
+                "receptor_key": receptor_copy_rel,
                 "receptor_copy": receptor_copy_rel,
                 "pose_copy": str(ligand_copy.relative_to(project_dir)),
                 "corrected_sdf_copy": str(corrected_sdf_copy.relative_to(project_dir)),
@@ -518,6 +840,7 @@ def build_project(
     (project_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (project_dir / "UPSTREAM_LICENSE.txt").write_text(COMPACT.BASE.UPSTREAM_LICENSE_TEXT, encoding="utf-8")
     (project_dir / "index.html").write_text(COMPACT.build_index_html(page_title, manifest_entries), encoding="utf-8")
+    finalize_sdf_project_viewers(project_dir, manifest_entries, receptor_payloads)
     progress(f"\n🧾 Wrote manifest/index with {len(manifest_entries)} viewer entrie(s); missing={len(missing_entries)}")
     zip_path = COMPACT.BASE.write_zip(project_dir)
     progress(f"📦 Wrote ZIP: {zip_path}")

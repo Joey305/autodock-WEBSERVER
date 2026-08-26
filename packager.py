@@ -39,6 +39,7 @@ RUNTIME_LSF_FILES = [
     "3B_ServerDocks.py",
     "3a_PDB2PDBQTbatch.py",
     "4B_LSFbatch.py",
+    "5B_LSFbatch.py",
     "hpc_profiles.py",
     "lsf_templates.py",
     "runDOCKING-tmux.sh",

@@ -17,17 +17,24 @@
   <article class="results-card">
     <div class="results-card-top">
       <span class="results-eyebrow">Load Viewer Project</span>
-      <h2>Drop a generated project folder</h2>
-      <p>Drag the folder created by <code>5_BuidlHTMLViz.py</code> right onto this page, or choose it from disk, and the manifest plus viewer HTML files will open here client-side.</p>
+      <h2>Drop a generated project folder or ZIP</h2>
+      <p>Load the project created by <code>5_BuidlHTMLViz.py</code> or <code>5_COMPACTED_SDF_HTML.py</code>. Folders open locally in your browser; ZIP files can be uploaded to this server and opened as a normal Results project.</p>
     </div>
 
-    <div id="folderDropzone" class="results-dropzone" tabindex="0" role="button" aria-label="Drop visualization folder here or choose folder">
+    <div id="folderDropzone" class="results-dropzone" tabindex="0" role="button" aria-label="Drop visualization folder or ZIP here, or choose a folder">
       <div class="results-drop-icon"><i class="bi bi-folder2-open"></i></div>
       <div class="results-drop-copy">
-        <strong>Drop folder here</strong>
-        <span>Or click to choose the generated visualization folder</span>
+        <strong>Drop project folder or ZIP here</strong>
+        <span>Click to choose a folder, or use the ZIP button below</span>
       </div>
       <input id="folderPicker" type="file" webkitdirectory directory multiple hidden>
+    </div>
+    <div class="results-upload-actions">
+      <button id="zipPickerButton" type="button" class="btn btn-outline-primary">
+        <i class="bi bi-file-earmark-zip me-2"></i>Upload visualization ZIP
+      </button>
+      <input id="zipPicker" type="file" accept=".zip,application/zip" hidden>
+      <span>ZIP uploads are stored in the server workspace temporarily and open with a shareable project URL for the life of that workspace.</span>
     </div>
 
     <form id="resultsLoader" class="results-form">
@@ -60,12 +67,12 @@
     <div class="results-card-top">
       <span class="results-eyebrow">Workflow</span>
       <h2>How this fits</h2>
-      <p>After docking scores are parsed and ranked, `5_BuidlHTMLViz.py` can package the top hits into a portable HTML result bundle.</p>
+      <p>After docking scores are parsed and ranked, <code>5_BuidlHTMLViz.py</code> or <code>5_COMPACTED_SDF_HTML.py</code> can package the top hits into a portable HTML result bundle.</p>
     </div>
     <ol class="results-steps">
       <li>Generate docking scores with the existing workflow.</li>
-      <li>Run `5_BuidlHTMLViz.py` on the sorted CSV.</li>
-      <li>Open the generated manifest here to browse the project in-app.</li>
+      <li>Run the HTML visualization builder on the sorted CSV.</li>
+      <li>Drop the project folder, upload its ZIP, or open the manifest from an existing server workspace.</li>
     </ol>
     <a class="btn btn-outline-primary" href="{{ url_for('workflow') }}">View workflow guide</a>
   </article>
@@ -194,6 +201,18 @@
 }
 .results-drop-copy span {
   color: var(--text-secondary);
+}
+.results-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  margin-top: 0.85rem;
+}
+.results-upload-actions span {
+  flex: 1 1 280px;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
 }
 .results-divider {
   display: flex;
@@ -340,6 +359,12 @@
   max-height: 74vh;
   overflow: auto;
 }
+.local-entry-filter-note {
+  margin: 0;
+  padding: 0.85rem 1rem 0;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
 .local-entry-btn {
   display: grid;
   gap: 0.2rem;
@@ -418,6 +443,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("resultsLoader");
   const dropzone = document.getElementById("folderDropzone");
   const folderPicker = document.getElementById("folderPicker");
+  const zipPicker = document.getElementById("zipPicker");
+  const zipPickerButton = document.getElementById("zipPickerButton");
   const resultsStatus = document.getElementById("resultsStatus");
   const localShell = document.getElementById("localResultsViewer");
   const localEntryList = document.getElementById("localEntryList");
@@ -603,35 +630,78 @@ window.__VINA_VIEWER_CONTEXT__ = ${contextJson};
 
     localShell.classList.remove("d-none");
     localProjectTitle.textContent = manifest.page_title || manifest.project_name || "Docking Visualization Project";
-    localProjectMeta.textContent = `${entries.length} viewer${entries.length === 1 ? "" : "s"} loaded locally`;
-    localEntryList.innerHTML = "";
+    let activeIndex = 0;
+    let activeReceptor = entries[0]?.receptor || "";
 
-    const activateEntry = (entry, button) => {
-      [...localEntryList.querySelectorAll(".local-entry-btn")].forEach((node) => node.classList.remove("is-active"));
-      if (button) {
-        button.classList.add("is-active");
-      }
-      localViewerTitle.textContent = entry.ligand_variant || entry.ligand || entry.viewerTitle || "Viewer";
-      localViewerFrame.src = entry.viewerUrl;
-      localOpenStandalone.href = entry.viewerUrl;
-      localOpenStandalone.classList.remove("d-none");
+    const filteredEntries = () => {
+      if (!activeReceptor) return entries;
+      return entries.filter((entry) => (entry.receptor || "") === activeReceptor);
     };
 
-    entries.forEach((entry, index) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "local-entry-btn";
-      button.innerHTML = `
-        <span class="local-entry-top">${entry.receptor || ""}</span>
-        <strong>${entry.ligand_variant || entry.ligand || entry.viewerTitle || "Viewer"}</strong>
-        <span class="local-entry-score">${entry.best_affinity || ""}${entry.best_affinity ? " kcal/mol" : ""}</span>
-      `;
-      button.addEventListener("click", () => activateEntry(entry, button));
-      localEntryList.appendChild(button);
-      if (index === 0) {
-        activateEntry(entry, button);
+    const updateMeta = () => {
+      const visible = filteredEntries();
+      const suffix = activeReceptor ? ` for ${activeReceptor}` : "";
+      localProjectMeta.textContent = `${visible.length} of ${entries.length} viewer${visible.length === 1 ? "" : "s"} shown${suffix}`;
+    };
+
+    const findEntryIndexFromFrame = () => {
+      let href = "";
+      try {
+        href = localViewerFrame.contentWindow?.location?.href || "";
+      } catch (error) {
+        href = "";
       }
-    });
+      return entries.findIndex((entry) => entry.viewerUrl === href || localViewerFrame.src === entry.viewerUrl);
+    };
+
+    const renderEntryList = () => {
+      const visible = filteredEntries();
+      localEntryList.innerHTML = "";
+      if (activeReceptor) {
+        const note = document.createElement("p");
+        note.className = "local-entry-filter-note";
+        note.textContent = `Showing ${activeReceptor}`;
+        localEntryList.appendChild(note);
+      }
+      visible.forEach((entry) => {
+        const entryIndex = entries.indexOf(entry);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "local-entry-btn" + (entryIndex === activeIndex ? " is-active" : "");
+        button.innerHTML = `
+          <span class="local-entry-top">${entry.receptor || ""}</span>
+          <strong>${entry.ligand_variant || entry.ligand || entry.viewerTitle || "Viewer"}</strong>
+          <span class="local-entry-score">${entry.best_affinity || ""}${entry.best_affinity ? " kcal/mol" : ""}</span>
+        `;
+        button.addEventListener("click", () => activateEntry(entryIndex));
+        localEntryList.appendChild(button);
+      });
+      updateMeta();
+    };
+
+    const activateEntry = (entryOrIndex, shouldLoadFrame = true) => {
+      const index = Number.isInteger(entryOrIndex) ? entryOrIndex : entries.indexOf(entryOrIndex);
+      const entry = entries[index];
+      if (!entry) return;
+      activeIndex = index;
+      activeReceptor = entry.receptor || "";
+      localViewerTitle.textContent = entry.ligand_variant || entry.ligand || entry.viewerTitle || "Viewer";
+      if (shouldLoadFrame && localViewerFrame.src !== entry.viewerUrl) {
+        localViewerFrame.src = entry.viewerUrl;
+      }
+      localOpenStandalone.href = entry.viewerUrl;
+      localOpenStandalone.classList.remove("d-none");
+      renderEntryList();
+    };
+
+    localViewerFrame.onload = () => {
+      const frameIndex = findEntryIndexFromFrame();
+      if (frameIndex >= 0 && frameIndex !== activeIndex) {
+        activateEntry(frameIndex, false);
+      }
+    };
+
+    activateEntry(0);
   }
 
   if (toggleLocalProjectButtons.length && localShell) {
@@ -666,6 +736,36 @@ window.__VINA_VIEWER_CONTEXT__ = ${contextJson};
       files = files.concat(nested);
     }
     return files;
+  }
+
+  function isZipFile(file) {
+    return !!file && /\.zip$/i.test(file.name || "");
+  }
+
+  async function uploadVisualizationZip(file) {
+    if (!isZipFile(file)) {
+      setStatus("Choose a .zip visualization project.", "is-error");
+      return;
+    }
+    clearStatus();
+    setStatus(`Uploading ${file.name}...`);
+    const body = new FormData();
+    body.append("project_zip", file, file.name);
+    let response;
+    let payload = {};
+    try {
+      response = await fetch("{{ url_for('api_results_upload') }}", { method: "POST", body });
+      payload = await response.json();
+    } catch (error) {
+      setStatus("The visualization ZIP could not be uploaded.", "is-error");
+      return;
+    }
+    if (!response.ok || !payload.ok) {
+      setStatus(payload.message || "The visualization ZIP could not be processed.", "is-error");
+      return;
+    }
+    setStatus(`Uploaded ${payload.entry_count || 0} viewer${payload.entry_count === 1 ? "" : "s"}. Opening project...`, "is-success");
+    window.location.href = payload.project_url;
   }
 
   async function gatherDroppedFiles(dataTransfer) {
@@ -781,6 +881,15 @@ window.__VINA_VIEWER_CONTEXT__ = ${contextJson};
     window.location.href = target.toString();
   });
 
+  if (zipPickerButton && zipPicker) {
+    zipPickerButton.addEventListener("click", () => zipPicker.click());
+    zipPicker.addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (file) await uploadVisualizationZip(file);
+      zipPicker.value = "";
+    });
+  }
+
   if (dropzone && folderPicker) {
     dropzone.addEventListener("click", () => folderPicker.click());
     dropzone.addEventListener("keydown", (event) => {
@@ -820,6 +929,11 @@ window.__VINA_VIEWER_CONTEXT__ = ${contextJson};
     });
 
     dropzone.addEventListener("drop", async (event) => {
+      const directFiles = [...(event.dataTransfer?.files || [])];
+      if (directFiles.length === 1 && isZipFile(directFiles[0])) {
+        await uploadVisualizationZip(directFiles[0]);
+        return;
+      }
       const files = await gatherDroppedFiles(event.dataTransfer);
       if (files.length) {
         await loadLocalProject(files);

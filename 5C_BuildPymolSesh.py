@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import re
 import shutil
@@ -235,6 +236,22 @@ def build_args() -> argparse.Namespace:
         type=float,
         default=0.80,
         help="Minimum heavy-atom MCS fraction accepted when fitting reference SDF to docked pose. Default 0.80.",
+    )
+    parser.add_argument(
+        "--score-labels",
+        choices=["all", "hidden", "off"],
+        default="all",
+        help=(
+            "PyMOL score-label behavior. 'all' shows one Vina score label per ligand, "
+            "'hidden' stores the labels/titles but hides them initially, and 'off' omits viewport labels. "
+            "Default: all."
+        ),
+    )
+    parser.add_argument(
+        "--score-label-size",
+        type=float,
+        default=14.0,
+        help="PyMOL viewport score label size in points. Default: 14.",
     )
     parser.add_argument(
         "--dry-run-selection",
@@ -1112,6 +1129,124 @@ def safe_group(group_name: str, member: str) -> None:
         pass
 
 
+def format_binding_affinity(value: Any) -> str:
+    try:
+        score = float(value)
+    except Exception:
+        return str(value or "").strip()
+    if not math.isfinite(score):
+        return ""
+    return f"{score:.2f}"
+
+
+def build_pymol_score_label(
+    ligand_base: str,
+    ligand_variant: str,
+    rank_for_receptor: int,
+    pose_index: int,
+    binding_affinity: Any,
+) -> str:
+    display_name = (ligand_base or ligand_variant or "Ligand").strip()
+    score = format_binding_affinity(binding_affinity)
+    parts = [f"#{rank_for_receptor} {display_name}", f"pose {pose_index}"]
+    if score:
+        parts.append(f"Vina {score} kcal/mol")
+    return " | ".join(parts)
+
+
+def apply_pymol_score_label(
+    ligand_obj: str,
+    label_text: str,
+    mode: str = "all",
+    label_size: float = 14.0,
+) -> None:
+    """Attach a score/title to a ligand without creating extra PyMOL objects.
+
+    The viewport label is applied to one atom of the ligand object, so hiding or
+    disabling the ligand also hides its score. The object state title is always
+    stored when supported, which keeps the score discoverable even when labels
+    are hidden.
+    """
+    if cmd is None or not ligand_obj or not label_text:
+        return
+
+    try:
+        cmd.set_title(ligand_obj, 1, label_text)
+    except Exception:
+        pass
+
+    if mode == "off":
+        return
+
+    selection = f"first ({ligand_obj})"
+    try:
+        cmd.label(selection, repr(label_text))
+    except Exception:
+        return
+
+
+    settings = [
+        ("label_size", float(label_size)),
+        ("label_color", "white"),
+        ("label_outline_color", "black"),
+        ("label_position", [0.0, 0.0, 1.6]),
+    ]
+    for setting, value in settings:
+        try:
+            cmd.set(setting, value, ligand_obj)
+        except Exception:
+            pass
+
+    # These settings are version-dependent, so keep them best-effort.
+    for setting, value in (("label_bg_color", "black"), ("label_bg_transparency", 0.28)):
+        try:
+            cmd.set(setting, value, ligand_obj)
+        except Exception:
+            pass
+
+    try:
+        if mode == "hidden":
+            cmd.hide("labels", ligand_obj)
+        else:
+            cmd.show("labels", selection)
+    except Exception:
+        pass
+
+
+def annotate_sdf_metadata(
+    mol: Any,
+    *,
+    receptor: str,
+    ligand_base: str,
+    ligand_variant: str,
+    rank_for_receptor: int,
+    pose_index: int,
+    binding_affinity: Any,
+) -> None:
+    if mol is None:
+        return
+    score = format_binding_affinity(binding_affinity)
+    properties = {
+        "Receptor": receptor,
+        "LigandBase": ligand_base,
+        "LigandVariant": ligand_variant,
+        "RankForReceptor": str(rank_for_receptor),
+        "VinaPose": str(pose_index),
+        "BindingAffinity_kcal_per_mol": score,
+    }
+    try:
+        mol.SetProp("_Name", f"{ligand_variant or ligand_base}_pose{pose_index}")
+    except Exception:
+        pass
+    for key, value in properties.items():
+        if value in (None, ""):
+            continue
+        try:
+            mol.SetProp(key, str(value))
+        except Exception:
+            pass
+
+
 def load_receptor_once(pymol_enabled: bool, receptor_file: Path, receptor: str, loaded: Dict[str, str]) -> str:
     rec_obj = sanitize_pymol_name("obj_" + receptor)
     if not pymol_enabled:
@@ -1168,6 +1303,8 @@ AUDIT_COLUMNS = [
     "saved_raw_pdbqt",
     "pymol_object",
     "pymol_group",
+    "pymol_score_label",
+    "pymol_score_label_mode",
     "skipped_reason",
 ]
 
@@ -1311,6 +1448,8 @@ def main() -> None:
                 "saved_complex_pdb": "",
                 "pymol_object": "",
                 "pymol_group": "",
+                "pymol_score_label": "",
+                "pymol_score_label_mode": args.score_labels,
                 "hydrogen_mode": args.hydrogen_mode,
                 "skipped_reason": "",
             }
@@ -1390,6 +1529,23 @@ def main() -> None:
                     fit_warning = (fit_warning + " No reference SDF was available; used PDBQT coordinates only.").strip()
 
             final_mol = apply_hydrogen_mode(fitted_mol, args.hydrogen_mode)
+            score_label_text = build_pymol_score_label(
+                ligand_base=ligand_base,
+                ligand_variant=ligand_variant,
+                rank_for_receptor=rank_for_receptor,
+                pose_index=pose_index,
+                binding_affinity=binding,
+            )
+            annotate_sdf_metadata(
+                final_mol,
+                receptor=rec_name,
+                ligand_base=ligand_base,
+                ligand_variant=ligand_variant,
+                rank_for_receptor=rank_for_receptor,
+                pose_index=pose_index,
+                binding_affinity=binding,
+            )
+            audit["pymol_score_label"] = score_label_text
             try:
                 progress(f"      writing corrected SDF: {corrected_sdf.name}")
                 write_sdf(corrected_sdf, final_mol)
@@ -1410,6 +1566,12 @@ def main() -> None:
                     cmd.load(str(corrected_sdf), ligand_obj)
                     cmd.hide("everything", ligand_obj)
                     cmd.show("sticks", ligand_obj)
+                    apply_pymol_score_label(
+                        ligand_obj,
+                        score_label_text,
+                        mode=args.score_labels,
+                        label_size=args.score_label_size,
+                    )
                     safe_group(ligand_group, ligand_obj)
                     safe_group(receptor_group, ligand_group)
                     cmd.save(str(complex_pdb), selection=f"({rec_obj}) or ({ligand_obj})")

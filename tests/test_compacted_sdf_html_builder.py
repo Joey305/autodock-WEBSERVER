@@ -90,6 +90,17 @@ class CompactedSdfHtmlBuilderTests(unittest.TestCase):
             viewer_html = (Path(manifest["project_dir"]) / entry["viewer_file"]).read_text(encoding="utf-8")
             self.assertIn("correctedPoseData", viewer_html)
             self.assertIn('viewer.addModel(corrected.molblock,"sdf")', viewer_html)
+            self.assertIn('let recStyle="cartoon", recColor="spectrum"', viewer_html)
+            self.assertIn('let pocketOn=false, pocketStyle="line";', viewer_html)
+            self.assertIn('let ligPaletteMode="10", recPaletteMode="9";', viewer_html)
+            self.assertIn('<option value="9" selected>Futuro</option>', viewer_html)
+            self.assertIn('class="toggle-row pose-list-toggle"', viewer_html)
+            self.assertLess(viewer_html.index('id="all-poses-toggle"'), viewer_html.index('id="rec-style-btns"'))
+            self.assertIn('className = "viewer-switch-panel"', viewer_html)
+            self.assertIn('ligandLabel.textContent = "Ligand";', viewer_html)
+            self.assertIn('receptorEntries(receptorSelect.value)', viewer_html)
+            self.assertNotIn("viewer-switch-fields", viewer_html)
+            self.assertNotIn('<input type="checkbox" id="pocket-toggle" checked>', viewer_html)
             self.assertIn("parseSdfMolblockAtoms", viewer_html)
             self.assertIn("ligandInteractionAtomsForPose(i)", viewer_html)
             self.assertIn("addPiStackingInteractions(rows, ligAtoms, nearby);", viewer_html)
@@ -97,6 +108,38 @@ class CompactedSdfHtmlBuilderTests(unittest.TestCase):
 
             parsed_manifest = json.loads((Path(manifest["project_dir"]) / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(parsed_manifest["bond_mode"], "corrected_sdf_from_reference_fit")
+
+    def test_shared_receptor_library_keeps_embedded_fallback(self):
+        module = load_script_module("5_COMPACTED_SDF_HTML.py", "compacted_sdf_html_receptor_fallback")
+        html = (
+            '<script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.4.0/3Dmol-min.js"></script>\n'
+            'const RECEPTOR_B64 = "embedded_receptor";\n'
+            'const POSE_B64     = "pose";\n'
+            '  const receptorData = b64ToStr(RECEPTOR_B64);\n'
+        )
+        rewritten = module.use_shared_receptor_library(html, "inputs/rec.pdbqt")
+
+        self.assertIn('const RECEPTOR_B64 = "embedded_receptor";', rewritten)
+        self.assertIn('const PROJECT_RECEPTOR_KEY = "inputs/rec.pdbqt";', rewritten)
+        self.assertIn('return b64ToStr(RECEPTOR_B64);', rewritten)
+
+    def test_multi_receptor_switcher_uses_separate_filtered_controls(self):
+        module = load_script_module("5_COMPACTED_SDF_HTML.py", "compacted_sdf_html_switcher")
+        html = (
+            '<style>.ligand-chip-select select:focus{color:var(--accent)}</style>\n'
+            'function installStandaloneLigandSwitcher(ligandName) {\n'
+            '  return ligandName;\n'
+            '}\n\n'
+            '// ═══════════════════════════════════════════════════════════════════\n'
+            '//  MAIN\n'
+        )
+        rewritten = module.install_multi_receptor_switcher(html)
+
+        self.assertIn('className = "viewer-switch-panel"', rewritten)
+        self.assertIn('receptorLabel.textContent = "Receptor";', rewritten)
+        self.assertIn('ligandLabel.textContent = "Ligand";', rewritten)
+        self.assertIn('const candidates = receptorEntries(receptorSelect.value);', rewritten)
+        self.assertNotIn("viewer-switch-fields", rewritten)
 
 
 if __name__ == "__main__":

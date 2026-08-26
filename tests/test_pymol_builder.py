@@ -65,6 +65,83 @@ class PymolBuilderTests(unittest.TestCase):
         self.assertIn("best=-9.377  poses=1", output)
         self.assertIn("best=-9.344  poses=2", output)
 
+    def test_pymol_score_label_text_is_concise_and_uses_vina_score(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_score_label_text")
+        label = module.build_pymol_score_label(
+            "UMF-607-Z",
+            "UMF-607-Z_p01_t01_c003",
+            4,
+            1,
+            "-9.44",
+        )
+        self.assertEqual(label, "#4 UMF-607-Z | pose 1 | Vina -9.44 kcal/mol")
+        self.assertNotIn("p01_t01_c003", label)
+
+    def test_score_label_cli_options_default_to_all(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_score_label_args")
+        with mock.patch("sys.argv", ["5C_BuildPymolSesh.py"]):
+            defaults = module.build_args()
+        self.assertEqual(defaults.score_labels, "all")
+        self.assertEqual(defaults.score_label_size, 14.0)
+
+        with mock.patch("sys.argv", [
+            "5C_BuildPymolSesh.py", "--score-labels", "hidden", "--score-label-size", "12.5",
+        ]):
+            configured = module.build_args()
+        self.assertEqual(configured.score_labels, "hidden")
+        self.assertEqual(configured.score_label_size, 12.5)
+
+    def test_pymol_score_label_attaches_to_ligand_atom_without_extra_object(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_score_label_apply")
+
+        class FakeCmd:
+            def __init__(self):
+                self.calls = []
+
+            def set_title(self, *args):
+                self.calls.append(("set_title", args))
+
+            def label(self, *args):
+                self.calls.append(("label", args))
+
+            def set(self, *args):
+                self.calls.append(("set", args))
+
+            def hide(self, *args):
+                self.calls.append(("hide", args))
+
+            def show(self, *args):
+                self.calls.append(("show", args))
+
+        fake = FakeCmd()
+        module.cmd = fake
+        module.apply_pymol_score_label(
+            "lig_rec_Top04_UMF_607_Z",
+            "#4 UMF-607-Z | pose 1 | Vina -9.44 kcal/mol",
+            mode="all",
+            label_size=13.0,
+        )
+
+        self.assertIn(
+            ("label", ("first (lig_rec_Top04_UMF_607_Z)", "'#4 UMF-607-Z | pose 1 | Vina -9.44 kcal/mol'")),
+            fake.calls,
+        )
+        self.assertIn(("show", ("labels", "first (lig_rec_Top04_UMF_607_Z)")), fake.calls)
+        self.assertIn(("set_title", ("lig_rec_Top04_UMF_607_Z", 1, "#4 UMF-607-Z | pose 1 | Vina -9.44 kcal/mol")), fake.calls)
+
+    def test_pymol_score_label_failure_is_non_fatal(self):
+        module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_score_label_failure")
+
+        class FailingCmd:
+            def set_title(self, *args):
+                raise RuntimeError("unsupported")
+
+            def label(self, *args):
+                raise RuntimeError("label failure")
+
+        module.cmd = FailingCmd()
+        module.apply_pymol_score_label("ligand", "Vina -9.44 kcal/mol")
+
     def test_manifest_lookup_returns_exact_variant_sdf(self):
         module = load_script_module("5C_BuildPymolSesh.py", "pymol_builder_manifest_lookup")
         with tempfile.TemporaryDirectory() as tmpdir:

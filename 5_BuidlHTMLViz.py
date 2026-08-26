@@ -550,6 +550,24 @@ function installStandaloneLigandSwitcher(ligandName) {
   overflow:hidden;text-overflow:ellipsis;
 }
 .ligand-chip-select select:focus{color:var(--accent)}
+.viewer-switch-panel{
+  display:grid;grid-template-columns:minmax(0,1fr);gap:8px;
+  margin:10px 0 0;padding:10px;border:1px solid var(--border);
+  border-radius:10px;background:rgba(255,255,255,.72);
+}
+.viewer-switch-panel.has-receptors{grid-template-columns:minmax(0,1fr) minmax(0,1.12fr)}
+.viewer-switch-control{min-width:0}
+.viewer-switch-control label{
+  display:block;margin:0 0 4px;color:var(--txt-muted);
+  font:700 8px var(--mono);letter-spacing:.12em;text-transform:uppercase;
+}
+.viewer-switch-control select{
+  width:100%;min-width:0;padding:7px 8px;border-radius:8px;
+  border:1px solid rgba(13,148,136,.20);background:#fff;color:var(--txt);
+  font:600 10px var(--mono);letter-spacing:0;outline:0;
+}
+.viewer-switch-control select:focus{border-color:rgba(13,148,136,.52);color:var(--accent)}
+@media(max-width:680px){.viewer-switch-panel.has-receptors{grid-template-columns:minmax(0,1fr)}}
 .pose-item{align-items:flex-start}
 .pose-info{min-width:0;overflow:hidden}
 .pose-score-box{flex:0 0 58px;min-width:58px;text-align:right}
@@ -611,6 +629,40 @@ function installStandaloneLigandSwitcher(ligandName) {
         1,
     )
     template = template.replace(
+        """      <!-- POSES -->
+      <div class="section">
+        <div class="sec-label">Binding Poses</div>
+        <div id="pose-list"></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- RECEPTOR STYLE -->""",
+        """      <!-- POSES -->
+      <div class="section">
+        <div class="sec-label">Binding Poses</div>
+        <div id="pose-list"></div>
+        <label class="toggle-row pose-list-toggle">
+          <input type="checkbox" id="all-poses-toggle" checked>
+          <span>Show all poses</span>
+        </label>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- RECEPTOR STYLE -->""",
+        1,
+    )
+    template = template.replace(
+        """        <label class="toggle-row">
+          <input type="checkbox" id="all-poses-toggle" checked>
+          <span>Show all poses</span>
+        </label>
+""",
+        "",
+        1,
+    )
+    template = template.replace(
         """      <div class="hud-card">
         <div class="hud-lbl">Active Pose</div>
         <div class="hud-pose" id="hud-pose">—</div>
@@ -646,14 +698,14 @@ function installStandaloneLigandSwitcher(ligandName) {
         <div class="ctrl-group">
           <div class="ctrl-label">Style</div>
           <div class="btn-row" id="pocket-style-btns">
-            <button class="btn active" data-v="stick">Sticks</button>
+            <button class="btn" data-v="stick">Sticks</button>
             <button class="btn" data-v="sphere">Spheres</button>
-            <button class="btn" data-v="line">Lines</button>
+            <button class="btn active" data-v="line">Lines</button>
             <button class="btn" data-v="surface">Surface</button>
           </div>
         </div>
         <label class="toggle-row">
-          <input type="checkbox" id="pocket-toggle" checked>
+          <input type="checkbox" id="pocket-toggle">
           <span>Show atoms within 5 Å of active ligand</span>
         </label>
       </div>
@@ -693,7 +745,7 @@ function installStandaloneLigandSwitcher(ligandName) {
             <option value="6">Electric Yellow</option>
             <option value="7">Cyborg</option>
             <option value="8">Tron</option>
-            <option value="9">Futuro</option>
+            <option value="9" selected>Futuro</option>
             <option value="10">Pasado</option>
           </select>
         </div>""",
@@ -924,13 +976,13 @@ const TYPE_CSS = {
         """  const recModel = viewer.addModel(receptorPDB,"pdb");
 
   let recStyle="cartoon", recColor="spectrum", recSurfObj=null, surfObj=null, surfOn=false;
-  let pocketOn=true, pocketStyle="stick";
+  let pocketOn=false, pocketStyle="line";
   let pocketSelection = [];
   let pocketSurfObj=null;
   let interactionLinesOn = true;
   let interactionShapes = [];
   const interactionFilters = Object.fromEntries(INTERACTION_ORDER.map(type => [type, type !== "Van der Waals"]));
-  let ligPaletteMode="10", recPaletteMode="0";
+  let ligPaletteMode="10", recPaletteMode="9";
 """,
         1,
     )

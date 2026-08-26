@@ -162,6 +162,76 @@ def load_rows(csv_path: Path) -> List[Dict[str, str]]:
     return rows
 
 
+def _row_sort_key(row: Dict[str, str]) -> tuple[float, float, str]:
+    return (
+        safe_float(row.get("Binding_Affinity", "")),
+        safe_float(row.get("Pose", ""), default=999999),
+        row.get("LigandVariant", ""),
+    )
+
+
+def _append_bounded_pose(
+    selected_rows: List[Dict[str, str]],
+    row: Dict[str, str],
+    top_poses: int,
+) -> None:
+    selected_rows.append(row)
+    limit = max(1, int(top_poses))
+    if len(selected_rows) <= limit:
+        return
+    worst_index, _ = max(enumerate(selected_rows), key=lambda item: _row_sort_key(item[1]))
+    selected_rows.pop(worst_index)
+
+
+def select_compacted_groups_from_csv(
+    csv_path: Path,
+    top_ligands: int,
+    top_poses: int,
+) -> tuple[List[Dict[str, Any]], int]:
+    grouped_rows: Dict[str, Dict[str, List[Dict[str, str]]]] = defaultdict(lambda: defaultdict(list))
+    row_count = 0
+
+    with Path(csv_path).open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for raw_row in reader:
+            row_count += 1
+            row = normalize_row({str(key): str(value or "") for key, value in raw_row.items()})
+            receptor = (row.get("Receptor") or "").strip()
+            base = row_ligand_base(row)
+            if not receptor or not base:
+                continue
+            _append_bounded_pose(grouped_rows[receptor][base], row, top_poses)
+
+    return select_compacted_groups_from_buckets(grouped_rows, top_ligands, top_poses), row_count
+
+
+def select_compacted_groups_from_buckets(
+    grouped_rows: Dict[str, Dict[str, List[Dict[str, str]]]],
+    top_ligands: int,
+    top_poses: int,
+) -> List[Dict[str, Any]]:
+    groups: List[Dict[str, Any]] = []
+    for receptor in sorted(grouped_rows):
+        base_groups = grouped_rows[receptor]
+        ranked_bases = sorted(
+            base_groups.items(),
+            key=lambda item: (
+                min(safe_float(row.get("Binding_Affinity", "")) for row in item[1]),
+                item[0],
+            ),
+        )
+        for base, base_rows in ranked_bases[: max(0, top_ligands)]:
+            selected_rows = sorted(base_rows, key=_row_sort_key)[: max(1, top_poses)]
+            groups.append(
+                {
+                    "receptor": receptor,
+                    "ligand_base": base,
+                    "selected_rows": selected_rows,
+                }
+            )
+    return groups
+
+
 def select_compacted_groups(
     rows: Sequence[Dict[str, str]],
     top_ligands: int,
@@ -175,33 +245,7 @@ def select_compacted_groups(
             continue
         grouped_rows[receptor][base].append(row)
 
-    groups: List[Dict[str, Any]] = []
-    for receptor in sorted(grouped_rows):
-        base_groups = grouped_rows[receptor]
-        ranked_bases = sorted(
-            base_groups.items(),
-            key=lambda item: (
-                min(safe_float(row.get("Binding_Affinity", "")) for row in item[1]),
-                item[0],
-            ),
-        )
-        for base, base_rows in ranked_bases[: max(0, top_ligands)]:
-            selected_rows = sorted(
-                base_rows,
-                key=lambda row: (
-                    safe_float(row.get("Binding_Affinity", "")),
-                    safe_float(row.get("Pose", ""), default=999999),
-                    row.get("LigandVariant", ""),
-                ),
-            )[: max(1, top_poses)]
-            groups.append(
-                {
-                    "receptor": receptor,
-                    "ligand_base": base,
-                    "selected_rows": selected_rows,
-                }
-            )
-    return groups
+    return select_compacted_groups_from_buckets(grouped_rows, top_ligands, top_poses)
 
 
 def print_selection_summary(groups: Sequence[Dict[str, Any]], top_ligands: int, top_poses: int) -> None:
@@ -483,9 +527,8 @@ def build_project(
     viewers_dir.mkdir(exist_ok=True)
     inputs_dir.mkdir(exist_ok=True)
 
-    rows = load_rows(csv_path)
-    progress(f"📄 Loaded {len(rows)} score rows from {csv_path}")
-    groups = select_compacted_groups(rows, top_ligands=top_ligands, top_poses=top_poses)
+    groups, row_count = select_compacted_groups_from_csv(csv_path, top_ligands=top_ligands, top_poses=top_poses)
+    progress(f"📄 Streamed {row_count} score rows from {csv_path}")
     print_selection_summary(groups, top_ligands=top_ligands, top_poses=top_poses)
     progress(f"🧭 Output project: {project_dir}")
 

@@ -47,6 +47,10 @@ class PublicAccessTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Open Example", response.data)
         self.assertIn(b"/viz/example", response.data)
+        self.assertIn(b"filteredEntries", response.data)
+        self.assertIn(b"findEntryIndexFromFrame", response.data)
+        self.assertIn(b"Upload visualization ZIP", response.data)
+        self.assertIn(b"uploadVisualizationZip", response.data)
 
     def test_login_route_redirects_to_home(self):
         response = self.client.get("/auth/login", follow_redirects=False)
@@ -143,6 +147,8 @@ class PublicAccessTests(unittest.TestCase):
         self.assertIn(b"Docking Viz", response.data)
         self.assertIn(b"py-VinaScope-Docking-Viewer", response.data)
         self.assertIn(b'view=full', response.data)
+        self.assertIn(b'data-receptor="recA"', response.data)
+        self.assertIn(b"filteredEntryModels", response.data)
 
         inline = self.client.get(
             "/api/wsinline",
@@ -151,12 +157,97 @@ class PublicAccessTests(unittest.TestCase):
         self.assertEqual(inline.status_code, 200)
         self.assertIn(b"viewer", inline.data)
 
+        viewer_file = self.client.get(
+            f"/viz/file/{workspace['jobname']}/Docking_HTML_Viz_Project/viewers/entry.html"
+        )
+        self.assertEqual(viewer_file.status_code, 200)
+        self.assertIn(b"viewer", viewer_file.data)
+        self.assertIn("sandbox allow-scripts", viewer_file.headers.get("Content-Security-Policy", ""))
+        self.assertEqual(viewer_file.headers.get("X-Content-Type-Options"), "nosniff")
+
         standalone = self.client.get(
             "/viz/project",
             query_string={"jobname": workspace["jobname"], "rel": "Docking_HTML_Viz_Project/manifest.json", "entry": 0, "view": "full"},
         )
         self.assertEqual(standalone.status_code, 200)
         self.assertIn(b"Open raw viewer", standalone.data)
+
+    def test_visualization_zip_upload_creates_server_project(self):
+        manifest = {
+            "project_name": "Docking_HTML_Viz_Project_Compacted_SDF",
+            "page_title": "Uploaded Docking Viz",
+            "source_csv": "scores.csv",
+            "entry_count": 1,
+            "entries": [
+                {
+                    "receptor": "recA",
+                    "ligand": "LigA",
+                    "best_affinity": "-9.1",
+                    "viewer_file": "viewers/entry.html",
+                }
+            ],
+            "attribution": {
+                "repo": "https://github.com/muntisa/py-VinaScope-Docking-Viewer",
+                "viewer": "https://muntisa.github.io/VinaDock-Viz/VinaDock_Viz.html",
+                "author": "Cristian R. Munteanu, PhD",
+                "affiliation": "Professor of Computer Science, University of A Coruna, RNASA-IMEDIR",
+            },
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("Docking_HTML_Viz_Project_Compacted_SDF/manifest.json", json.dumps(manifest))
+            zf.writestr("Docking_HTML_Viz_Project_Compacted_SDF/viewers/entry.html", "<html><body>uploaded viewer</body></html>")
+            zf.writestr("Docking_HTML_Viz_Project_Compacted_SDF/inputs/receptor_library.js", "window.VINA_RECEPTOR_LIBRARY={};")
+        buf.seek(0)
+
+        response = self.client.post(
+            "/api/results/upload",
+            data={"project_zip": (buf, "Docking_HTML_Viz_Project_Compacted_SDF.zip")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["entry_count"], 1)
+        self.assertIn("/viz/project", payload["project_url"])
+
+        project = self.client.get(payload["project_url"])
+        self.assertEqual(project.status_code, 200)
+        self.assertIn(b"Uploaded Docking Viz", project.data)
+        self.assertIn(b"/viz/file/", project.data)
+
+    def test_visualization_zip_upload_rejects_path_traversal(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("../escape.html", "nope")
+        buf.seek(0)
+        response = self.client.post(
+            "/api/results/upload",
+            data={"project_zip": (buf, "bad.zip")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertEqual(payload["error"], "invalid_visualization_zip")
+        self.assertIn("Unsafe ZIP path", payload["message"])
+
+    def test_visualization_zip_upload_rejects_symlink_entry(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            info = zipfile.ZipInfo("Docking_HTML_Viz_Project/link")
+            info.create_system = 3
+            info.external_attr = 0o120777 << 16
+            zf.writestr(info, "manifest.json")
+        buf.seek(0)
+        response = self.client.post(
+            "/api/results/upload",
+            data={"project_zip": (buf, "symlink.zip")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json()
+        self.assertEqual(payload["error"], "invalid_visualization_zip")
+        self.assertIn("Symlinks are not allowed", payload["message"])
 
     def test_public_example_visualization_project_renders(self):
         response = self.client.get("/viz/example")
