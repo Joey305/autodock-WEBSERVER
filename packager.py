@@ -28,6 +28,7 @@ RUNTIME_ROOT_FILES = [
     "5C_BuildPymolSesh.py",
     "6_MDpymacs.py",
     "7_Graphs.py",
+    "8_Protacability.py",
     "create_vina_env.sh",
     "docking.yaml",
     "ligand_naming.py",
@@ -43,6 +44,7 @@ RUNTIME_LSF_FILES = [
     "hpc_profiles.py",
     "lsf_templates.py",
     "runDOCKING-tmux.sh",
+    "test_gpu_cheminfo_queue.sh",
 ]
 
 RUNTIME_TOOL_DIRS = [

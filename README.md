@@ -1541,13 +1541,19 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
   -d '{
     "package_mode":"joey_lsf",
     "workers":16,
-    "queue":"general",
+    "queue":"gpu_cheminfo",
     "project":"brd",
     "mem_per_core":2000,
+    "confgen_walltime":"48:00",
+    "vina_walltime":"240:00",
     "vina_poses":20,
     "confgen_poses":64
   }'
 ```
+
+To explicitly smoke-test the Pegasus queue before a production submission, run
+`./test_gpu_cheminfo_queue.sh`. It submits a one-core, ten-minute test only;
+normal docking scripts never invoke it automatically.
 
 ### Custom LSF mode
 
@@ -1560,7 +1566,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
     "package_mode":"custom_lsf",
     "lsf_email":"cluster-user@example.org",
     "queue":"general",
-    "project":"",
+    "project":"my_project",
     "workers":16,
     "mem_per_core":2000,
     "confgen_walltime":"48:00",

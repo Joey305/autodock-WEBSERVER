@@ -243,6 +243,8 @@ def write_lsf(name: str, run_cmd: str, args) -> Path:
         queue=args.queue,
         project=args.project,
         workers=args.workers,
+        confgen_cpus=args.workers,
+        confgen_workers=args.workers,
         mem_per_core_mb=args.mem_per_core,
         confgen_walltime=args.walltime,
         email=args.email,

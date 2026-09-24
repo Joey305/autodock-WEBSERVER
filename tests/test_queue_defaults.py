@@ -17,7 +17,7 @@ def load_script_module(filename: str, module_name: str):
 
 
 class QueueDefaultTests(unittest.TestCase):
-    def test_confgen_batch_default_queue_is_general(self):
+    def test_confgen_batch_default_queue_is_joey_pegasus(self):
         module = load_script_module("1B_confgen_batch.py", "queue_default_confgen_batch")
         old_argv = sys.argv[:]
         try:
@@ -25,15 +25,15 @@ class QueueDefaultTests(unittest.TestCase):
             args = module.parse_args()
         finally:
             sys.argv = old_argv
-        self.assertEqual(args.queue, "general")
+        self.assertEqual(args.queue, "gpu_cheminfo")
 
-    def test_parse_batch_default_prompt_queue_is_general(self):
+    def test_parse_batch_default_prompt_uses_profile_queue(self):
         text = (REPO_ROOT / "4B_LSFbatch.py").read_text(encoding="utf-8")
-        self.assertIn('input_default("Queue", "general")', text)
+        self.assertIn('input_default("Queue", DEFAULT_PROFILE.queue)', text)
 
-    def test_shared_lsf_template_default_queue_is_general(self):
+    def test_shared_lsf_template_default_queue_is_joey_pegasus(self):
         module = load_script_module("lsf_templates.py", "queue_default_lsf_templates")
-        self.assertEqual(module.DEFAULT_QUEUE, "general")
+        self.assertEqual(module.DEFAULT_QUEUE, "gpu_cheminfo")
 
 
 if __name__ == "__main__":

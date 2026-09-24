@@ -1,0 +1,22 @@
+{
+  "profile_name": "joey_pegasus",
+  "scheduler": "lsf",
+  "project": "brd",
+  "queue": "gpu_cheminfo",
+  "vina_cpus": 16,
+  "confgen_cpus": 16,
+  "confgen_workers": 16,
+  "workers": 16,
+  "vina_walltime": "240:00",
+  "confgen_walltime": "48:00",
+  "mem_per_core_mb": 2000,
+  "span_hosts": 1,
+  "email": "jxs794@miami.edu",
+  "notify_begin": true,
+  "notify_end": true,
+  "conda_env": "vina_env",
+  "conda_sh": "/nethome/jxs794/miniconda3/etc/profile.d/conda.sh",
+  "vina_executable": "$HOME/miniconda3/envs/vina_env/bin/vina",
+  "python_command": "$(command -v python3 || command -v python)",
+  "setup_commands": []
+}

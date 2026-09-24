@@ -5,7 +5,15 @@ from pathlib import Path
 import os
 import re
 
-from hpc_profiles import HPCProfile, JOEY_LSF_PROFILE, render_lsf_header, render_setup_block, save_packaged_profile
+from hpc_profiles import (
+    HPCProfile,
+    JOEY_LSF_PROFILE,
+    format_hpc_profile_summary,
+    render_lsf_header,
+    render_setup_block,
+    save_packaged_profile,
+    validate_hpc_profile,
+)
 
 DEFAULT_EMAIL = JOEY_LSF_PROFILE.email
 DEFAULT_QUEUE = JOEY_LSF_PROFILE.queue
@@ -30,12 +38,20 @@ def _chmod_executable(path: Path):
         pass
 
 
-def _header_with_timestamp(profile: HPCProfile, *, jobname: str, log_prefix: str, walltime: str) -> str:
+def _header_with_timestamp(
+    profile: HPCProfile,
+    *,
+    jobname: str,
+    log_prefix: str,
+    walltime: str,
+    workers: int | None = None,
+) -> str:
     return f"#!/bin/bash\n# Auto-generated: {_ts()}\n" + render_lsf_header(
         profile=profile,
         jobname=jobname,
         log_prefix=log_prefix,
         walltime=walltime,
+        workers=workers,
     ).split("\n", 1)[1]
 
 
@@ -108,6 +124,8 @@ def build_confgen_lsfs(
     jobroot = Path(jobroot)
     lsf_dir = Path(lsf_dir)
     lsf_dir.mkdir(parents=True, exist_ok=True)
+    validate_hpc_profile(profile)
+    print(format_hpc_profile_summary(profile), flush=True)
     save_packaged_profile(jobroot, profile)
 
     jobname = sanitize_name(f"confgen_{jobroot.name}")
@@ -116,6 +134,7 @@ def build_confgen_lsfs(
         jobname=jobname,
         log_prefix=f"confgen_{jobroot.name}",
         walltime=profile.confgen_walltime,
+        workers=profile.effective_confgen_cpus,
     )
     setup_block = render_setup_block(profile)
 
@@ -136,7 +155,7 @@ def build_confgen_lsfs(
         flags = f'--mode 2 --folder "Ligands" --filetype {(lig_filetype or "sdf").lower()}'
 
     out = lsf_dir / "run_confgen_job.lsf"
-    out.write_text(header + setup_block + _python_export(profile) + CONFGEN_BODY.format(flags=flags, poses=poses, workers=profile.workers))
+    out.write_text(header + setup_block + _python_export(profile) + CONFGEN_BODY.format(flags=flags, poses=poses, workers=profile.effective_confgen_workers))
     _chmod_executable(out)
 
     submit = lsf_dir / "submit_all_confgen.sh"
@@ -154,6 +173,8 @@ def build_vina_lsfs(
     jobroot = Path(jobroot)
     lsf_dir = Path(lsf_dir)
     lsf_dir.mkdir(parents=True, exist_ok=True)
+    validate_hpc_profile(profile)
+    print(format_hpc_profile_summary(profile), flush=True)
     save_packaged_profile(jobroot, profile)
 
     rec_dir = (jobroot / "Receptors").name
@@ -165,6 +186,7 @@ def build_vina_lsfs(
         jobname=jobtag,
         log_prefix=f"vina_{jobroot.name}",
         walltime=profile.vina_walltime,
+        workers=profile.effective_vina_cpus,
     )
 
     body = VINA_BODY.format(

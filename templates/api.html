@@ -913,9 +913,11 @@ find . -maxdepth 3 -type f | sort | head -80</code></pre>
     <pre><code>{
   "package_mode": "lsf",
   "workers": 16,
-  "queue": "general",
+  "queue": "gpu_cheminfo",
   "project": "brd",
   "mem_per_core": 2000,
+  "confgen_walltime": "48:00",
+  "vina_walltime": "240:00",
   "vina_poses": 20,
   "confgen_poses": 64
 }</code></pre>

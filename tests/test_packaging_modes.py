@@ -50,6 +50,7 @@ class PackagingModeTests(unittest.TestCase):
         self.assertTrue((jobroot / "4_ParseScores.py").exists())
         self.assertTrue((jobroot / "4C_ConcatenateScores.py").exists())
         self.assertTrue((jobroot / "7_Graphs.py").exists())
+        self.assertTrue((jobroot / "8_Protacability.py").exists())
         self.assertTrue((jobroot / "5_CompactedHTMLViz.py").exists())
         self.assertTrue((jobroot / "5_COMPACTED_SDF_HTML.py").exists())
         self.assertTrue((jobroot / "create_vina_env.sh").exists())
@@ -83,6 +84,7 @@ class PackagingModeTests(unittest.TestCase):
         self.assertTrue((jobroot / "5_CompactedHTMLViz.py").exists())
         self.assertTrue((jobroot / "5_COMPACTED_SDF_HTML.py").exists())
         self.assertTrue((jobroot / "lsf_templates.py").exists())
+        self.assertTrue((jobroot / "test_gpu_cheminfo_queue.sh").exists())
         self.assertTrue((jobroot / "runDOCKING-tmux.sh").exists())
         self.assertIsInstance(warnings, list)
 

@@ -234,6 +234,7 @@ def base_lsf_text(args, *, jobname: str, log_prefix: str) -> str:
         queue=args.queue,
         project=args.project,
         workers=args.workers,
+        vina_cpus=args.workers,
         mem_per_core_mb=args.mem_per_core,
         vina_walltime=args.walltime,
         email=args.email,

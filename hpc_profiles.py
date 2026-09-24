@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Mapping
@@ -77,7 +78,13 @@ class HPCProfile:
     notify_end: bool = False
     queue: str = "general"
     project: str = ""
+    # ``workers`` is retained for older package scripts.  New profiles store
+    # workload-specific allocations explicitly so ConfGen cannot drift from
+    # the LSF request while Vina remains independently configurable.
     workers: int = 16
+    vina_cpus: int | None = None
+    confgen_cpus: int | None = None
+    confgen_workers: int | None = None
     mem_per_core_mb: int = 2000
     confgen_walltime: str = "48:00"
     vina_walltime: str = "96:00"
@@ -88,6 +95,18 @@ class HPCProfile:
     setup_commands: tuple[str, ...] = ()
     span_hosts: int = 1
 
+    @property
+    def effective_vina_cpus(self) -> int:
+        return int(self.vina_cpus if self.vina_cpus is not None else self.workers)
+
+    @property
+    def effective_confgen_cpus(self) -> int:
+        return int(self.confgen_cpus if self.confgen_cpus is not None else self.workers)
+
+    @property
+    def effective_confgen_workers(self) -> int:
+        return int(self.confgen_workers if self.confgen_workers is not None else self.effective_confgen_cpus)
+
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["setup_commands"] = list(self.setup_commands)
@@ -95,16 +114,19 @@ class HPCProfile:
 
 
 JOEY_LSF_PROFILE = HPCProfile(
-    profile_name="joey_miami",
+    profile_name="joey_pegasus",
     email="jxs794@miami.edu",
     notify_begin=True,
     notify_end=True,
-    queue="general",
+    queue="gpu_cheminfo",
     project="brd",
     workers=16,
+    vina_cpus=16,
+    confgen_cpus=16,
+    confgen_workers=16,
     mem_per_core_mb=2000,
     confgen_walltime="48:00",
-    vina_walltime="96:00",
+    vina_walltime="240:00",
     conda_sh="/nethome/jxs794/miniconda3/etc/profile.d/conda.sh",
     conda_env="vina_env",
     vina_executable="$HOME/miniconda3/envs/vina_env/bin/vina",
@@ -141,6 +163,9 @@ def profile_from_dict(payload: Mapping[str, Any]) -> HPCProfile:
         "queue": _clean_str(payload.get("queue"), "general") or "general",
         "project": _clean_str(payload.get("project")),
         "workers": _clean_int(payload.get("workers"), 16),
+        "vina_cpus": _clean_int(payload.get("vina_cpus"), _clean_int(payload.get("workers"), 16)),
+        "confgen_cpus": _clean_int(payload.get("confgen_cpus"), _clean_int(payload.get("workers"), 16)),
+        "confgen_workers": _clean_int(payload.get("confgen_workers"), _clean_int(payload.get("confgen_cpus"), _clean_int(payload.get("workers"), 16))),
         "mem_per_core_mb": _clean_int(payload.get("mem_per_core_mb"), 2000),
         "confgen_walltime": _clean_str(payload.get("confgen_walltime"), "48:00") or "48:00",
         "vina_walltime": _clean_str(payload.get("vina_walltime"), "96:00") or "96:00",
@@ -166,6 +191,9 @@ def build_custom_profile(values: Mapping[str, Any] | None) -> HPCProfile:
             "queue": _clean_str(values.get("queue"), "general"),
             "project": _clean_str(values.get("project")),
             "workers": values.get("workers") or values.get("ncores") or 16,
+            "vina_cpus": values.get("vina_cpus") or values.get("workers") or values.get("ncores") or 16,
+            "confgen_cpus": values.get("confgen_cpus") or values.get("workers") or values.get("ncores") or 16,
+            "confgen_workers": values.get("confgen_workers") or values.get("workers") or values.get("ncores") or 16,
             "mem_per_core_mb": values.get("mem_per_core") or values.get("mem") or 2000,
             "confgen_walltime": _clean_str(values.get("confgen_walltime"), "48:00"),
             "vina_walltime": _clean_str(values.get("vina_walltime"), _clean_str(values.get("walltime"), "96:00")),
@@ -201,6 +229,56 @@ def render_setup_block(profile: HPCProfile) -> str:
     return "\n".join(lines) + "\n"
 
 
+def validate_hpc_profile(profile: HPCProfile) -> None:
+    """Reject invalid scheduler settings before an LSF file is written."""
+    errors: list[str] = []
+    if not profile.queue.strip():
+        errors.append("queue is required")
+    if not profile.project.strip():
+        errors.append("project/account is required")
+    if profile.effective_vina_cpus < 1:
+        errors.append("Vina CPU count must be a positive integer")
+    if profile.effective_confgen_cpus < 1:
+        errors.append("ConfGen CPU count must be a positive integer")
+    if profile.effective_confgen_workers < 1:
+        errors.append("ConfGen worker count must be a positive integer")
+    if profile.effective_confgen_workers > profile.effective_confgen_cpus:
+        errors.append("ConfGen workers cannot exceed requested ConfGen CPUs")
+    if not profile.vina_walltime.strip() or not profile.confgen_walltime.strip():
+        errors.append("Vina and ConfGen walltimes are required")
+    if profile.mem_per_core_mb < 1:
+        errors.append("memory per core must be a positive integer")
+    if profile.span_hosts < 1:
+        errors.append("host span must be a positive integer")
+    if profile.email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", profile.email):
+        errors.append("email is invalid")
+    if profile.conda_env and not profile.conda_sh:
+        errors.append("conda initialization path is required when a conda environment is configured")
+    if profile.profile_name == JOEY_LSF_PROFILE.profile_name:
+        if profile.queue == "general":
+            errors.append("Joey Pegasus jobs must not use the general queue")
+        if profile.vina_walltime == "96:00":
+            errors.append("Joey Pegasus Vina walltime must not revert to 96:00")
+    if errors:
+        raise ValueError("Invalid HPC profile: " + "; ".join(errors))
+
+
+def format_hpc_profile_summary(profile: HPCProfile) -> str:
+    display_name = "Joey Pegasus" if profile.profile_name == "joey_pegasus" else profile.profile_name
+    return "\n".join((
+        f"HPC profile: {display_name}",
+        f"Project: {profile.project}",
+        f"Queue: {profile.queue}",
+        f"Vina CPUs: {profile.effective_vina_cpus}",
+        f"Vina walltime: {profile.vina_walltime}",
+        f"ConfGen CPUs: {profile.effective_confgen_cpus}",
+        f"ConfGen workers: {profile.effective_confgen_workers}",
+        f"ConfGen walltime: {profile.confgen_walltime}",
+        f"Memory: {profile.mem_per_core_mb} MB/core (LSF rusage[mem=...] per slot)",
+        f"Host span: {profile.span_hosts}",
+    ))
+
+
 def render_lsf_header(
     *,
     profile: HPCProfile,
@@ -210,6 +288,7 @@ def render_lsf_header(
     workers: int | None = None,
     mem_per_core_mb: int | None = None,
 ) -> str:
+    validate_hpc_profile(profile)
     workers = int(workers or profile.workers)
     mem_per_core_mb = int(mem_per_core_mb or profile.mem_per_core_mb)
     lines = [

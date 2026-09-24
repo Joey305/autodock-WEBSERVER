@@ -98,6 +98,7 @@ def write_lsf(results_dir: Path, queue: str, project: str, walltime: str,
         queue=queue,
         project=project,
         workers=workers,
+        vina_cpus=workers,
         mem_per_core_mb=mem_per_core,
         email=email,
         setup_commands=render_setup_block(DEFAULT_PROFILE),
@@ -208,7 +209,7 @@ def main():
         print("❌ Nothing left after filtering.")
         sys.exit(2)
 
-    queue = input_default("Queue", "general")
+    queue = input_default("Queue", DEFAULT_PROFILE.queue)
     project = input_default("Project", DEFAULT_PROFILE.project)
     walltime = input_default("Walltime", "200:00")
     workers = int(input_default("Workers", str(DEFAULT_PROFILE.workers)))
