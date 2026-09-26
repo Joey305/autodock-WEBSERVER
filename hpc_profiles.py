@@ -10,6 +10,8 @@ PACKAGE_MODE_ALIASES = {
     "lsf": "joey_lsf",
 }
 
+LSF_PACKAGE_MODES = frozenset({"joey_lsf", "mainak_lsf", "triton_lsf", "custom_lsf"})
+
 PACKAGED_PROFILE_FILENAME = "hpc_profile.json"
 
 
@@ -40,13 +42,13 @@ def normalize_package_mode(
     lsf_enabled: bool = True,
 ) -> str:
     raw_default = PACKAGE_MODE_ALIASES.get((default_mode or "").strip().lower(), (default_mode or "").strip().lower())
-    default = raw_default if raw_default in {"portable", "joey_lsf", "mainak_lsf", "custom_lsf"} else "portable"
+    default = raw_default if raw_default == "portable" or raw_default in LSF_PACKAGE_MODES else "portable"
 
     values = values or {}
     requested = PACKAGE_MODE_ALIASES.get(_clean_str(values.get("package_mode")).lower(), _clean_str(values.get("package_mode")).lower())
     include_lsf = _clean_str(values.get("include_lsf")).lower()
 
-    if requested in {"portable", "joey_lsf", "mainak_lsf", "custom_lsf"}:
+    if requested == "portable" or requested in LSF_PACKAGE_MODES:
         mode = requested
     elif include_lsf in {"1", "true", "yes", "on"}:
         mode = "joey_lsf"
@@ -55,7 +57,7 @@ def normalize_package_mode(
     else:
         mode = default
 
-    if mode in {"joey_lsf", "mainak_lsf", "custom_lsf"} and not lsf_enabled:
+    if mode in LSF_PACKAGE_MODES and not lsf_enabled:
         return "portable"
     return mode
 
@@ -150,6 +152,30 @@ MAINAK_LSF_PROFILE = HPCProfile(
     python_command='$(command -v python3 || command -v python)',
 )
 
+# Verified on Triton (Boston University): normal is the active CPU queue and
+# brd is this account's LSF project.  The dedicated vina_env contains both
+# Python and Vina, so every generated job activates it before running.
+TRITON_LSF_PROFILE = HPCProfile(
+    profile_name="triton_brd",
+    email="jxs794@miami.edu",
+    notify_begin=True,
+    notify_end=True,
+    queue="normal",
+    project="brd",
+    workers=16,
+    vina_cpus=16,
+    confgen_cpus=16,
+    confgen_workers=16,
+    mem_per_core_mb=2000,
+    confgen_walltime="48:00",
+    vina_walltime="240:00",
+    conda_sh="/projectnb/triton/home/jxs794/miniforge3/etc/profile.d/conda.sh",
+    conda_env="vina_env",
+    vina_executable="/projectnb/triton/home/jxs794/miniforge3/envs/vina_env/bin/vina",
+    python_command="python",
+    span_hosts=1,
+)
+
 
 def profile_from_dict(payload: Mapping[str, Any]) -> HPCProfile:
     known = {field.name for field in fields(HPCProfile)}
@@ -212,6 +238,8 @@ def profile_for_mode(mode: str, values: Mapping[str, Any] | None = None) -> HPCP
         return None
     if mode == "mainak_lsf":
         return MAINAK_LSF_PROFILE
+    if mode == "triton_lsf":
+        return TRITON_LSF_PROFILE
     if mode == "custom_lsf":
         return build_custom_profile(values)
     return JOEY_LSF_PROFILE

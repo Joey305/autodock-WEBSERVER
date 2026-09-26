@@ -177,6 +177,14 @@ class HtmlVizBuilderTests(unittest.TestCase):
             self.assertIn("const STANDALONE_VIEWERS = [", viewer_html)
             self.assertIn("LigA_p01_t02_c001", viewer_html)
             self.assertIn('class="pose-score-box"', viewer_html)
+            self.assertEqual(viewer_html.count('id="btn-export-pdb"'), 1)
+            self.assertIn("const ligandStartSerial = receptor.nextSerial + (receptor.endsWithTer ? 0 : 1);", viewer_html)
+            self.assertIn("pdbRecordsFromModel(poseMdls[curPose], ligandStartSerial)", viewer_html)
+            self.assertIn("Active complex (pose ${curPose+1}) exported as PDB", viewer_html)
+            self.assertIn('"END"', viewer_html)
+            self.assertEqual(viewer_html.count('id="viewer-theme-toggle"'), 1)
+            self.assertIn("function applyViewerTheme(theme, persist=false)", viewer_html)
+            self.assertIn("window.__VINA_3DMOL_VIEWER__ = viewer;", viewer_html)
 
     def test_build_project_reuses_one_receptor_copy_per_unique_receptor(self):
         module = load_script_module("5_BuidlHTMLViz.py", "html_viz_builder_dedupe_module")

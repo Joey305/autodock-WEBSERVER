@@ -75,6 +75,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>VinaScope · Molecular Docking Viewer</title>
+<script>
+(() => {
+  const key = "autodock-prepserver-theme";
+  try {
+    const saved = localStorage.getItem(key);
+    const preferred = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = saved === "dark" || saved === "light" ? saved : preferred;
+  } catch (error) {
+    document.documentElement.dataset.theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/3Dmol/2.4.0/3Dmol-min.js"></script>
@@ -91,6 +103,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   --font:'Space Grotesk',system-ui,sans-serif;
   --mono:'Space Mono','Fira Code',monospace;
 }
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#020617;--panel:#0b1220;--surface:#111c2e;--surface2:#17253a;
+  --border:#26364c;--border-hi:#40536d;
+  --accent:#2dd4bf;--accent-dim:rgba(45,212,191,.12);
+  --txt:#e2e8f0;--txt-muted:#a8b6c8;--txt-dim:#75869d;
+  --g1:#34d399;--g2:#2dd4bf;--amber:#fbbf24;--purple:#c4b5fd;--red:#fb7185;
+}
+:root[data-theme="dark"] .palette-select,
+:root[data-theme="dark"] .viewer-switch-control select{background:var(--surface);color:var(--txt);border-color:var(--border-hi)}
+:root[data-theme="dark"] .viewer-switch-panel,
+:root[data-theme="dark"] .pose-list-toolbar,
+:root[data-theme="dark"] .interaction-chip{background:rgba(11,18,32,.92);color:var(--txt);border-color:var(--border)}
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;background:var(--bg);color:var(--txt);font-family:var(--font);overflow:hidden}
@@ -117,6 +142,7 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--txt);font-fami
   flex-shrink:0;
   background:linear-gradient(160deg,#dce3ed 0%,var(--panel) 100%);
 }
+:root[data-theme="dark"] #sidebar-header{background:linear-gradient(160deg,#15263a 0%,var(--panel) 100%)}
 .logo-row{display:flex;align-items:center;gap:10px;margin-bottom:9px}
 .logo-icon{
   width:30px;height:30px;flex-shrink:0;
@@ -136,6 +162,13 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--txt);font-fami
   padding:4px 8px;border-radius:var(--radius);
 }
 .ligand-chip svg{width:10px;height:10px;opacity:.5}
+.viewer-theme-toggle{
+  width:100%;margin-top:9px;padding:6px 8px;display:flex;align-items:center;justify-content:center;gap:6px;
+  border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--txt-muted);
+  font:600 9px var(--font);letter-spacing:.03em;cursor:pointer;transition:all .15s;
+}
+.viewer-theme-toggle:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.viewer-theme-toggle svg{width:12px;height:12px;flex-shrink:0}
 
 /* scrollable body */
 #sidebar-body{
@@ -275,6 +308,7 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--txt);font-fami
   border-radius:var(--radius);padding:8px 12px;backdrop-filter:blur(12px);
   pointer-events:auto;min-width:120px;
 }
+:root[data-theme="dark"] .hud-card{background:rgba(11,18,32,.91);box-shadow:0 10px 30px rgba(0,0,0,.24)}
 .hud-lbl{font-size:7.5px;text-transform:uppercase;letter-spacing:.13em;color:var(--txt-muted);margin-bottom:2px}
 .hud-val{font-family:var(--mono);font-size:21px;font-weight:700;line-height:1}
 .hud-unit{font-size:8.5px;color:var(--txt-muted);margin-left:2px}
@@ -291,6 +325,7 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--txt);font-fami
   display:flex;align-items:center;gap:8px;
   font-family:var(--font);font-weight:500;
 }
+:root[data-theme="dark"] #toast{background:rgba(11,18,32,.96);border-color:rgba(45,212,191,.48)}
 #toast.show{opacity:1;transform:translateY(0)}
 #toast svg{width:12px;height:12px;flex-shrink:0;color:var(--g1)}
 </style>
@@ -338,6 +373,10 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--txt);font-fami
         </svg>
         <span>Ligand: —</span>
       </div>
+      <button id="viewer-theme-toggle" class="viewer-theme-toggle" type="button" aria-pressed="false" title="Switch to dark mode">
+        <svg id="viewer-theme-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"></svg>
+        <span id="viewer-theme-label">Dark mode</span>
+      </button>
     </div>
 
     <div id="sidebar-body">
@@ -430,6 +469,12 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--txt);font-fami
             </svg>
             Save Complex as PNG
           </button>
+          <button class="btn-action primary" id="btn-export-pdb" title="Download the receptor and active docking pose as a PDB complex">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M8 2v8M5 7l3 3 3-3"/><path d="M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1"/>
+            </svg>
+            Download Active Complex PDB
+          </button>
           <button class="btn-action" id="btn-export-csv">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6">
               <path d="M8 2v8M5 7l3 3 3-3"/><path d="M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1"/>
@@ -477,6 +522,53 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--txt);font-fami
 // ═══════════════════════════════════════════════════════════════════
 const RECEPTOR_B64 = "%%RECEPTOR_B64%%";
 const POSE_B64     = "%%POSE_B64%%";
+
+const VIEWER_THEME_STORAGE_KEY = "autodock-prepserver-theme";
+
+function viewerTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+function viewerBackgroundColor() {
+  return viewerTheme() === "dark" ? "#020617" : "#f4f6f9";
+}
+
+function renderThemeToggle(theme) {
+  const button = document.getElementById("viewer-theme-toggle");
+  const icon = document.getElementById("viewer-theme-icon");
+  const label = document.getElementById("viewer-theme-label");
+  const isDark = theme === "dark";
+  if (button) {
+    button.setAttribute("aria-pressed", isDark ? "true" : "false");
+    button.title = `Switch to ${isDark ? "light" : "dark"} mode`;
+    button.setAttribute("aria-label", button.title);
+  }
+  if (label) label.textContent = isDark ? "Light mode" : "Dark mode";
+  if (icon) {
+    icon.innerHTML = isDark
+      ? '<circle cx="8" cy="8" r="3"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/>'
+      : '<path d="M13.5 10.3A5.7 5.7 0 015.7 2.5 5.7 5.7 0 1013.5 10.3z"/>';
+  }
+}
+
+function applyViewerTheme(theme, persist=false) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = nextTheme;
+  renderThemeToggle(nextTheme);
+  if (persist) {
+    try { localStorage.setItem(VIEWER_THEME_STORAGE_KEY, nextTheme); } catch (error) {}
+  }
+  const viewer = window.__VINA_3DMOL_VIEWER__;
+  if (viewer) {
+    viewer.setBackgroundColor(viewerBackgroundColor());
+    viewer.render();
+  }
+}
+
+document.getElementById("viewer-theme-toggle").addEventListener("click", () => {
+  applyViewerTheme(viewerTheme() === "dark" ? "light" : "dark", true);
+});
+renderThemeToggle(viewerTheme());
 
 function b64ToStr(b64) {
   const bytes = atob(b64), arr = new Uint8Array(bytes.length);
@@ -877,6 +969,77 @@ function downloadBlob(data, filename, mime) {
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  PDB COMPLEX EXPORT
+// ═══════════════════════════════════════════════════════════════════
+const PDBQT_ELEMENT_MAP = {
+  A:"C", C:"C", N:"N", NA:"N", O:"O", OA:"O", S:"S", SA:"S",
+  P:"P", HD:"H", HS:"H", H:"H", F:"F", CL:"CL", BR:"BR", I:"I",
+  MG:"MG", MN:"MN", FE:"FE", ZN:"ZN", CA:"CA", CU:"CU", NI:"NI", CO:"CO"
+};
+
+function pdbElement(atom) {
+  const raw = String(atom.elem || atom.element || atom.adtype || atom.atom || atom.name || "C")
+    .replace(/[^A-Za-z]/g, "").toUpperCase();
+  return (PDBQT_ELEMENT_MAP[raw] || raw || "C").slice(0, 2);
+}
+
+function pdbAtomRecord(atom, serial, record="ATOM") {
+  const atomName = String(atom.atom || atom.name || pdbElement(atom)).slice(0, 4);
+  const resname = String(atom.resn || atom.resname || (record === "HETATM" ? "LIG" : "UNK")).slice(0, 3);
+  const chain = String(atom.chain || "A").slice(0, 1);
+  const resi = Number.isFinite(Number(atom.resi)) ? Math.trunc(Number(atom.resi)) : 1;
+  const x = Number(atom.x), y = Number(atom.y), z = Number(atom.z);
+  const coord = (value) => (Number.isFinite(value) ? value : 0).toFixed(3).padStart(8, " ");
+  const occupancy = Number.isFinite(Number(atom.occupancy)) ? Number(atom.occupancy) : 1;
+  const bfactor = Number.isFinite(Number(atom.b)) ? Number(atom.b) : 0;
+  return `${record.padEnd(6)}${String(serial).slice(-5).padStart(5, " ")} ${atomName.padStart(4, " ")} ${resname.padEnd(3, " ")} ${chain}${String(resi).slice(-4).padStart(4, " ")}    ${coord(x)}${coord(y)}${coord(z)}${occupancy.toFixed(2).padStart(6, " ")}${bfactor.toFixed(2).padStart(6, " ")}${"".padEnd(10, " ")}${pdbElement(atom).padStart(2, " ")}`;
+}
+
+function pdbRecordsFromText(pdbText, startSerial=1, recordOverride="") {
+  const lines = [];
+  let serial = startSerial;
+  let endsWithTer = false;
+  for (const raw of String(pdbText || "").split("\n")) {
+    const line = raw.trimEnd();
+    if (line.startsWith("TER")) {
+      lines.push(`TER   ${String(serial).slice(-5).padStart(5, " ")}`);
+      serial += 1;
+      endsWithTer = true;
+      continue;
+    }
+    if (!line.startsWith("ATOM") && !line.startsWith("HETATM")) continue;
+    const match = COORD_RX.exec(line.substring(30));
+    if (!match) continue;
+    const atom = {
+      atom: line.substring(12, 16).trim(),
+      resn: line.substring(17, 20).trim(),
+      chain: line.substring(21, 22).trim() || "A",
+      resi: parseInt(line.substring(22, 26)) || 1,
+      x: parseFloat(match[1]), y: parseFloat(match[2]), z: parseFloat(match[3]),
+      elem: line.trim().split(/\s+/).pop()
+    };
+    lines.push(pdbAtomRecord(atom, serial, recordOverride || (line.startsWith("HETATM") ? "HETATM" : "ATOM")));
+    serial += 1;
+    endsWithTer = false;
+  }
+  return { lines, nextSerial: serial, endsWithTer };
+}
+
+function pdbRecordsFromModel(model, startSerial=1) {
+  if (!model || typeof model.selectedAtoms !== "function") return null;
+  const atoms = model.selectedAtoms({});
+  if (!Array.isArray(atoms) || !atoms.length) return null;
+  return {
+    lines: atoms.map((atom, index) => pdbAtomRecord(atom, startSerial + index, "HETATM")),
+    nextSerial: startSerial + atoms.length
+  };
+}
+
+function safePdbFilenameStem(value) {
+  return String(value || "ligand").trim().replace(/[^A-Za-z0-9._-]+/g, "_") || "ligand";
+}
+
 let _toastT;
 function toast(msg) {
   const el = document.getElementById("toast");
@@ -905,8 +1068,9 @@ function toast(msg) {
 
   // ── 3Dmol viewer ────────────────────────────────────────────────
   const viewer = $3Dmol.createViewer(document.getElementById("viewer"),{
-    backgroundColor:"#f4f6f9", antialias:true
+    backgroundColor:viewerBackgroundColor(), antialias:true
   });
+  window.__VINA_3DMOL_VIEWER__ = viewer;
   const recModel = viewer.addModel(receptorPDB,"pdb");
 
   let recStyle="cartoon", recColor="spectrum", recSurfObj=null, surfObj=null, surfOn=false;
@@ -1055,6 +1219,40 @@ function toast(msg) {
     for (let i = 0; i < bstr.length; i++) buf[i] = bstr.charCodeAt(i);
     downloadBlob(new Blob([buf], {type: mime}), `vinascope_pose${curPose+1}.png`, mime);
     toast(`Pose ${curPose+1} saved as PNG`);
+  });
+
+  // ── PDB — active receptor/ligand complex ─────────────────────────
+  document.getElementById("btn-export-pdb").addEventListener("click",()=>{
+    const receptor = pdbRecordsFromText(receptorPDB);
+    if (!receptor.lines.length) {
+      toast("PDB export failed: receptor atoms were not available");
+      return;
+    }
+    const ligandStartSerial = receptor.nextSerial + (receptor.endsWithTer ? 0 : 1);
+    const ligand = pdbRecordsFromModel(poseMdls[curPose], ligandStartSerial)
+      || pdbRecordsFromText(poseToPDB(poses[curPose]), ligandStartSerial, "HETATM");
+    if (!ligand.lines.length) {
+      toast("PDB export failed: active pose atoms were not available");
+      return;
+    }
+    const score = poses[curPose]?.score;
+    const affinity = Number.isFinite(score) ? `; affinity ${score.toFixed(2)} kcal/mol` : "";
+    const ligandRemark = String(ligandName || "Ligand").replace(/[\r\n]/g, " ");
+    const complexPDB = [
+      "REMARK VinaScope exported docking complex",
+      `REMARK Active pose ${curPose+1}${affinity}`,
+      `REMARK Ligand ${ligandRemark}`,
+      ...receptor.lines,
+      ...(receptor.endsWithTer ? [] : [`TER   ${String(receptor.nextSerial).slice(-5).padStart(5, " ")}`]),
+      ...ligand.lines,
+      "END"
+    ].join("\n") + "\n";
+    downloadBlob(
+      complexPDB,
+      `vinascope_${safePdbFilenameStem(ligandName)}_pose${curPose+1}_complex.pdb`,
+      "chemical/x-pdb;charset=utf-8;"
+    );
+    toast(`Active complex (pose ${curPose+1}) exported as PDB`);
   });
 
   // ── CSV — manual re-export button ────────────────────────────────

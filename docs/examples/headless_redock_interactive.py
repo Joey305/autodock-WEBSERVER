@@ -371,7 +371,7 @@ def main():
 
     package_mode = args.package_mode or "portable"
     if interactive:
-        package_mode = prompt_choice("Package mode", ["portable", "joey_lsf", "mainak_lsf", "custom_lsf"], package_mode)
+        package_mode = prompt_choice("Package mode", ["portable", "joey_lsf", "mainak_lsf", "triton_lsf", "custom_lsf"], package_mode)
 
     run_prep = not args.no_prep
     if interactive:

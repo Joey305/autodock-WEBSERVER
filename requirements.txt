@@ -12,3 +12,4 @@ pandas
 matplotlib
 gunicorn
 gemmi
+Biopython 

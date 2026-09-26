@@ -997,6 +997,48 @@ find . -maxdepth 3 -type f | sort | head -80</code></pre>
   </article>
 </section>
 
+<section class="page-hero compact" id="triton-walkthrough">
+  <span class="eyebrow">Triton walkthrough</span>
+  <h1>Build, download, and submit from a Triton login node.</h1>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-cloud-arrow-down"></i> 1. Build a Triton package</h2>
+    <p>Use <code>triton_lsf</code> with the workspace API or the one-call endpoint. The fixed profile requests 16 CPU cores on one host in Triton&rsquo;s <code>normal</code> queue under the <code>brd</code> project.</p>
+    <pre><code>BASE="${BASE_URL:-https://autodockvina.com}"
+curl -s -X POST "$BASE/api/v1/headless/package" -H "Content-Type: application/json" -d '{
+  "workspace_name":"triton-example",
+  "receptor":{"pdb_id":"9G94"},
+  "bound_ligand":{"resname":"A1D73","chain":"A","resi":"101"},
+  "center":{"method":"same_as_bound_ligand","size":20},
+  "package":{"package_mode":"triton_lsf","poses_conf":64,"poses_vina":9}
+}' &gt; triton-build.json</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-cpu"></i> 2. Download and submit on Triton</h2>
+    <p>Run this after logging into Triton. The fixed profile activates your verified <code>vina_env</code>. Submit conformer generation first; submit Vina only after it has completed. The ZIP includes <code>hpc_profile.json</code> and generated LSF files for provenance.</p>
+    <pre><code>ARTIFACT=$(python -c 'import json; print(json.load(open("triton-build.json"))["data"]["artifact"]["download_url"])')
+curl -fL -o triton-example.zip "$BASE$ARTIFACT"
+mkdir triton-example
+unzip -q triton-example.zip -d triton-example
+cd triton-example/job
+bsub &lt; run_confgen_job.lsf
+bjobs -u "$USER"
+# After ConfGen completes:
+bsub &lt; run_vina_job.lsf</code></pre>
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-info-circle"></i>
+  <div>
+    <h2>JARI uses a separate Triton launcher</h2>
+    <p><code>triton_lsf</code> packages AutoDock Vina/ConfGen work. DockQ comparison of PRosettaC model ZIPs remains a separate workflow: use <code>jari-run</code> for model mode or <code>jari-run-single</code> for directed 1&times;1 mode. Pair mode deliberately requests one core per comparison so Triton can schedule many comparisons at once.</p>
+  </div>
+</section>
+
 <section class="page-hero compact" id="troubleshooting">
   <span class="eyebrow">Troubleshooting</span>
   <h1>Common API errors and how to fix them.</h1>

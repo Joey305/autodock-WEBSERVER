@@ -6,6 +6,7 @@ from pathlib import Path
 from hpc_profiles import (
     JOEY_LSF_PROFILE,
     MAINAK_LSF_PROFILE,
+    TRITON_LSF_PROFILE,
     build_custom_profile,
     load_packaged_profile,
     normalize_package_mode,
@@ -24,6 +25,7 @@ class HpcProfileTests(unittest.TestCase):
         self.assertEqual(normalize_package_mode({"package_mode": "lsf"}), "joey_lsf")
         self.assertEqual(normalize_package_mode({"include_lsf": "1"}), "joey_lsf")
         self.assertEqual(normalize_package_mode({"package_mode": "mainak_lsf"}), "mainak_lsf")
+        self.assertEqual(normalize_package_mode({"package_mode": "triton_lsf"}), "triton_lsf")
         self.assertEqual(normalize_package_mode({"package_mode": "custom_lsf"}), "custom_lsf")
 
     def test_mainak_mode_uses_mainak_profile(self):
@@ -42,6 +44,19 @@ class HpcProfileTests(unittest.TestCase):
         self.assertEqual(JOEY_LSF_PROFILE.vina_walltime, "240:00")
         self.assertEqual(JOEY_LSF_PROFILE.confgen_walltime, "48:00")
         validate_hpc_profile(JOEY_LSF_PROFILE)
+
+    def test_triton_profile_has_verified_cpu_queue_and_project(self):
+        self.assertEqual(TRITON_LSF_PROFILE.profile_name, "triton_brd")
+        self.assertEqual(TRITON_LSF_PROFILE.queue, "normal")
+        self.assertEqual(TRITON_LSF_PROFILE.project, "brd")
+        self.assertEqual(TRITON_LSF_PROFILE.effective_vina_cpus, 16)
+        self.assertEqual(TRITON_LSF_PROFILE.effective_confgen_cpus, 16)
+        self.assertEqual(TRITON_LSF_PROFILE.effective_confgen_workers, 16)
+        self.assertEqual(TRITON_LSF_PROFILE.vina_walltime, "240:00")
+        self.assertEqual(TRITON_LSF_PROFILE.conda_env, "vina_env")
+        self.assertEqual(TRITON_LSF_PROFILE.vina_executable, "/projectnb/triton/home/jxs794/miniforge3/envs/vina_env/bin/vina")
+        self.assertEqual(TRITON_LSF_PROFILE.python_command, "python")
+        validate_hpc_profile(TRITON_LSF_PROFILE)
 
     def test_confgen_workers_cannot_exceed_lsf_cpu_request(self):
         invalid = replace_profile(JOEY_LSF_PROFILE, confgen_cpus=16, confgen_workers=17)
@@ -163,6 +178,28 @@ class HpcProfileTests(unittest.TestCase):
         self.assertIn("#BSUB -W 48:00", confgen)
         self.assertIn("#BSUB -n 16", confgen)
         self.assertIn("--workers 16", confgen)
+
+    def test_triton_generation_requests_one_16_core_node(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Ligands").mkdir()
+            (root / "Receptors").mkdir()
+            (root / "Ligands" / "ligands.csv").write_text("smiles,id\nCCO,lig1\n", encoding="utf-8")
+            (root / "vina_centers.csv").write_text("PDB_ID,X,Y,Z,SIZE\nrec.pdbqt,1,2,3,20\n", encoding="utf-8")
+            build_confgen_lsfs(root, root, profile=TRITON_LSF_PROFILE, poses=64, lig_mode="1", lig_filetype="csv", csv_smiles_col="smiles", csv_id_col="id", single_sdf_rel=None)
+            build_vina_lsfs(root, root, profile=TRITON_LSF_PROFILE, poses=20)
+            confgen = (root / "run_confgen_job.lsf").read_text(encoding="utf-8")
+            vina = (root / "run_vina_job.lsf").read_text(encoding="utf-8")
+
+        for script in (confgen, vina):
+            self.assertIn("#BSUB -P brd", script)
+            self.assertIn("#BSUB -q normal", script)
+            self.assertIn("#BSUB -n 16", script)
+            self.assertIn('#BSUB -R "span[hosts=1]"', script)
+            self.assertIn('source "/projectnb/triton/home/jxs794/miniforge3/etc/profile.d/conda.sh"', script)
+            self.assertIn("conda activate vina_env", script)
+        self.assertIn("--workers 16", confgen)
+        self.assertIn('export VINA_EXE="/projectnb/triton/home/jxs794/miniforge3/envs/vina_env/bin/vina"', vina)
 
 
 if __name__ == "__main__":

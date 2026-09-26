@@ -28,7 +28,7 @@ def main():
     parser.add_argument("--het", default="DR7")
     parser.add_argument("--xyz", nargs=3, type=float)
     parser.add_argument("--ligand", required=True)
-    parser.add_argument("--package-mode", choices=["portable", "lsf"], default="portable")
+    parser.add_argument("--package-mode", choices=["portable", "lsf", "joey_lsf", "mainak_lsf", "triton_lsf", "custom_lsf"], default="portable")
     args = parser.parse_args()
 
     s = requests.Session()

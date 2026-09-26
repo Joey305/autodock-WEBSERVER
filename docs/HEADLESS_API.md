@@ -283,6 +283,40 @@ Build Joey's legacy-compatible Miami LSF package:
 {"package_mode": "joey_lsf", "poses_conf": 64, "poses_vina": 9}
 ```
 
+## Triton Build And Submit Walkthrough
+
+Run this workflow from a Triton login node when you want the website API to prepare a docking project and Triton to execute it. `triton_lsf` is a fixed profile: LSF project `brd`, queue `normal`, 16 cores on one host, 48 hours for conformer generation, and 240 hours for Vina. Every generated job activates the verified `~/miniforge3/envs/vina_env` environment, which contains Python and Vina.
+
+Build a project with the one-call endpoint, download it, and unpack it on Triton:
+
+```bash
+BASE="${BASE_URL:-https://autodockvina.com}"
+curl -fsS -X POST "$BASE/api/v1/headless/package" -H "Content-Type: application/json" -d '{
+  "workspace_name":"triton-9g94-redock",
+  "receptor":{"pdb_id":"9G94"},
+  "bound_ligand":{"resname":"A1D73","chain":"A","resi":"101"},
+  "center":{"method":"same_as_bound_ligand","size":20},
+  "package":{"package_mode":"triton_lsf","poses_conf":64,"poses_vina":9}
+}' > triton-build.json
+
+ARTIFACT=$(python -c 'import json; print(json.load(open("triton-build.json"))["data"]["artifact"]["download_url"])')
+curl -fL -o triton-9g94-redock.zip "$BASE$ARTIFACT"
+mkdir triton-9g94-redock
+unzip -q triton-9g94-redock.zip -d triton-9g94-redock
+cd triton-9g94-redock/job
+```
+
+The generated `run_confgen_job.lsf` and `run_vina_job.lsf` explicitly contain `#BSUB -P brd`, `#BSUB -q normal`, `#BSUB -n 16`, and `#BSUB -R "span[hosts=1]"`. The profile activates `vina_env`; only recreate it if you intentionally need a fresh environment. Submit the dependent stages in order:
+
+```bash
+bsub < run_confgen_job.lsf
+bjobs -u "$USER"
+# Submit after the conformer-generation job completes successfully.
+bsub < run_vina_job.lsf
+```
+
+JARI/DockQ is intentionally separate from this Vina package workflow. On Triton use `jari-run` for model-level comparisons or `jari-run-single` for directed 1x1 comparisons; the latter requests one core per pair rather than reserving a 16-core node for a single-core task.
+
 Build a custom LSF package for another cluster:
 
 ```json

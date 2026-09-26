@@ -78,7 +78,7 @@ def main():
     parser.add_argument("--resi", default="")
     parser.add_argument("--size", type=float, default=20.0)
     parser.add_argument("--remove-chains", default="", help="Comma-separated chains to remove during receptor prep.")
-    parser.add_argument("--package-mode", default="portable", choices=["portable", "joey_lsf", "mainak_lsf", "custom_lsf"])
+    parser.add_argument("--package-mode", default="portable", choices=["portable", "joey_lsf", "mainak_lsf", "triton_lsf", "custom_lsf"])
     parser.add_argument("--download-dir", default="", help="Optional local folder where the built ZIP should be downloaded.")
     parser.add_argument("--no-prep", action="store_true", help="Build without running receptor PDBQT prep.")
     args = parser.parse_args()

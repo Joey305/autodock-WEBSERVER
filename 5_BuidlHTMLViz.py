@@ -427,6 +427,8 @@ def validate_decorated_viewer_html(viewer_html: str) -> str:
         "rec-palette-select",
         "lig-palette-select",
         "pocket-style-btns",
+        "btn-export-pdb",
+        "viewer-theme-toggle",
     )
     for element_id in required_ids:
         count = viewer_html.count(f'id="{element_id}"')
@@ -546,6 +548,8 @@ function installStandaloneLigandSwitcher(ligandName) {
 }
 #sidebar-toggle:hover{transform:translateY(-1px);background:#fff;border-color:rgba(13,148,136,.48)}
 #sidebar-toggle svg{width:18px;height:18px}
+:root[data-theme="dark"] #sidebar-toggle{background:rgba(11,18,32,.94);border-color:rgba(45,212,191,.36);color:var(--accent)}
+:root[data-theme="dark"] #sidebar-toggle:hover{background:var(--surface2);border-color:var(--accent)}
 #app.sidebar-collapsed #sidebar{
   width:0;min-width:0;border-right:none;box-shadow:none;overflow:hidden;
 }
@@ -750,7 +754,7 @@ function installStandaloneLigandSwitcher(ligandName) {
         </div>
         <label class="toggle-row">
           <input type="checkbox" id="pocket-toggle">
-          <span>Show atoms within 5 Å of active ligand</span>
+          <span>Show whole residues with any atom within 5 Å of active ligand</span>
         </label>
       </div>
 
@@ -843,7 +847,7 @@ const POCKET_HIGHLIGHT = "#facc15";""",
     )
     template = template.replace(
         "    atoms.push({ name, resname, chain, resi, x, y, z, charge, adtype });",
-        "    atoms.push({ serial, name, resname, chain, resi, x, y, z, charge, adtype });",
+        "    atoms.push({ index: atoms.length, serial, name, resname, chain, resi, x, y, z, charge, adtype });",
         1,
     )
     template = template.replace(
@@ -872,18 +876,32 @@ const POCKET_HIGHLIGHT = "#facc15";""",
 }
 
 function buildPocketSelection(ligAtoms, recAtoms, cutoff) {
-  const residueKeys = new Set();
-  for (const la of ligAtoms) {
-    for (const ra of recAtoms) {
-      if (dist3(la, ra) <= cutoff) residueKeys.add(`${ra.chain}:${ra.resi}:${ra.resname}`);
+  // Whole-residue binding pocket, with UNIQUE 3Dmol atom indices:
+  // 1) identify residues having at least one receptor atom <= cutoff from
+  //    any atom of the CURRENTLY ACTIVE ligand pose;
+  // 2) return every atom in only those qualifying residues.
+  //
+  // Do NOT use PDB/PDBQT serial numbers for rendering: receptor serials can
+  // restart after TER records and therefore are not globally unique.
+  const qualifyingResidues = new Set();
+  const residueKey = (atom) => `${atom.chain || ""}:${atom.resi}:${atom.resname || ""}`;
+
+  for (const ra of recAtoms) {
+    for (const la of ligAtoms) {
+      if (dist3(la, ra) <= cutoff) {
+        qualifyingResidues.add(residueKey(ra));
+        break;
+      }
     }
   }
 
-  const serials = new Set();
+  const indices = new Set();
   for (const ra of recAtoms) {
-    if (residueKeys.has(`${ra.chain}:${ra.resi}:${ra.resname}`)) serials.add(ra.serial);
+    if (qualifyingResidues.has(residueKey(ra))) {
+      indices.add(ra.index);
+    }
   }
-  return [...serials];
+  return [...indices];
 }
 """,
         1,
@@ -1082,7 +1100,7 @@ const TYPE_CSS = {
       surfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.35,color:"#0a2040"},{model:recModel.getID()});
 
     if (pocketOn && pocketSelection.length) {
-      const pocketSel = {model:recModel.getID(), serial:pocketSelection};
+      const pocketSel = {model:recModel.getID(), index:pocketSelection};
       if (pocketStyle==="sphere")
         viewer.setStyle(pocketSel,{sphere:{color:POCKET_HIGHLIGHT,radius:1.15,opacity:0.98}});
       else if (pocketStyle==="surface") {
@@ -1438,7 +1456,7 @@ const TYPE_CSS = {
       surfObj = viewer.addSurface($3Dmol.SurfaceType.VDW,{opacity:0.35,color:"#0a2040"},{model:recModel.getID()});
 
     if (pocketOn && pocketSelection.length) {
-      const pocketSel = {model:recModel.getID(), serial:pocketSelection};
+      const pocketSel = {model:recModel.getID(), index:pocketSelection};
       if (pocketStyle==="sphere")
         viewer.setStyle(pocketSel,{sphere:{color:POCKET_HIGHLIGHT,radius:1.15,opacity:0.98}});
       else if (pocketStyle==="surface") {
