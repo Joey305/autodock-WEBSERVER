@@ -9,6 +9,8 @@ The API is additive. Existing browser routes under `/api/...` and the `/build` w
 | Method | Route | Purpose |
 | --- | --- | --- |
 | GET | `/api/v1/health` | Check service and API version. |
+| GET | `/api/v1/examples` | List maintained copy/paste demo recipes. |
+| GET | `/api/v1/examples/<slug>/script` | Serve a Bash demo script. |
 | GET | `/api/v1/clients/headless_redock_bound_ligand.py` | Download the flag-driven command-line redocking client script. |
 | GET | `/api/v1/clients/headless_redock_interactive.py` | Download the guided interactive command-line redocking client script. |
 | POST | `/api/v1/workspaces` | Create or reuse a workspace. |
@@ -44,6 +46,23 @@ Error:
 ```json
 {"ok": false, "error": "machine_readable_error", "message": "Human-readable explanation.", "details": {}}
 ```
+
+## Demo Script Library
+
+List the maintained recipes and download a script directly from the API:
+
+```bash
+BASE="${BASE_URL:-https://autodockvina.com}"
+curl -fsS "$BASE/api/v1/examples" | python -m json.tool
+curl -fsSLo run_3eky_dr7_portable.sh "$BASE/api/v1/examples/3eky-dr7-portable/script"
+bash run_3eky_dr7_portable.sh
+```
+
+Available recipes are:
+
+- `3eky-dr7-portable`: fetch 3EKY, download the repository DR7 SDF, and build a portable package.
+- `3eky-phase4-triton`: use DR7 as the docking-box center and the curated Phase 4 approved-drug library as the docking input. It prepares a Triton package by default; use `SUBMIT_JOBS=1 bash run_3eky_phase4_triton.sh` on Triton to submit ConfGen and a dependent Vina job.
+- `3eky-local-ligands`: use a local SDF, SMI, CSV, or ZIP ligand input. Run it as `bash run_3eky_local_ligands.sh /path/to/ligands.sdf`.
 
 ## Workspace Lifecycle
 

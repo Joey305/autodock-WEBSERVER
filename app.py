@@ -43,6 +43,30 @@ MAILTO_SUBJECT = "AutoDock-Vina PrepServer Question"
 REPOSITORY_URL = "https://github.com/Joey305/autodock-WEBSERVER"
 SCHURER_LAB_URL = "https://schurerlab.org"
 
+API_DEMOS = {
+    "3eky-dr7-portable": {
+        "title": "3EKY + DR7 portable package",
+        "description": "Fetch 3EKY chain A, use the documented XYZ docking box, download the repository DR7 ligand, and build a portable ZIP.",
+        "package_mode": "portable",
+        "ligand_source": "repository DR7.sdf",
+        "script": "run_3eky_dr7_portable.sh",
+    },
+    "3eky-phase4-triton": {
+        "title": "3EKY + approved-drug library on Triton",
+        "description": "Use DR7 as the docking-box center, stage the curated ChEMBL Phase 4 approved-drug library, build a Triton 16-core package, and optionally submit it.",
+        "package_mode": "triton_lsf",
+        "ligand_source": "curated phase4",
+        "script": "run_3eky_phase4_triton.sh",
+    },
+    "3eky-local-ligands": {
+        "title": "3EKY + a local ligand file",
+        "description": "Run the complete staged workflow with your own SDF, SMI, CSV, ZIP, or ligand folder and produce a portable package.",
+        "package_mode": "portable",
+        "ligand_source": "local upload",
+        "script": "run_3eky_local_ligands.sh",
+    },
+}
+
 TOOL_LINKS = [
     {
         "name": "Warhead Hunter",
@@ -2573,6 +2597,29 @@ def create_app() -> Flask:
             "public_mode": current_app.config.get("PUBLIC_MODE", True),
             "tmp_root": current_app.config["TMP_ROOT"],
         })
+
+    @app.get("/api/v1/examples")
+    @login_required
+    def api_v1_examples():
+        examples = []
+        for slug, example in API_DEMOS.items():
+            examples.append({
+                "slug": slug,
+                **example,
+                "script_url": url_for("api_v1_example_script", slug=slug),
+            })
+        return _v1_ok({"examples": examples})
+
+    @app.get("/api/v1/examples/<slug>/script")
+    @login_required
+    def api_v1_example_script(slug: str):
+        example = API_DEMOS.get(slug)
+        if example is None:
+            return _v1_error("example_not_found", f"No API demo named {slug!r}.", 404)
+        script_path = APP_ROOT / "docs" / "examples" / example["script"]
+        if not script_path.is_file():
+            return _v1_error("example_script_missing", f"Demo script is unavailable for {slug!r}.", 404)
+        return send_file(script_path, mimetype="text/plain", as_attachment=False, download_name=script_path.name)
 
     @app.post("/api/v1/workspaces")
     @login_required

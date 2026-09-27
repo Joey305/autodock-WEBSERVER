@@ -199,6 +199,7 @@
     <a href="#workflow-overview"><i class="bi bi-list-ol"></i>Workflow</a>
     <a href="#real-example"><i class="bi bi-lightning-charge"></i>DR7 example</a>
     <a href="#copy-paste-dr7-script"><i class="bi bi-terminal"></i>One-shot script</a>
+    <a href="#demo-library"><i class="bi bi-collection-play"></i>Demo scripts</a>
     <a href="#manual-walkthrough"><i class="bi bi-signpost-split"></i>Manual steps</a>
     <a href="#endpoint-reference"><i class="bi bi-table"></i>Endpoints</a>
     <a href="#troubleshooting"><i class="bi bi-tools"></i>Troubleshooting</a>
@@ -259,6 +260,49 @@ unzip</code></pre>
       configured for that purpose.
     </p>
   </article>
+</section>
+
+<section class="page-hero compact" id="demo-library">
+  <span class="eyebrow">Copy/paste demos</span>
+  <h1>Download a maintained demo script and run it.</h1>
+  <p>Each script creates a uniquely named workspace, saves its JSON responses locally, and downloads the resulting ZIP.</p>
+</section>
+
+<section class="content-grid three-col">
+  <article class="info-card">
+    <h2><i class="bi bi-box"></i> 3EKY + DR7</h2>
+    <p>Fetch 3EKY chain A, download the repository&rsquo;s DR7 SDF, and build a portable package.</p>
+    <pre><code>BASE="${BASE_URL:-https://autodockvina.com}"
+curl -fsSLo run_3eky_dr7_portable.sh "$BASE/api/v1/examples/3eky-dr7-portable/script"
+bash run_3eky_dr7_portable.sh</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-cpu"></i> 3EKY + Phase 4 on Triton</h2>
+    <p>Use DR7 for the docking box and the curated approved-drug library as docked ligands. It prepares, but does not submit, by default.</p>
+    <pre><code>BASE="${BASE_URL:-https://autodockvina.com}"
+curl -fsSLo run_3eky_phase4_triton.sh "$BASE/api/v1/examples/3eky-phase4-triton/script"
+bash run_3eky_phase4_triton.sh
+# Or submit ConfGen and dependent Vina:
+SUBMIT_JOBS=1 bash run_3eky_phase4_triton.sh</code></pre>
+  </article>
+
+  <article class="info-card">
+    <h2><i class="bi bi-upload"></i> 3EKY + your ligands</h2>
+    <p>Upload an SDF, SMI, CSV, or ZIP of ligands and build a portable package.</p>
+    <pre><code>BASE="${BASE_URL:-https://autodockvina.com}"
+curl -fsSLo run_3eky_local_ligands.sh "$BASE/api/v1/examples/3eky-local-ligands/script"
+bash run_3eky_local_ligands.sh /path/to/ligands.sdf</code></pre>
+  </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-braces"></i>
+  <div>
+    <h2>Discover available demos programmatically</h2>
+    <p>The demo catalog is also API data, so documentation and video instructions can remain in sync with the served scripts.</p>
+    <pre><code>curl -fsS "${BASE_URL:-https://autodockvina.com}/api/v1/examples" | python -m json.tool</code></pre>
+  </div>
 </section>
 
 <section class="page-hero compact" id="workflow-overview">
@@ -778,6 +822,16 @@ find . -maxdepth 3 -type f | sort | head -80</code></pre>
         <td><code>POST</code></td>
         <td><code>/api/v1/workspaces</code></td>
         <td>Create a new workspace or reuse a named workspace when supported.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/examples</code></td>
+        <td>List maintained API demo recipes and their script URLs.</td>
+      </tr>
+      <tr>
+        <td><code>GET</code></td>
+        <td><code>/api/v1/examples/&lt;slug&gt;/script</code></td>
+        <td>Download a copy/paste Bash demo script.</td>
       </tr>
       <tr>
         <td><code>GET</code></td>
