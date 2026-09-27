@@ -980,9 +980,18 @@ find . -maxdepth 3 -type f | sort | head -80</code></pre>
       Portable mode is recommended for most users. It builds a ZIP package containing normalized
       receptor, ligand, center, and helper-script files for downstream local or server-side execution.
     </p>
-    <pre><code>{
-  "package_mode": "portable"
-}</code></pre>
+    <p>This complete example uses the hosted Phase 4 approved-drug library and downloads the resulting ZIP.</p>
+    <pre><code>BASE="${BASE_URL:-https://autodockvina.com}"
+curl -fsS -X POST "$BASE/api/v1/headless/package" -H "Content-Type: application/json" -d '{
+  "workspace_name":"portable-9g94",
+  "receptor":{"pdb_id":"9G94"},
+  "bound_ligand":{"resname":"A1D73","chain":"A","resi":"101"},
+  "center":{"method":"same_as_bound_ligand","size":20},
+  "ligand":{"source":"curated","library":"phase4"},
+  "package":{"package_mode":"portable","poses_conf":64,"poses_vina":9}
+}' &gt; portable-build.json
+ARTIFACT=$(python -c 'import json; print(json.load(open("portable-build.json"))["data"]["artifact"]["download_url"])')
+curl -fL -o portable-9g94.zip "$BASE$ARTIFACT"</code></pre>
   </article>
 
   <article class="info-card">
@@ -991,10 +1000,27 @@ find . -maxdepth 3 -type f | sort | head -80</code></pre>
       LSF mode is intended for lab or HPC environments that use an LSF scheduler.
       Use it only when your target environment matches the generated scheduler assumptions.
     </p>
-    <pre><code>{
-  "package_mode": "lsf"
-}</code></pre>
+    <p><code>lsf</code> remains the legacy alias for Joey&rsquo;s Pegasus profile. This builds and downloads that package.</p>
+    <pre><code>BASE="${BASE_URL:-https://autodockvina.com}"
+curl -fsS -X POST "$BASE/api/v1/headless/package" -H "Content-Type: application/json" -d '{
+  "workspace_name":"pegasus-9g94",
+  "receptor":{"pdb_id":"9G94"},
+  "bound_ligand":{"resname":"A1D73","chain":"A","resi":"101"},
+  "center":{"method":"same_as_bound_ligand","size":20},
+  "ligand":{"source":"curated","library":"phase4"},
+  "package":{"package_mode":"lsf","poses_conf":64,"poses_vina":9}
+}' &gt; pegasus-build.json
+ARTIFACT=$(python -c 'import json; print(json.load(open("pegasus-build.json"))["data"]["artifact"]["download_url"])')
+curl -fL -o pegasus-9g94.zip "$BASE$ARTIFACT"</code></pre>
   </article>
+</section>
+
+<section class="notice-card">
+  <i class="bi bi-capsule"></i>
+  <div>
+    <h2>Using the hosted approved-drug libraries</h2>
+    <p>The examples use <code>"library":"phase4"</code>, the bundled ChEMBL Phase 4 approved-drug CSV. Use <code>"library":"phase2"</code> for the Phase 2-or-higher library. To dock the receptor&rsquo;s selected bound ligand instead, remove the complete <code>"ligand": {...}</code> line; the bound ligand remains the docking-box center in either case.</p>
+  </div>
 </section>
 
 <section class="page-hero compact" id="triton-walkthrough">
@@ -1012,6 +1038,7 @@ curl -s -X POST "$BASE/api/v1/headless/package" -H "Content-Type: application/js
   "receptor":{"pdb_id":"9G94"},
   "bound_ligand":{"resname":"A1D73","chain":"A","resi":"101"},
   "center":{"method":"same_as_bound_ligand","size":20},
+  "ligand":{"source":"curated","library":"phase4"},
   "package":{"package_mode":"triton_lsf","poses_conf":64,"poses_vina":9}
 }' &gt; triton-build.json</code></pre>
   </article>

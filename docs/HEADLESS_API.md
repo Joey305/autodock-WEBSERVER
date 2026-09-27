@@ -296,6 +296,7 @@ curl -fsS -X POST "$BASE/api/v1/headless/package" -H "Content-Type: application/
   "receptor":{"pdb_id":"9G94"},
   "bound_ligand":{"resname":"A1D73","chain":"A","resi":"101"},
   "center":{"method":"same_as_bound_ligand","size":20},
+  "ligand":{"source":"curated","library":"phase4"},
   "package":{"package_mode":"triton_lsf","poses_conf":64,"poses_vina":9}
 }' > triton-build.json
 
@@ -305,6 +306,8 @@ mkdir triton-9g94-redock
 unzip -q triton-9g94-redock.zip -d triton-9g94-redock
 cd triton-9g94-redock/job
 ```
+
+This example docks the bundled ChEMBL Phase 4 approved-drug library while using `A1D73` only as the docking-box center. Use `"library":"phase2"` for the ChEMBL Phase 2-or-higher library. To instead dock the receptor's bound ligand, omit the `ligand` object entirely.
 
 The generated `run_confgen_job.lsf` and `run_vina_job.lsf` explicitly contain `#BSUB -P brd`, `#BSUB -q normal`, `#BSUB -n 16`, and `#BSUB -R "span[hosts=1]"`. The profile activates `vina_env`; only recreate it if you intentionally need a fresh environment. Submit the dependent stages in order:
 
