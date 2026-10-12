@@ -137,6 +137,7 @@ AutoDock-Vina PrepServer is part of a growing structure-guided molecular design 
 * [Environment Setup](#environment-setup)
 * [Manual Vina Binary Install](#manual-vina-binary-install)
 * [Running Locally](#running-locally)
+* [Local Script Tutorial](https://autodockvina.com/local-docking)
 * [Headless Command-Line Quick Start](#headless-command-line-quick-start)
 * [Headless API Tutorial](#headless-api-tutorial)
 * [Real Example Walkthrough](#real-example-walkthrough)

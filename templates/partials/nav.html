@@ -47,7 +47,7 @@
         {# SEO / documentation resource dropdown #}
         <li class="nav-item dropdown">
           <a
-            class="nav-link dropdown-toggle {% if request.endpoint in ['documentation', 'docking_problems', 'open_source', 'api_docs', 'troubleshooting'] %}active{% endif %}"
+            class="nav-link dropdown-toggle {% if request.endpoint in ['documentation', 'local_docking', 'docking_problems', 'open_source', 'api_docs', 'troubleshooting'] %}active{% endif %}"
             href="#"
             role="button"
             data-bs-toggle="dropdown"
@@ -67,6 +67,12 @@
             <li>
               <a class="dropdown-item" href="{{ url_for('workflow') }}">
                 <i class="bi bi-map me-2"></i>Workflow Guide
+              </a>
+            </li>
+
+            <li>
+              <a class="dropdown-item" href="{{ url_for('local_docking') }}">
+                <i class="bi bi-terminal me-2"></i>Run Locally
               </a>
             </li>
 

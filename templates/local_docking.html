@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% block title %}Run AutoDock Vina Locally | Copy-and-Paste Tutorial{% endblock %}
+{% block meta_description %}A copy-and-paste local AutoDock Vina tutorial: install the Conda environment, prepare ligands, run batch docking, parse scores, create PyMOL sessions, MD folders, and analysis plots.{% endblock %}
+{% block og_title %}Run AutoDock Vina Locally: Copy-and-Paste Tutorial{% endblock %}
+{% block og_description %}Set up the docking environment and run the complete local pipeline from ligand input through docking results and visualization.{% endblock %}
+{% block content %}
+<section class="page-hero compact">
+  <span class="eyebrow">Local docking tutorial</span>
+  <h1>Run the complete docking pipeline on your own computer.</h1>
+  <p>
+    This is the copy-and-paste path for a new user: install the environment once, then prepare ligands,
+    dock, rank results, and optionally create PyMOL and MD-ready outputs. Commands below are for macOS or Linux.
+  </p>
+</section>
+
+{% set ai_summary_title = "Local docking in one sentence" %}
+{% set ai_summary = "Activate the docking Conda environment, create ligand PDBQT files, provide receptor PDBQT files and a matching vina_centers.csv, run the Vina batch script, then parse, visualize, and inspect the resulting ranked poses." %}
+{% include "partials/ai_summary.html" %}
+
+<section class="split-section">
+  <div>
+    <span class="eyebrow">Before you start</span>
+    <h2>Use a fresh working folder for every docking run.</h2>
+    <p>These scripts write timestamped results beside the directory where you run them. Keep original inputs separate from results so reruns are easy to understand.</p>
+    <p>The browser app can prepare and download a ready-to-run job package. This page also covers running the repository scripts directly when you already have local receptor and ligand files.</p>
+  </div>
+  <div class="info-card">
+    <h2><i class="bi bi-exclamation-triangle"></i>Scientific note</h2>
+    <p>Docking scores are hypotheses, not experimental measurements. Confirm receptor preparation, docking box placement, controls, and pose plausibility before using results in scientific decisions.</p>
+  </div>
+</section>
+
+<section class="content-grid two-col">
+  <article class="info-card">
+    <h2><i class="bi bi-folder2-open"></i>Inputs you need</h2>
+    <p>A receptor folder containing <code>.pdbqt</code> files, ligand input in SDF/SMILES/CSV form, and a <code>vina_centers.csv</code> whose <code>PDB_ID</code> values match the receptor filenames.</p>
+  </article>
+  <article class="info-card">
+    <h2><i class="bi bi-cpu"></i>Recommended first run</h2>
+    <p>Start with one receptor, one small SDF, 9 poses, and 2–4 workers. Scale up only after that small run finishes successfully.</p>
+  </article>
+</section>
+
+<section class="doc-grid">
+  <article class="doc-card">
+    <h2>1. Install Conda and clone the project</h2>
+    <p>Install <a href="https://docs.conda.io/projects/miniconda/en/latest/" target="_blank" rel="noopener noreferrer">Miniconda</a> or Miniforge first. Then run this once in Terminal.</p>
+<pre><code class="language-bash">git clone https://github.com/Joey305/autodock-WEBSERVER.git
+cd autodock-WEBSERVER
+./create_vina_env.sh --name docking
+conda activate docking</code></pre>
+    <p>If your shell says <code>conda: command not found</code> immediately after installation, close and reopen Terminal, then repeat <code>conda activate docking</code>.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2>2. Verify the installation</h2>
+    <p>Run all checks before starting a real job. Each command should print a version or success message.</p>
+<pre><code class="language-bash">python --version
+python -c "from rdkit import Chem; print('RDKit OK')"
+obabel -V
+vina --version
+pymol -cq -d "quit"</code></pre>
+    <p>If only Vina fails, use the <a href="https://github.com/Joey305/autodock-WEBSERVER#manual-vina-binary-install" target="_blank" rel="noopener noreferrer">manual Vina install instructions</a> and return here once <code>vina --version</code> works.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2>3. Make a run folder</h2>
+    <p>This example assumes one receptor named <code>target.pdbqt</code> and one multi-record SDF named <code>library.sdf</code>. Copy your files into the indicated folders.</p>
+<pre><code class="language-bash">export REPO="$HOME/autodock-WEBSERVER"
+mkdir -p "$HOME/docking-runs/first-run"/{Receptors,Ligand_Input}
+cd "$HOME/docking-runs/first-run"
+
+# Put target.pdbqt in Receptors/ and library.sdf in Ligand_Input/
+ls Receptors Ligand_Input</code></pre>
+    <p>Change <code>REPO</code> if you cloned the repository somewhere else. On the first run, avoid spaces in file and folder names.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2>4. Create ligand PDBQT files</h2>
+    <p>The conformer generator uses RDKit and Open Babel. The command below creates a timestamped folder whose name starts with <code>Ligands_PDBQT_</code>.</p>
+<pre><code class="language-bash">python "$REPO/1_ConformerGeneration.py" \
+  --mode 3 \
+  --sdf Ligand_Input/library.sdf \
+  --num-confs 9 \
+  --workers 4
+
+find . -maxdepth 1 -type d -name '*Ligands_PDBQT*'</code></pre>
+    <p>For a CSV library, use <code>--mode 1 --csv compounds.csv --smiles-col SMILES --id-col ID</code>. Use <code>python "$REPO/1_ConformerGeneration.py" --help</code> to see the other input modes.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2>5. Add the docking center</h2>
+    <p>Create <code>vina_centers.csv</code> in the run folder. <code>PDB_ID</code> must match the receptor file stem exactly: <code>target</code> for <code>Receptors/target.pdbqt</code>. Replace the example coordinates with your validated pocket center.</p>
+<pre><code class="language-bash">cat &gt; vina_centers.csv &lt;&lt;'EOF'
+PDB_ID,X,Y,Z
+target,10.5,22.1,-3.4
+EOF
+
+cat vina_centers.csv</code></pre>
+    <p>The web app can create this file from its saved docking-box center. Its downloaded portable package already includes receptors, ligands, and <code>vina_centers.csv</code>.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2>6. Run AutoDock Vina</h2>
+    <p>Set <code>LIGANDS</code> to the generated folder printed in step 4. This example requests 9 poses, keeps four Vina processes active, and writes a timestamped <code>Docking_Results_*</code> folder.</p>
+<pre><code class="language-bash">export LIGANDS="$(find "$PWD" -maxdepth 1 -type d -name '*Ligands_PDBQT*' | head -n 1)"
+test -n "$LIGANDS" || { echo "No ligand PDBQT folder found"; exit 1; }
+
+python "$REPO/3_Complete_batch_docking.py" \
+  --receptors Receptors \
+  --ligands "$LIGANDS" \
+  --centers_csv vina_centers.csv \
+  --poses 9 \
+  --workers 4 \
+  --exhaustiveness 8
+
+find . -maxdepth 1 -type d -name 'Docking_Results_*'</code></pre>
+    <p>Use fewer workers than your available CPU cores. For broad pose-ensemble analysis, add <code>--full-pose-ensemble</code>; do not combine it with <code>--energy-range</code>.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2>7. Parse and rank the scores</h2>
+    <p>Parsing creates a sorted CSV. Graphs creates a <code>Plots/</code> folder beside that CSV.</p>
+<pre><code class="language-bash">export RESULTS="$(find "$PWD" -maxdepth 1 -type d -name 'Docking_Results_*' | head -n 1)"
+python "$REPO/4_ParseScores.py" --dir "$RESULTS"
+
+export SCORES="$(find "$PWD" -maxdepth 1 -name '*vina_docking_scores_sorted.csv' | head -n 1)"
+python "$REPO/7_Graphs.py" \
+  --csv "$SCORES" \
+  --top-n 20 \
+  --write-state-summaries \
+  --write-ranking-plots</code></pre>
+    <p>Lower (more negative) Vina affinity values rank ahead of higher values, but always inspect the poses rather than relying on score alone.</p>
+  </article>
+
+  <article class="doc-card">
+    <h2>8. Optional: PyMOL, HTML, and MD outputs</h2>
+    <p>First audit the top selection without reconstruction. Then make a PyMOL session or compact HTML project. The reference ligand SDF must still be available in the run directory tree.</p>
+<pre><code class="language-bash">python "$REPO/5C_BuildPymolSesh.py" \
+  --csv "$SCORES" --mode per_receptor --top 20 \
+  --receptor-roots Receptors --dry-run-selection --non-interactive
+
+python "$REPO/5C_BuildPymolSesh.py" \
+  --csv "$SCORES" --mode per_receptor --top 20 \
+  --receptor-roots Receptors --non-interactive
+
+python "$REPO/5_COMPACTED_SDF_HTML.py" \
+  --csv "$SCORES" --receptor-roots Receptors \
+  --top-ligands 20 --top-poses 1</code></pre>
+    <p><code>6_MDpymacs.py</code> is the next optional step after PyMOL export. It expects <code>vina_centers.csv</code> and an <code>11_AA_PDBOUTPUT/</code> folder created by the PyMOL workflow:</p>
+<pre><code class="language-bash">python "$REPO/6_MDpymacs.py"
+# Add --skip-pymacs-install if the computer cannot reach GitHub.</code></pre>
+  </article>
+</section>
+
+<section class="split-section">
+  <div>
+    <span class="eyebrow">Downloaded PrepServer package</span>
+    <h2>Already built a portable ZIP in the web app?</h2>
+    <p>Unzip it, activate the same environment, and run the included script. It is the shortest path because the package contains the validated receptors, ligand inputs, center CSV, and runner configuration.</p>
+<pre><code class="language-bash">unzip my-docking-package.zip -d my-docking-package
+cd my-docking-package/job
+conda activate docking
+./run_all_local.sh</code></pre>
+  </div>
+  <div class="info-card">
+    <h2><i class="bi bi-wrench-adjustable"></i>When something fails</h2>
+    <p>Check commands in this order: <code>conda activate docking</code>, <code>vina --version</code>, <code>obabel -V</code>, receptor filename versus <code>PDB_ID</code>, and the paths given to the script. Run any script with <code>--help</code> to see every option.</p>
+    <a class="text-link" href="{{ url_for('troubleshooting') }}">Open troubleshooting <i class="bi bi-arrow-right"></i></a>
+  </div>
+</section>
+
+{% set related_pages = [
+  {"title": "Build a package", "description": "Create a receptor-and-ligand package in the browser before downloading it for local execution.", "endpoint": "build", "icon": "bi-box-seam", "label": "Open build workflow"},
+  {"title": "Workflow guide", "description": "Understand receptor, docking-box, and ligand-preparation decisions before launching Vina.", "endpoint": "workflow", "icon": "bi-map", "label": "Read workflow"},
+  {"title": "Troubleshooting", "description": "Diagnose environment, file, conversion, and package issues.", "endpoint": "troubleshooting", "icon": "bi-tools", "label": "Troubleshoot"}
+] %}
+{% include "partials/related_pages.html" %}
+{% endblock %}

@@ -675,6 +675,10 @@ def create_app() -> Flask:
     def documentation():
         return render_template("documentation.html")
 
+    @app.get("/local-docking")
+    def local_docking():
+        return render_template("local_docking.html")
+
     @app.get("/README.md")
     def readme_markdown():
         return send_file(APP_ROOT / "README.md", mimetype="text/markdown")

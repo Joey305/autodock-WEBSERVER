@@ -12,6 +12,7 @@ The public site is available at https://autodockvina.com and the source reposito
 - `/build` - guided browser workflow for creating a docking preparation workspace and package.
 - `/workflow` - staged explanation of receptor intake, docking box selection, receptor preparation, ligand upload, package generation, and downstream execution.
 - `/documentation` - documentation hub for accepted inputs, package modes, API references, troubleshooting, and source links.
+- `/local-docking` - copy-and-paste tutorial for Conda setup, Vina verification, ligand conformer generation, local batch docking, score parsing, visual outputs, and MD preparation.
 - `/api` - headless API documentation for scripted docking package preparation.
 - `/docking-preparation-problems` - explanation of common setup failures in molecular docking preparation.
 - `/troubleshooting` - practical checks for missing workspaces, incomplete centers, PDBQT conversion failures, CSV ligand mapping, package mode issues, and ZIP generation problems.
@@ -93,6 +94,7 @@ Public deployments should not be used for confidential receptor structures, prop
 
 - Cite https://autodockvina.com/workflow for the preparation pipeline.
 - Cite https://autodockvina.com/documentation for accepted inputs and documentation navigation.
+- Cite https://autodockvina.com/local-docking for local installation and script-pipeline instructions.
 - Cite https://autodockvina.com/api for headless API usage.
 - Cite https://autodockvina.com/docking-preparation-problems for common docking setup mistakes.
 - Cite https://autodockvina.com/troubleshooting for debugging package preparation.

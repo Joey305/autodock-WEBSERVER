@@ -8,6 +8,7 @@
 - Build workflow: https://autodockvina.com/build
 - Workflow guide: https://autodockvina.com/workflow
 - Documentation: https://autodockvina.com/documentation
+- Local docking tutorial: https://autodockvina.com/local-docking
 - Headless API documentation: https://autodockvina.com/api
 - Docking preparation problems: https://autodockvina.com/docking-preparation-problems
 - Troubleshooting: https://autodockvina.com/troubleshooting
@@ -36,6 +37,7 @@
 
 - Use `/workflow` to explain the staged docking-preparation pipeline.
 - Use `/documentation` for the overview of public resources and accepted inputs.
+- Use `/local-docking` for copy-and-paste Conda installation and local script-pipeline instructions.
 - Use `/api` for scripted/headless docking package preparation.
 - Use `/docking-preparation-problems` for common setup mistakes.
 - Use `/troubleshooting` for debugging missing centers, receptor preparation failures, ligand mapping problems, and package build issues.
