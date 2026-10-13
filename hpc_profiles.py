@@ -96,6 +96,9 @@ class HPCProfile:
     python_command: str = '$(command -v python3 || command -v python)'
     setup_commands: tuple[str, ...] = ()
     span_hosts: int = 1
+    # Opt-in policy for metadata-sensitive shared filesystems.
+    compact_results: bool = False
+    compact_scratch_root: str = ""
 
     @property
     def effective_vina_cpus(self) -> int:
@@ -120,7 +123,7 @@ JOEY_LSF_PROFILE = HPCProfile(
     email="jxs794@miami.edu",
     notify_begin=True,
     notify_end=True,
-    queue="gpu_cheminfo",
+    queue="normal",
     project="brd",
     workers=16,
     vina_cpus=16,
@@ -201,6 +204,8 @@ def profile_from_dict(payload: Mapping[str, Any]) -> HPCProfile:
         "python_command": _clean_str(payload.get("python_command"), '$(command -v python3 || command -v python)') or '$(command -v python3 || command -v python)',
         "setup_commands": setup_commands,
         "span_hosts": _clean_int(payload.get("span_hosts"), 1),
+        "compact_results": _clean_bool(payload.get("compact_results"), False),
+        "compact_scratch_root": _clean_str(payload.get("compact_scratch_root")),
     }
     extra = {key: value for key, value in payload.items() if key in known and key not in cleaned}
     return HPCProfile(**(cleaned | extra))
@@ -229,6 +234,8 @@ def build_custom_profile(values: Mapping[str, Any] | None) -> HPCProfile:
             "python_command": _clean_str(values.get("python_command"), '$(command -v python3 || command -v python)'),
             "setup_commands": split_setup_commands(values.get("setup_commands") or values.get("env_line")),
             "span_hosts": values.get("span_hosts") or 1,
+            "compact_results": values.get("compact_results"),
+            "compact_scratch_root": _clean_str(values.get("compact_scratch_root")),
         }
     )
 
@@ -304,6 +311,7 @@ def format_hpc_profile_summary(profile: HPCProfile) -> str:
         f"ConfGen walltime: {profile.confgen_walltime}",
         f"Memory: {profile.mem_per_core_mb} MB/core (LSF rusage[mem=...] per slot)",
         f"Host span: {profile.span_hosts}",
+        f"Compact results: {'enabled' if profile.compact_results else 'disabled'}",
     ))
 
 

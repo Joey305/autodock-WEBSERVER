@@ -2,7 +2,7 @@
   "profile_name": "joey_pegasus",
   "scheduler": "lsf",
   "project": "brd",
-  "queue": "gpu_cheminfo",
+  "queue": "normal",
   "vina_cpus": 16,
   "confgen_cpus": 16,
   "confgen_workers": 16,
@@ -18,5 +18,7 @@
   "conda_sh": "/nethome/jxs794/miniconda3/etc/profile.d/conda.sh",
   "vina_executable": "$HOME/miniconda3/envs/vina_env/bin/vina",
   "python_command": "$(command -v python3 || command -v python)",
-  "setup_commands": []
+  "setup_commands": [],
+  "compact_results": false,
+  "compact_scratch_root": ""
 }

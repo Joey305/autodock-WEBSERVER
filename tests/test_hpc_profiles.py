@@ -36,7 +36,7 @@ class HpcProfileTests(unittest.TestCase):
 
     def test_joey_pegasus_profile_has_verified_allocations(self):
         self.assertEqual(JOEY_LSF_PROFILE.profile_name, "joey_pegasus")
-        self.assertEqual(JOEY_LSF_PROFILE.queue, "gpu_cheminfo")
+        self.assertEqual(JOEY_LSF_PROFILE.queue, "normal")
         self.assertEqual(JOEY_LSF_PROFILE.project, "brd")
         self.assertEqual(JOEY_LSF_PROFILE.effective_vina_cpus, 16)
         self.assertEqual(JOEY_LSF_PROFILE.effective_confgen_cpus, 16)
@@ -171,13 +171,27 @@ class HpcProfileTests(unittest.TestCase):
 
         self.assertIn("#BSUB -P brd", vina)
         self.assertIn("#BSUB -W 240:00", vina)
-        self.assertIn("#BSUB -q gpu_cheminfo", vina)
+        self.assertIn("#BSUB -q normal", vina)
         self.assertIn("#BSUB -n 16", vina)
         self.assertIn('#BSUB -R "span[hosts=1]"', vina)
         self.assertIn('#BSUB -R "rusage[mem=2000]"', vina)
         self.assertIn("#BSUB -W 48:00", confgen)
         self.assertIn("#BSUB -n 16", confgen)
         self.assertIn("--workers 16", confgen)
+
+    def test_compact_profile_is_serialized_and_enables_generated_vina_mode(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Ligands").mkdir(); (root / "Receptors").mkdir()
+            (root / "vina_centers.csv").write_text("PDB_ID,X,Y,Z\nrec,1,2,3\n", encoding="utf-8")
+            profile = replace_profile(MAINAK_LSF_PROFILE, compact_results=True, compact_scratch_root="/scratch/mainak")
+            build_vina_lsfs(root, root, profile=profile, poses=9)
+            script = (root / "run_vina_job.lsf").read_text(encoding="utf-8")
+            packaged = json.loads((root / "hpc_profile.json").read_text(encoding="utf-8"))
+        self.assertTrue(packaged["compact_results"])
+        self.assertEqual(packaged["compact_scratch_root"], "/scratch/mainak")
+        self.assertIn("--compact-results", script)
+        self.assertIn("VINA_SCRATCH_ROOT", script)
 
     def test_triton_generation_requests_one_16_core_node(self):
         with tempfile.TemporaryDirectory() as tmpdir:

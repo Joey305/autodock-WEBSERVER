@@ -13,8 +13,9 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 
@@ -220,52 +221,117 @@ def _pose_retention_mode(energy_range: float) -> str:
 
 
 # ---------- Docking worker ----------
-def run_docking(job):
-    vina_exe = job["vina_exe"]
+VINA_RESULT_RE = re.compile(
+    r"^REMARK\s+VINA\s+RESULT:\s+(-?\d+(?:\.\d+)?)\s+(\S+)\s+(\S+)", re.MULTILINE
+)
 
-    # Write every relevant Vina setting explicitly. This makes each individual
-    # docking directory self-describing and reproducible.
-    with open(job["config_path"], "w", encoding="utf-8") as cfg:
+
+def _write_vina_config(job: dict, config_path: str, output_pdbqt: str) -> None:
+    """Write the unchanged Vina configuration, optionally to compact scratch."""
+    with open(config_path, "w", encoding="utf-8") as cfg:
         cfg.write(f"receptor = {job['receptor_file']}\n")
         cfg.write(f"ligand = {job['ligand_file']}\n")
         cfg.write(f"center_x = {job['cx']}\n")
         cfg.write(f"center_y = {job['cy']}\n")
         cfg.write(f"center_z = {job['cz']}\n")
-        cfg.write("size_x = 20\n")
-        cfg.write("size_y = 20\n")
-        cfg.write("size_z = 20\n")
-        cfg.write(f"num_modes = {job['num_modes']}\n")
-        cfg.write(f"exhaustiveness = {job['exhaustiveness']}\n")
-        cfg.write(f"min_rmsd = {job['min_rmsd']}\n")
-        cfg.write(f"energy_range = {job['energy_range']}\n")
-        cfg.write(f"seed = {job['seed']}\n")
-        cfg.write(f"out = {job['output_pdbqt']}\n")
+        cfg.write("size_x = 20\nsize_y = 20\nsize_z = 20\n")
+        cfg.write(f"num_modes = {job['num_modes']}\nexhaustiveness = {job['exhaustiveness']}\n")
+        cfg.write(f"min_rmsd = {job['min_rmsd']}\nenergy_range = {job['energy_range']}\n")
+        cfg.write(f"seed = {job['seed']}\nout = {output_pdbqt}\n")
 
-    # Keep each Vina process to 1 thread; the Python pool controls total concurrency.
-    env = os.environ.copy()
-    env["OMP_NUM_THREADS"] = "1"
 
-    result = subprocess.run(
-        [vina_exe, "--config", job["config_path"], "--cpu", "1"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-    )
+def _compact_rows(job: dict, output_pdbqt: str) -> tuple[list[dict], bytes]:
+    """Extract scores before the worker's private scratch directory is removed."""
+    pose_bytes = Path(output_pdbqt).read_bytes()
+    text = pose_bytes.decode("utf-8", errors="replace")
+    rows = []
+    for pose, match in enumerate(VINA_RESULT_RE.finditer(text), start=1):
+        affinity, rmsd_lb, rmsd_ub = match.groups()
+        rows.append({
+            "PDB_ID": job["pdbid"], "ResolvedReceptor": job["resolved_receptor"],
+            "Ligand": job["ligand"], "Pose": pose, "Binding_Affinity": affinity,
+            "RMSD_LB": rmsd_lb, "RMSD_UB": rmsd_ub, "Seed": job["seed"],
+            "LigandMetadataJSON": json.dumps(job.get("ligand_metadata", {}), sort_keys=True, default=str),
+            "Status": "success",
+        })
+    return rows, pose_bytes
 
-    # Save whichever stream has content.
-    with open(job["output_log"], "wb") as log_file:
-        if result.stdout:
+
+def run_docking(job):
+    """Run one ligand safely; no single worker error may abort a whole batch."""
+    try:
+        vina_exe = job["vina_exe"]
+
+        if job.get("compact_scratch_root"):
+            # Parent removes this private directory only after its CSV record is
+            # fsync'd, so an interruption cannot mark a cleaned result complete.
+            work = tempfile.mkdtemp(prefix="vina_job_", dir=job["compact_scratch_root"])
+            try:
+                config_path = os.path.join(work, "config.txt")
+                output_pdbqt = os.path.join(work, "out.pdbqt")
+                _write_vina_config(job, config_path, output_pdbqt)
+                ok, line, rows, pose_bytes = _run_vina(job, config_path, output_pdbqt, compact=True)
+                return ok, line, rows, work, pose_bytes
+            except Exception as exc:
+                return False, f"❌ {job['ligand']} vs {job['pdbid']}: {exc}", [], work, b""
+        _write_vina_config(job, job["config_path"], job["output_pdbqt"])
+        return _run_vina(job, job["config_path"], job["output_pdbqt"], compact=False)
+    except Exception as exc:
+        message = f"runner exception: {type(exc).__name__}: {exc}"
+        if job.get("compact_scratch_root"):
+            return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}", [], "", b""
+        return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}"
+
+
+def _run_vina(job: dict, config_path: str, output_pdbqt: str, *, compact: bool):
+    """Run Vina once; compact callers receive score rows rather than pose paths."""
+    try:
+        vina_exe = job["vina_exe"]
+
+        # Keep each Vina process to 1 thread; the Python pool controls total concurrency.
+        env = os.environ.copy()
+        env["OMP_NUM_THREADS"] = "1"
+        result = subprocess.run(
+            [vina_exe, "--config", config_path, "--cpu", "1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+
+        if result.returncode == 0:
+            line = f"✅ {job['ligand']} → {job['pdbid']}  seed={job['seed']}"
+            if compact:
+                rows, pose_bytes = _compact_rows(job, output_pdbqt)
+                if not rows:
+                    return False, f"❌ {job['ligand']} vs {job['pdbid']}: Vina wrote no score rows", [], b""
+                return True, line, rows, pose_bytes
+            with open(job["output_log"], "wb") as log_file:
+                log_file.write(result.stdout)
+                if result.stderr:
+                    log_file.write(b"\n--- STDERR ---\n" + result.stderr)
+            return True, line
+
+        err = result.stderr.decode(errors="ignore").strip()
+        line = f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {err}"
+        if compact:
+            return False, line, [], b""
+        with open(job["output_log"], "wb") as log_file:
             log_file.write(result.stdout)
-        if result.stderr:
-            if result.stdout:
-                log_file.write(b"\n--- STDERR ---\n")
-            log_file.write(result.stderr)
-
-    if result.returncode == 0:
-        return True, f"✅ {job['ligand']} → {job['pdbid']}  seed={job['seed']}"
-
-    err = result.stderr.decode(errors="ignore").strip()
-    return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {err}"
+            if result.stderr:
+                log_file.write(b"\n--- STDERR ---\n" + result.stderr)
+        return False, line
+    except Exception as exc:
+        # In particular, fork_exec can raise ENOMEM. Record it for retry while
+        # allowing all other queued ligands to finish.
+        message = f"runner exception: {type(exc).__name__}: {exc}"
+        if compact:
+            return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}", [], b""
+        try:
+            with open(job["output_log"], "ab") as log_file:
+                log_file.write((message + "\n").encode("utf-8", errors="replace"))
+        except OSError:
+            pass
+        return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}"
 
 
 def resolve_vina_executable(cli_vina_exe: str | None = None) -> str:
@@ -344,14 +410,17 @@ def build_jobs(
     grid_rows,
     num_modes,
     vina_exe,
-    exhaustiveness,
-    min_rmsd,
-    energy_range,
-    batch_seed,
+    exhaustiveness=DEFAULT_EXHAUSTIVENESS,
+    min_rmsd=DEFAULT_MIN_RMSD,
+    energy_range=DEFAULT_ENERGY_RANGE,
+    batch_seed=1,
     receptor_file=None,
+    ligand_files=None,
+    compact_scratch_root: str | None = None,
 ):
     jobs = []
-    ligand_files = glob.glob(os.path.join(ligand_dir, "*.pdbqt"))
+    ligand_files = list(ligand_files) if ligand_files is not None else glob.glob(os.path.join(ligand_dir, "*.pdbqt"))
+    ligand_files = [os.path.abspath(path) for path in ligand_files]
     receptor_files = []
     for suffix in RECEPTOR_SUFFIXES:
         receptor_files.extend(glob.glob(os.path.join(receptor_dir, f"*{suffix}")))
@@ -364,7 +433,10 @@ def build_jobs(
             if os.path.abspath(path) == selected_receptor
         ]
 
-    ligand_names = [os.path.splitext(os.path.basename(f))[0] for f in ligand_files]
+    ligand_by_name = {os.path.splitext(os.path.basename(path))[0]: path for path in ligand_files}
+    if len(ligand_by_name) != len(ligand_files):
+        raise ValueError("Ligand file names must be unique when using --ligand-list")
+    ligand_names = sorted(ligand_by_name)
 
     manifest_map = {}
     for manifest_path in find_ligand_state_manifests([Path(ligand_dir), Path(ligand_dir).parent]):
@@ -393,12 +465,13 @@ def build_jobs(
         safe_pdbid = safe_pdbid.replace(".pdbqt", "").replace(".pdb", "").replace(".mol2", "")
 
         for ligand in ligand_names:
-            ligand_file = os.path.join(ligand_dir, f"{ligand}.pdbqt")
-            if not os.path.exists(ligand_file):
-                continue
+            ligand_file = ligand_by_name[ligand]
 
             output_subdir = os.path.join(results_dir, safe_pdbid, ligand)
-            os.makedirs(output_subdir, exist_ok=True)
+            # Legacy mode deliberately retains one directory per ligand. Compact
+            # mode never creates this tree: each worker uses private scratch.
+            if not compact_scratch_root:
+                os.makedirs(output_subdir, exist_ok=True)
 
             job_seed = _make_job_seed(batch_seed, safe_pdbid, ligand, cx, cy, cz)
 
@@ -421,6 +494,7 @@ def build_jobs(
                     "energy_range": energy_range,
                     "seed": job_seed,
                     "vina_exe": vina_exe,
+                    "compact_scratch_root": compact_scratch_root,
                     "ligand_metadata": merge_ligand_metadata(
                         ligand,
                         manifest_row=manifest_map.get(ligand),
@@ -431,7 +505,7 @@ def build_jobs(
     return jobs
 
 
-def write_job_manifest(results_dir: str, jobs: list[dict]) -> str:
+def write_job_manifest(results_dir: str, jobs: list[dict], *, compact_mode: bool = False) -> str:
     """Write a compact machine-readable index for downstream Step 8 analysis."""
     manifest_path = os.path.join(results_dir, "docking_jobs.csv")
     fieldnames = [
@@ -481,9 +555,9 @@ def write_job_manifest(results_dir: str, jobs: list[dict]) -> str:
                     "MinRMSD": job["min_rmsd"],
                     "EnergyRange": job["energy_range"],
                     "Seed": job["seed"],
-                    "ConfigPath": rel(job["config_path"]),
-                    "OutputPDBQT": rel(job["output_pdbqt"]),
-                    "OutputLog": rel(job["output_log"]),
+                    "ConfigPath": "temporary scratch" if compact_mode else rel(job["config_path"]),
+                    "OutputPDBQT": "not retained (compact results)" if compact_mode else rel(job["output_pdbqt"]),
+                    "OutputLog": "compact_failures.csv" if compact_mode else rel(job["output_log"]),
                     "LigandMetadataJSON": json.dumps(
                         job.get("ligand_metadata", {}),
                         sort_keys=True,
@@ -516,6 +590,7 @@ def write_provenance(
     total_jobs: int,
     successes: int | None = None,
     failures: int | None = None,
+    compact: dict | None = None,
 ) -> None:
     payload = {
         "schema_version": 1,
@@ -558,10 +633,10 @@ def write_provenance(
             "failures": failures,
         },
     }
+    if compact is not None:
+        payload["compact_results"] = compact
 
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    _atomic_json(Path(path), payload)
 
 
 def cpu_count_cgroup_aware():
@@ -579,6 +654,83 @@ def cpu_count_cgroup_aware():
         except ValueError:
             pass
     return max(1, n)
+
+
+COMPACT_RESULT_COLUMNS = [
+    "PDB_ID", "ResolvedReceptor", "Ligand", "Pose", "Binding_Affinity", "RMSD_LB",
+    "RMSD_UB", "Seed", "LigandMetadataJSON", "Status",
+]
+COMPACT_FAILURE_COLUMNS = ["PDB_ID", "ResolvedReceptor", "Ligand", "Seed", "Error", "Status"]
+
+
+def resolve_compact_scratch_root(cli_root: str | None, results_dir: str) -> tuple[str, str]:
+    """Apply CLI > environment/profile export > results-root fallback precedence."""
+    if cli_root:
+        return os.path.abspath(cli_root), "cli"
+    env_root = os.environ.get("VINA_SCRATCH_ROOT", "").strip()
+    if env_root:
+        return os.path.abspath(os.path.expandvars(os.path.expanduser(env_root))), "environment/profile"
+    return os.path.abspath(results_dir), "results-root fallback (temporary; not verified local NVMe)"
+
+
+def _job_key(job: dict) -> tuple[str, str, str]:
+    return str(job["resolved_receptor"]), str(job["ligand"]), str(job["seed"])
+
+
+def _completed_compact_jobs(path: Path) -> set[tuple[str, str, str]]:
+    if not path.is_file():
+        return set()
+    with path.open(newline="", encoding="utf-8") as handle:
+        return {
+            (row.get("ResolvedReceptor", ""), row.get("Ligand", ""), row.get("Seed", ""))
+            for row in csv.DictReader(handle)
+            if row.get("Status") == "success"
+        }
+
+
+def _append_csv_rows(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
+    """Durably append final records; a record is complete only after fsync."""
+    if not rows:
+        return
+    new_file = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        if new_file:
+            writer.writeheader()
+        writer.writerows(rows)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _atomic_json(path: Path, payload: dict) -> None:
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def _write_retained_poses(results_dir: Path, candidates: dict[str, list[tuple[float, dict, bytes]]]) -> list[dict]:
+    """Atomically retain only ranked compact pose files, never a full job tree."""
+    retained: list[dict] = []
+    root = results_dir / "retained_poses"
+    for receptor, entries in sorted(candidates.items()):
+        receptor_dir = root / _sanitize_tag(receptor)
+        receptor_dir.mkdir(parents=True, exist_ok=True)
+        for rank, (score, job, pose_bytes) in enumerate(sorted(entries, key=lambda item: (item[0], item[1]["ligand"], item[1]["seed"])), start=1):
+            name = f"top_{rank:03d}_{_sanitize_tag(job['ligand'])}_seed{job['seed']}.pdbqt"
+            path = receptor_dir / name
+            tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            tmp.write_bytes(pose_bytes)
+            os.replace(tmp, path)
+            retained.append({
+                "rank": rank, "receptor": receptor, "ligand": job["ligand"], "seed": job["seed"],
+                "binding_affinity": score, "path": str(path.relative_to(results_dir)),
+            })
+    _atomic_json(results_dir / "compact_retained_poses.json", {"schema_version": 1, "retained": retained})
+    return retained
 
 
 def parse_args():
@@ -600,6 +752,37 @@ def parse_args():
     ap.add_argument("--centers_csv", help="Path to vina centers CSV with headers PDB_ID,X,Y,Z")
     ap.add_argument("--poses", type=int, help="num_modes per ligand (e.g., 9, 20, 64)")
     ap.add_argument("--vina-exe", help="Path to AutoDock Vina executable")
+    ap.add_argument(
+        "--ligand-list",
+        help="Optional text file containing one ligand .pdbqt path per line; enables sharded/resume runs.",
+    )
+    ap.add_argument(
+        "--results-dir",
+        help="Optional explicit result directory. Required by array wrappers to isolate each shard.",
+    )
+    ap.add_argument(
+        "--compact-results",
+        action="store_true",
+        help="Collect scores into shard CSVs and discard per-ligand pose/config/log files after extraction.",
+    )
+    ap.add_argument(
+        "--compact-scratch-root",
+        help="Temporary Vina workspace. Overrides VINA_SCRATCH_ROOT; defaults to --results-dir temporarily.",
+    )
+    ap.add_argument(
+        "--compact-retain-top-poses", type=int, default=0, metavar="N",
+        help="In compact mode, retain full PDBQT poses only for the top N ligands per receptor (default: 0).",
+    )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        help="Maximum concurrent Vina processes. Defaults to schedulable cores minus --reserve_cores.",
+    )
+    ap.add_argument(
+        "--max-pending",
+        type=int,
+        help="Maximum submitted-but-unfinished worker tasks; defaults to twice --workers.",
+    )
     ap.add_argument(
         "--reserve_cores",
         type=int,
@@ -653,6 +836,10 @@ def main():
 
     if args.full_pose_ensemble and args.energy_range is not None:
         raise SystemExit("Use either --full-pose-ensemble OR --energy-range, not both.")
+    if args.compact_retain_top_poses < 0:
+        raise SystemExit("--compact-retain-top-poses must be zero or greater")
+    if args.compact_retain_top_poses and not args.compact_results:
+        raise SystemExit("--compact-retain-top-poses requires --compact-results")
 
     start_time = time.time()
     start_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -729,11 +916,15 @@ def main():
     lig_tag = _ligand_tag_from_dir(ligand_dir)
 
     # --- Outputs with receptor/ligand/poses/timestamp ---
-    results_dir = os.path.join(
-        cwd,
-        f"Docking_Results_{rec_tag}_{lig_tag}_{num_modes}Poses_{timestamp_tag}",
+    results_dir = os.path.abspath(args.results_dir) if args.results_dir else os.path.join(
+        cwd, f"Docking_Results_{rec_tag}_{lig_tag}_{num_modes}Poses_{timestamp_tag}"
     )
     os.makedirs(results_dir, exist_ok=True)
+    compact_scratch_root = None
+    scratch_source = None
+    if args.compact_results:
+        compact_scratch_root, scratch_source = resolve_compact_scratch_root(args.compact_scratch_root, results_dir)
+        os.makedirs(compact_scratch_root, exist_ok=True)
 
     # Run log (append all results; keeps terminal quiet) — tagged.
     run_log_path = os.path.join(
@@ -741,6 +932,22 @@ def main():
         f"run_log_{rec_tag}_{lig_tag}_{num_modes}Poses_{timestamp_tag}.txt",
     )
     run_log = open(run_log_path, "a", encoding="utf-8")
+
+    ligand_files = None
+    if args.ligand_list:
+        list_path = Path(args.ligand_list).resolve()
+        if not list_path.is_file():
+            raise FileNotFoundError(f"Ligand list does not exist: {list_path}")
+        ligand_files = []
+        for raw_line in list_path.read_text(encoding="utf-8").splitlines():
+            value = raw_line.strip()
+            if not value or value.startswith("#"):
+                continue
+            path = Path(value)
+            path = path if path.is_absolute() else list_path.parent / path
+            if path.suffix.lower() != ".pdbqt" or not path.is_file():
+                raise FileNotFoundError(f"Invalid ligand path in {list_path}: {value}")
+            ligand_files.append(str(path.resolve()))
 
     jobs = build_jobs(
         results_dir,
@@ -754,6 +961,8 @@ def main():
         energy_range,
         batch_seed,
         receptor_file,
+        ligand_files,
+        compact_scratch_root,
     )
 
     receptor_files = []
@@ -779,7 +988,14 @@ def main():
 
     ncpus = cpu_count_cgroup_aware()
     reserve = max(0, int(args.reserve_cores))
-    max_workers = max(1, ncpus - reserve)
+    max_workers = int(args.workers) if args.workers is not None else max(1, ncpus - reserve)
+    if max_workers < 1:
+        raise ValueError("--workers must be greater than zero")
+    if max_workers > ncpus:
+        raise ValueError(f"--workers ({max_workers}) exceeds schedulable cores ({ncpus})")
+    max_pending = int(args.max_pending) if args.max_pending is not None else max_workers * 2
+    if max_pending < max_workers:
+        raise ValueError("--max-pending must be at least --workers")
 
     total_jobs = len(jobs)
     if total_jobs == 0:
@@ -792,7 +1008,7 @@ def main():
         )
 
     # Machine-readable provenance for future 8_Protacability.py.
-    job_manifest_path = write_job_manifest(results_dir, jobs)
+    job_manifest_path = write_job_manifest(results_dir, jobs, compact_mode=args.compact_results)
     provenance_path = os.path.join(results_dir, "docking_parameters.json")
     write_provenance(
         provenance_path,
@@ -812,6 +1028,12 @@ def main():
         energy_range=energy_range,
         batch_seed=batch_seed,
         total_jobs=total_jobs,
+        compact=({
+            "enabled": True, "results_csv": "compact_results.csv", "failures_csv": "compact_failures.csv",
+            "completion_metadata": "compact_completion.json", "scratch_root": compact_scratch_root,
+            "scratch_source": scratch_source, "poses_retained": bool(args.compact_retain_top_poses),
+            "retain_top_poses_per_receptor": args.compact_retain_top_poses,
+        } if args.compact_results else None),
     )
 
     print(
@@ -829,35 +1051,119 @@ def main():
     print(f"🎲 Batch seed       : {batch_seed}", flush=True)
     print(f"📋 Job manifest     : {job_manifest_path}", flush=True)
     print(f"🧬 Dock provenance  : {provenance_path}", flush=True)
+    if args.compact_results:
+        pose_note = "no pose PDBQT files retained" if not args.compact_retain_top_poses else f"top {args.compact_retain_top_poses} pose PDBQT files retained per receptor"
+        print(f"🗜  Compact results : enabled ({pose_note})", flush=True)
+        print(f"🧹 Scratch root     : {compact_scratch_root} ({scratch_source})", flush=True)
 
     successes, failures = 0, 0
     results_log = []
+    retained_candidates: dict[str, list[tuple[float, dict, bytes]]] = {}
 
-    progress_bar(0, total_jobs, successes=0, failures=0)
+    compact_results_path = Path(results_dir) / "compact_results.csv"
+    compact_failures_path = Path(results_dir) / "compact_failures.csv"
+    compact_completion_path = Path(results_dir) / "compact_completion.json"
+    retained_manifest_path = Path(results_dir) / "compact_retained_poses.json"
+    completed_jobs = _completed_compact_jobs(compact_results_path) if args.compact_results else set()
+    replay_completed_for_retention = bool(
+        args.compact_results and args.compact_retain_top_poses and completed_jobs and not retained_manifest_path.exists()
+    )
+    if completed_jobs and not replay_completed_for_retention:
+        jobs = [job for job in jobs if _job_key(job) not in completed_jobs]
+        print(f"♻️  Compact resume: skipping {len(completed_jobs)} completed docking jobs.", flush=True)
+    elif replay_completed_for_retention:
+        print("♻️  Compact resume: replaying completed dockings to reconstruct requested retained poses.", flush=True)
 
-    # Concurrency limited by max_workers; quiet terminal, log to file.
+    progress_bar(0, len(jobs), successes=0, failures=0)
+
+    # Keep only a bounded task buffer. Submitting tens of thousands of futures
+    # consumes unnecessary parent-process memory and makes an OOM more likely.
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(run_docking, job) for job in jobs]
+        job_iter = iter(jobs)
+        futures = {}
+        for _ in range(min(max_pending, len(jobs))):
+            job = next(job_iter)
+            futures[executor.submit(run_docking, job)] = job
         done_count = 0
-        for future in as_completed(futures):
-            ok, line = future.result()
-            results_log.append(line)
-            run_log.write(line + "\n")
-            run_log.flush()
+        while futures:
+            completed, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for future in completed:
+                job = futures.pop(future)
+                try:
+                    outcome = future.result()
+                    if args.compact_results:
+                        ok, line, score_rows, scratch_job_dir, pose_bytes = outcome
+                    else:
+                        ok, line = outcome
+                        score_rows = []
+                        scratch_job_dir = ""
+                        pose_bytes = b""
+                except Exception as exc:
+                    ok = False
+                    score_rows = []
+                    scratch_job_dir = ""
+                    pose_bytes = b""
+                    line = (
+                        f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: "
+                        f"worker future exception: {type(exc).__name__}: {exc}"
+                    )
+                results_log.append(line)
+                run_log.write(line + "\n")
+                run_log.flush()
 
-            if ok:
-                successes += 1
-            else:
-                failures += 1
+                if ok:
+                    successes += 1
+                    if args.compact_results and _job_key(job) not in completed_jobs:
+                        _append_csv_rows(compact_results_path, COMPACT_RESULT_COLUMNS, score_rows)
+                    if args.compact_retain_top_poses and score_rows:
+                        candidates = retained_candidates.setdefault(job["resolved_receptor"], [])
+                        candidates.append((min(float(row["Binding_Affinity"]) for row in score_rows), job, pose_bytes))
+                        candidates.sort(key=lambda item: (item[0], item[1]["ligand"], item[1]["seed"]))
+                        del candidates[args.compact_retain_top_poses:]
+                else:
+                    failures += 1
+                    if args.compact_results:
+                        _append_csv_rows(compact_failures_path, COMPACT_FAILURE_COLUMNS, [{
+                            "PDB_ID": job["pdbid"], "ResolvedReceptor": job["resolved_receptor"],
+                            "Ligand": job["ligand"], "Seed": job["seed"], "Error": line, "Status": "failed",
+                        }])
+                if scratch_job_dir:
+                    # The directory was made by this run with mkdtemp; never
+                    # remove a configured scratch root or existing results dir.
+                    shutil.rmtree(scratch_job_dir, ignore_errors=True)
 
-            done_count += 1
-            progress_bar(done_count, total_jobs, successes=successes, failures=failures)
+                done_count += 1
+                progress_bar(done_count, len(jobs), successes=successes, failures=failures)
+
+                try:
+                    next_job = next(job_iter)
+                except StopIteration:
+                    continue
+                futures[executor.submit(run_docking, next_job)] = next_job
 
     end_time = time.time()
     duration_min = round((end_time - start_time) / 60, 2)
     duration_sec = round(end_time - start_time, 2)
     end_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     run_log.close()
+
+    if args.compact_results:
+        retained = _write_retained_poses(Path(results_dir), retained_candidates) if args.compact_retain_top_poses else []
+        _atomic_json(compact_completion_path, {
+            "schema_version": 1,
+            "status": "complete" if failures == 0 else "complete_with_failures",
+            "completed_at": end_stamp,
+            "results_csv": compact_results_path.name,
+            "failures_csv": compact_failures_path.name,
+            "successful_jobs_this_run": successes,
+            "failed_jobs_this_run": failures,
+            "resumed_completed_jobs": len(completed_jobs),
+            "scratch_root": compact_scratch_root,
+            "scratch_source": scratch_source,
+            "poses_retained": bool(args.compact_retain_top_poses),
+            "retained_top_poses_per_receptor": args.compact_retain_top_poses,
+            "retained_pose_files": retained,
+        })
 
     # Update provenance after completion.
     write_provenance(
@@ -880,6 +1186,12 @@ def main():
         total_jobs=total_jobs,
         successes=successes,
         failures=failures,
+        compact=({
+            "enabled": True, "results_csv": "compact_results.csv", "failures_csv": "compact_failures.csv",
+            "completion_metadata": "compact_completion.json", "scratch_root": compact_scratch_root,
+            "scratch_source": scratch_source, "poses_retained": bool(args.compact_retain_top_poses),
+            "retain_top_poses_per_receptor": args.compact_retain_top_poses,
+        } if args.compact_results else None),
     )
 
     # Duration file in working directory (tagged).
