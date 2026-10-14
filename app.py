@@ -659,6 +659,10 @@ def create_app() -> Flask:
     def about():
         return render_template("about.html")
 
+    @app.get("/citation")
+    def citation():
+        return render_template("citation.html")
+
     @app.get("/workflow")
     def workflow():
         return render_template("workflow.html")
