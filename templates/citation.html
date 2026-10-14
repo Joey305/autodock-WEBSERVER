@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Cite AutoDock-Vina PrepServer{% endblock %}
+{% block content %}
+<section class="py-4" style="max-width:920px;margin:auto"><p class="text-uppercase text-primary fw-semibold">Research software</p><h1>How to cite AutoDock-Vina PrepServer</h1><p class="lead">Cite this record for the PrepServer interface and reproducible package-building workflow.</p>
+  <div class="card shadow-sm my-4"><div class="card-body"><h2 class="h4">Recommended citation</h2><p class="mb-0">The Schürer Lab. (2026). <em>AutoDock-Vina PrepServer</em> (Version v2026.10) [Computer software]. Zenodo. <a href="https://doi.org/10.5281/zenodo.23374581">https://doi.org/10.5281/zenodo.23374581</a></p></div></div>
+  <p><a class="btn btn-primary me-2" href="https://doi.org/10.5281/zenodo.23374581">Open Zenodo DOI</a><a class="btn btn-outline-primary" href="{{ url_for('static', filename='citations/autodock-vina-prepserver-v2026.10.ris') }}" download>Download RIS</a></p>
+  <p class="text-muted small">Also cite AutoDock Vina and any other upstream software or data used in your docking workflow.</p>
+</section>
+{% endblock %}
