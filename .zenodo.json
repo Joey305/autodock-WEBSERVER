@@ -1,0 +1,13 @@
+{
+  "title": "AutoDock-Vina PrepServer",
+  "description": "A browser and API-driven workspace builder for reproducible AutoDock Vina docking packages. This record describes the PrepServer implementation, not the AutoDock Vina docking engine itself.",
+  "creators": [
+    {
+      "name": "The Schürer Lab",
+      "affiliation": "University of Miami"
+    }
+  ],
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "access_right": "open",
+  "keywords": ["molecular docking", "AutoDock Vina", "docking preparation", "cheminformatics", "research software"]
+}

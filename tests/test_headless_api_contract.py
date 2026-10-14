@@ -42,6 +42,21 @@ class HeadlessApiContractTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["data"]["api_version"], "v1")
 
+    def test_demo_catalog_and_scripts_are_served(self):
+        response = self.client.get("/api/v1/examples")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        examples = {item["slug"]: item for item in payload["data"]["examples"]}
+        self.assertEqual(set(examples), {"3eky-dr7-portable", "3eky-phase4-triton", "3eky-local-ligands"})
+        self.assertEqual(examples["3eky-phase4-triton"]["package_mode"], "triton_lsf")
+
+        script = self.client.get(examples["3eky-phase4-triton"]["script_url"])
+        self.assertEqual(script.status_code, 200)
+        text = script.get_data(as_text=True)
+        self.assertIn('"library":"phase4"', text)
+        self.assertIn("SUBMIT_JOBS", text)
+
     def test_headless_client_script_is_served(self):
         response = self.client.get("/api/v1/clients/headless_redock_bound_ligand.py")
         self.assertEqual(response.status_code, 200)

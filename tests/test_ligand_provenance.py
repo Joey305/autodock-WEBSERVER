@@ -90,6 +90,27 @@ class LigandManifestTests(unittest.TestCase):
 
 
 class ParseScoresTests(unittest.TestCase):
+    def test_parse_log_accepts_trailing_success_metadata(self):
+        module = load_script_module("4_ParseScores.py", "parse_scores_log_module")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            results_dir = root / "Docking_Results_example"
+            log_path = root / "run_log_example.txt"
+            log_path.write_text(
+                "✅ ligand_p01_t01_c001 → receptor.pdbqt  seed=1976809786\n"
+            )
+
+            self.assertEqual(
+                module.parse_log_to_targets(results_dir, log_path),
+                [
+                    (
+                        "receptor",
+                        "ligand_p01_t01_c001",
+                        results_dir / "receptor" / "ligand_p01_t01_c001" / "out.pdbqt",
+                    )
+                ],
+            )
+
     def test_build_score_rows_preserves_variant_metadata(self):
         module = load_script_module("4_ParseScores.py", "parse_scores_module")
         rows = module.build_score_rows(

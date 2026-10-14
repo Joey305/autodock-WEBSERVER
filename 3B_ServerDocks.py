@@ -269,6 +269,8 @@ def write_lsf(
     ]
     if receptor_file:
         docking_args.append(f'--receptor-file "{receptor_file}"')
+    if profile.compact_results:
+        docking_args.append("--compact-results")
     docking_command = '"$PYBIN" 3_Complete_batch_docking.py \\\n' + " \\\n".join(
         f"  {arg}" for arg in docking_args
     ) + "\n"
@@ -291,6 +293,10 @@ def write_lsf(
         ).split("\n", 1)[1]
         + render_setup_block(profile)
         + vina_pin
+        + (
+            f'export VINA_SCRATCH_ROOT="${{VINA_SCRATCH_ROOT:-{profile.compact_scratch_root}}}"\n'
+            if profile.compact_results and profile.compact_scratch_root else ""
+        )
         + f'PYBIN="{profile.python_command}"\n'
         + 'if [ -z "$PYBIN" ]; then\n  echo "No Python command configured"; exit 127\nfi\n'
         + docking_command

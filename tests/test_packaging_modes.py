@@ -85,7 +85,7 @@ class PackagingModeTests(unittest.TestCase):
         self.assertTrue((jobroot / "5_CompactedHTMLViz.py").exists())
         self.assertTrue((jobroot / "5_COMPACTED_SDF_HTML.py").exists())
         self.assertTrue((jobroot / "lsf_templates.py").exists())
-        self.assertTrue((jobroot / "test_gpu_cheminfo_queue.sh").exists())
+        self.assertTrue((jobroot / "test_normal_queue.sh").exists())
         self.assertTrue((jobroot / "runDOCKING-tmux.sh").exists())
         self.assertIsInstance(warnings, list)
 

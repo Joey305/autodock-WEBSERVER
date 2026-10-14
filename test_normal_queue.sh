@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PROJECT="${PROJECT:-brd}"
-QUEUE="${QUEUE:-gpu_cheminfo}"
+QUEUE="${QUEUE:-normal}"
 LOG_DIR="${LOG_DIR:-logs}"
 mkdir -p "$LOG_DIR"
 
@@ -12,6 +12,6 @@ bsub \
   -q "$QUEUE" \
   -n 1 \
   -W 00:10 \
-  -o "$LOG_DIR/gpu_cheminfo_test_%J.out" \
-  -e "$LOG_DIR/gpu_cheminfo_test_%J.err" \
+  -o "$LOG_DIR/normal_queue_test_%J.out" \
+  -e "$LOG_DIR/normal_queue_test_%J.err" \
   'echo "HOST=$(hostname)"; echo "CPUS=${LSB_DJOB_NUMPROC:-unknown}"; sleep 5'

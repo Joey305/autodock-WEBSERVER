@@ -41,6 +41,24 @@ DEFAULT_STATE_HEATMAP_METRIC = "best"
 DEFAULT_RANKING_METRIC = "consensus"
 DEFAULT_PDF_TOP_LIGANDS = 10
 
+# Manuscript order supplied by the project team: least to most potent by ELIPA.
+PAPER_COMPOUND_ORDER = [
+    ("UMF-613", "UMF-613"),
+    ("Cmpd-38", "Cmpd-38"),
+    ("Paprotrain", "Paprotrain"),
+    ("Cmpd-5", "Cmpd-5"),
+    ("UMF-609", "UMF-609"),
+    ("UMF-614", "UMF-614"),
+    ("UMF-607", "UMF-607"),
+    ("UMF-608", "UMF-608"),
+    ("UMF-606", "UMF-606"),
+]
+PAPER_RECEPTORS = [
+    ("KIF20A_ADP", "ADP-bound", "#4C78A8"),
+    ("KIF20A_GDP", "GDP-bound", "#59A14F"),
+    ("KIF20A_Allosteric", "Allosteric", "#B55D60"),
+]
+
 
 def normalize_ligand_id(ligand: str, outfile: Optional[str] = None) -> str:
     lig = (ligand or "").strip()
@@ -245,6 +263,100 @@ def plot_multi_box(data_list: Sequence[Sequence[float]], labels: Sequence[str], 
     outpath.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(outpath, dpi=300)
     plt.close()
+
+
+def plot_paper_three_site_boxplot(df: pd.DataFrame, configuration: str, outpath: Path):
+    """Write a title-free, manuscript-ordered three-site docking boxplot."""
+    if not HAVE_MATPLOTLIB:
+        raise RuntimeError("matplotlib is required for plotting")
+    if configuration not in {"z_only", "all_configurations"}:
+        raise ValueError(f"Unsupported configuration: {configuration}")
+
+    fig, ax = plt.subplots(figsize=(14 if configuration == "all_configurations" else 12.5, 6.5))
+    isomers = ["Z"] if configuration == "z_only" else ["Z", "E"]
+    isomer_offsets = np.linspace(-0.22, 0.22, len(isomers))
+    # The Z-only figure has one configuration per compound, so give the three
+    # binding-site boxes extra room instead of letting their fills overlap.
+    receptor_offsets = np.linspace(-0.28, 0.28, len(PAPER_RECEPTORS)) if configuration == "z_only" else np.linspace(-0.11, 0.11, len(PAPER_RECEPTORS))
+    binding_site_handles = []
+
+    for receptor_idx, (receptor, receptor_label, color) in enumerate(PAPER_RECEPTORS):
+        for isomer_idx, isomer in enumerate(isomers):
+            box_data: List[np.ndarray] = []
+            positions: List[float] = []
+            for compound_idx, (compound, _) in enumerate(PAPER_COMPOUND_ORDER):
+                values = df.loc[
+                    (df["Receptor"] == receptor) & (df["LigandBase"] == f"{compound}-{isomer}"),
+                    "Binding_Affinity",
+                ].dropna().to_numpy(dtype=float)
+                if values.size:
+                    box_data.append(values)
+                    positions.append(compound_idx + isomer_offsets[isomer_idx] + receptor_offsets[receptor_idx])
+            if not box_data:
+                continue
+            box = ax.boxplot(
+                box_data,
+                positions=positions,
+                widths=0.12 if configuration == "all_configurations" else 0.22,
+                patch_artist=True,
+                showfliers=False,
+                medianprops={"color": "#333333", "linewidth": 1.2},
+                whiskerprops={"color": "#666666", "linewidth": 1.0},
+                capprops={"color": "#666666", "linewidth": 1.0},
+            )
+            for patch in box["boxes"]:
+                patch.set(facecolor=color, edgecolor="#555555", alpha=0.9, hatch="//" if isomer == "E" else "")
+            if isomer_idx == 0:
+                binding_site_handles.append(plt.Rectangle((0, 0), 1, 1, facecolor=color, edgecolor="#555555", label=receptor_label))
+
+    if configuration == "all_configurations":
+        tick_positions = [compound_idx + isomer_offsets[isomer_idx] for compound_idx in range(len(PAPER_COMPOUND_ORDER)) for isomer_idx in range(len(isomers))]
+        tick_labels = [f"{label}\nZ" if isomer == "Z" else "E" for _, label in PAPER_COMPOUND_ORDER for isomer in isomers]
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+    else:
+        ax.set_xticks(np.arange(len(PAPER_COMPOUND_ORDER)))
+        ax.set_xticklabels([label for _, label in PAPER_COMPOUND_ORDER], rotation=45, ha="right")
+    ax.set_xlabel("Compound")
+    ax.set_ylabel("Docking Affinity (kcal/mol)")
+    ax.grid(axis="y", color="#d0d0d0", linewidth=0.8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    if binding_site_handles:
+        binding_site_legend = ax.legend(handles=binding_site_handles, title="Binding Site", loc="upper right", frameon=True)
+        ax.add_artist(binding_site_legend)
+    if configuration == "all_configurations":
+        ax.legend(
+            handles=[
+                plt.Rectangle((0, 0), 1, 1, facecolor="#D9D9D9", edgecolor="#555555", label="Z"),
+                plt.Rectangle((0, 0), 1, 1, facecolor="#D9D9D9", edgecolor="#555555", hatch="//", label="E"),
+            ],
+            title="Configuration",
+            loc="lower left",
+            frameon=True,
+        )
+        fig.subplots_adjust(bottom=0.22)
+    else:
+        fig.tight_layout()
+    outpath.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(outpath, dpi=600)
+    fig.savefig(outpath.with_suffix(".pdf"))
+    plt.close(fig)
+
+
+def write_paper_three_site_boxplots(df: pd.DataFrame, outdir: Path) -> List[Path]:
+    """Create the Z-only and E+Z manuscript-ready three-site figures."""
+    paper_dir = outdir / "Paper_Figures"
+    outputs = []
+    for configuration, filename in (
+        ("z_only", "KIF20A_three_site_boxplot_Z_only.png"),
+        ("all_configurations", "KIF20A_three_site_boxplot_all_configurations.png"),
+    ):
+        output = paper_dir / filename
+        plot_paper_three_site_boxplot(df, configuration, output)
+        outputs.append(output)
+        outputs.append(output.with_suffix(".pdf"))
+    return outputs
 
 
 def plot_ranking_bar(summary_df: pd.DataFrame, receptor: str, top_n: int, outpath: Path):
@@ -749,6 +861,7 @@ def generate_outputs(
     pdf_top_ligands: int,
     skip_per_ligand: bool,
     skip_per_receptor: bool,
+    write_paper_boxplots: bool = False,
 ) -> Dict[str, Any]:
     outdir.mkdir(parents=True, exist_ok=True)
     summary_tables_dir = outdir / "summary_tables"
@@ -771,6 +884,7 @@ def generate_outputs(
     receptor_plot_index: Dict[str, Dict[str, Path]] = defaultdict(dict)
     receptor_ligand_plots: Dict[str, Dict[str, Dict[str, Path]]] = defaultdict(dict)
     warnings: List[str] = []
+    paper_boxplots = write_paper_three_site_boxplots(df, outdir) if write_paper_boxplots else []
 
     for receptor in sorted(summary_df["Receptor"].unique()) if not summary_df.empty else []:
         receptor_dir = outdir / str(receptor)
@@ -898,6 +1012,7 @@ def generate_outputs(
         },
         "plot_files": sorted({str(path) for plot_map in receptor_plot_index.values() for path in plot_map.values()} | {str(path) for ligands in receptor_ligand_plots.values() for plot_map in ligands.values() for path in plot_map.values()}),
         "pdf_report": "",
+        "paper_boxplots": [str(path) for path in paper_boxplots],
         "warnings": warnings,
     }
 
@@ -959,6 +1074,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ranking-metric", choices=["consensus", "best", "median", "top5_mean", "top10_mean"], default=DEFAULT_RANKING_METRIC, help="Metric used to choose Top-N ligands per receptor.")
     parser.add_argument("--skip-state-plots", action="store_true", help="Compatibility flag; state plots are still off by default unless --write-state-plots is used.")
     parser.add_argument("--top-n-states", type=int, default=20, help="Compatibility flag reserved for future state-plot filtering.")
+    parser.add_argument("--write-paper-boxplots", action="store_true", help="Write title-free three-site manuscript boxplots in the approved ELIPA order (Z-only and E+Z).")
     return parser.parse_args()
 
 
@@ -1004,6 +1120,7 @@ def main():
         pdf_top_ligands=args.pdf_top_ligands,
         skip_per_ligand=args.skip_per_ligand,
         skip_per_receptor=args.skip_per_receptor,
+        write_paper_boxplots=args.write_paper_boxplots,
     )
 
     print(f"✅ Wrote summary: {outdir / 'summary_tables' / f'{in_csv.stem}_ligand_summary.csv'}")

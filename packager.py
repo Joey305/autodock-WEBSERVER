@@ -44,7 +44,7 @@ RUNTIME_LSF_FILES = [
     "hpc_profiles.py",
     "lsf_templates.py",
     "runDOCKING-tmux.sh",
-    "test_gpu_cheminfo_queue.sh",
+    "test_normal_queue.sh",
 ]
 
 RUNTIME_TOOL_DIRS = [

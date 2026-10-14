@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import os, sys, re, csv, argparse, threading
+import os, sys, re, csv, json, argparse, threading
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,7 +31,11 @@ def parse_cli():
 # Regex patterns
 # ==========================================================
 VINA_RE = re.compile(r"^REMARK\s+VINA\s+RESULT:\s+(-?\d+(?:\.\d+)?)")
-OK_LINE = re.compile(r"^[\s✅\-\+]?\s*(.+?)\s*→\s*([A-Za-z0-9._-]+)\s*$")  # ligand  → receptor.pdbqt
+# Successful docking lines may carry trailing metadata (for example, ``seed=``).
+# Capture only the ligand and receptor portions used to construct the output path.
+OK_LINE = re.compile(
+    r"^[\s✅\-\+]?\s*(.+?)\s*→\s*([A-Za-z0-9._-]+)(?:\s+.*)?$"
+)  # ligand → receptor.pdbqt [optional metadata]
 
 # ==========================================================
 # Helper functions
@@ -272,6 +276,44 @@ def process_one_dir(
     print(f"\n✅ {results_dir.name}: parsed {processed} files; {hits} had results{cleanup_note}.")
     return rows_buffer
 
+
+def process_compact_results(results_dir: Path) -> List[Dict[str, object]]:
+    """Read score-only compact shards without requiring pose-file directories."""
+    compact_path = results_dir / "compact_results.csv"
+    if not compact_path.is_file():
+        return []
+    rows: List[Dict[str, object]] = []
+    with compact_path.open(newline="", encoding="utf-8") as handle:
+        for compact in csv.DictReader(handle):
+            if compact.get("Status") != "success":
+                continue
+            ligand_variant = compact.get("Ligand", "")
+            try:
+                metadata_from_run = json.loads(compact.get("LigandMetadataJSON", "{}"))
+            except Exception:
+                metadata_from_run = {}
+            metadata = merge_ligand_metadata(ligand_variant, manifest_row=metadata_from_run)
+            parsed = parse_ligand_variant(ligand_variant)
+            row = {
+                "Receptor": compact.get("ResolvedReceptor") or compact.get("PDB_ID", ""),
+                "Ligand": metadata["LigandBase"] or parsed["LigandBase"],
+                "LigandBase": metadata["LigandBase"] or parsed["LigandBase"],
+                "LigandVariant": metadata["LigandVariant"] or parsed["LigandVariant"],
+                "Pose": int(compact.get("Pose", "0") or 0),
+                "Binding_Affinity": float(compact["Binding_Affinity"]),
+                # Compact mode intentionally does not retain pose PDBQT files.
+                "OutFile": "",
+                "ProtomerTag": metadata["ProtomerTag"], "TautomerTag": metadata["TautomerTag"],
+                "ConformerTag": metadata["ConformerTag"], "LegacyPoseTag": metadata["LegacyPoseTag"],
+                "StateTag": metadata["StateTag"], "ProtomerIndex": metadata["ProtomerIndex"],
+                "TautomerIndex": metadata["TautomerIndex"], "ConformerIndex": metadata["ConformerIndex"],
+            }
+            for key in CHEMICAL_METADATA_COLUMNS:
+                row[key] = metadata.get(key, "")
+            rows.append(row)
+    print(f"✅ {results_dir.name}: read {len(rows)} compact score rows (pose files were not retained).")
+    return rows
+
 # ==========================================================
 # Main entry point
 # ==========================================================
@@ -286,13 +328,9 @@ def main():
             sys.exit(1)
 
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        rows = process_one_dir(
-            results_dir,
-            args.workers,
-            args.heartbeat,
-            args.fallback_crawl,
-            delete_configs=not args.keep_configs,
-        )
+        rows = (process_compact_results(results_dir) if (results_dir / "compact_results.csv").is_file()
+                else process_one_dir(results_dir, args.workers, args.heartbeat, args.fallback_crawl,
+                                     delete_configs=not args.keep_configs))
         if not rows:
             print(f"⚠️ No results parsed in {results_dir.name}")
             sys.exit(0)
@@ -326,13 +364,9 @@ def main():
     all_rows: List[Dict[str, object]] = []
 
     for results_dir in selected:
-        rows = process_one_dir(
-            results_dir,
-            workers,
-            heartbeat,
-            args.fallback_crawl,
-            delete_configs=not args.keep_configs,
-        )
+        rows = (process_compact_results(results_dir) if (results_dir / "compact_results.csv").is_file()
+                else process_one_dir(results_dir, workers, heartbeat, args.fallback_crawl,
+                                     delete_configs=not args.keep_configs))
         if not rows:
             continue
         rows.sort(key=lambda r: (str(r["Receptor"]), float(r["Binding_Affinity"])))

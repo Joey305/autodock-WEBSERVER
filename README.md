@@ -145,6 +145,7 @@ AutoDock-Vina PrepServer is part of a growing structure-guided molecular design 
 * [Endpoint Reference](#endpoint-reference)
 * [Accepted Input Types](#accepted-input-types)
 * [Generated Package Modes](#generated-package-modes)
+* [HPC Compact Results](#hpc-compact-results)
 * [Deployment Notes](#deployment-notes)
 * [Heroku + Open Babel Notes](#heroku--open-babel-notes)
 * [Testing and Validation](#testing-and-validation)
@@ -1532,7 +1533,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
 
 ### Joey LSF mode
 
-Joey LSF mode preserves the existing University of Miami workflow and keeps the legacy `lsf` API alias working.
+Joey LSF mode preserves the existing University of Miami workflow and keeps the legacy `lsf` API alias working. The example below reflects the current requested `normal` queue configuration; cluster approval remains required before submission.
 
 Example build request:
 
@@ -1542,7 +1543,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
   -d '{
     "package_mode":"joey_lsf",
     "workers":16,
-    "queue":"gpu_cheminfo",
+    "queue":"normal",
     "project":"brd",
     "mem_per_core":2000,
     "confgen_walltime":"48:00",
@@ -1553,7 +1554,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
 ```
 
 To explicitly smoke-test the Pegasus queue before a production submission, run
-`./test_gpu_cheminfo_queue.sh`. It submits a one-core, ten-minute test only;
+`./test_normal_queue.sh`. It submits a one-core, ten-minute test only;
 normal docking scripts never invoke it automatically.
 
 ### Custom LSF mode
@@ -1580,6 +1581,35 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
 ```
 
 Only use an LSF mode in environments where the scheduler assumptions match your compute system.
+
+---
+
+<a id="hpc-compact-results"></a>
+
+## HPC Compact Results
+
+Large docking campaigns can exhaust filesystem inodes long before they exhaust storage capacity. The opt-in compact-results mode is designed for metadata-sensitive shared filesystems: it preserves Vina score data and provenance while avoiding a durable directory for every ligand.
+
+```bash
+python 3_Complete_batch_docking.py \
+  --receptors Receptors \
+  --ligands Ligands \
+  --centers_csv vina_centers.csv \
+  --poses 20 \
+  --compact-results
+```
+
+Each shard writes `compact_results.csv`, `compact_failures.csv`, `docking_parameters.json`, and `compact_completion.json`. Successful rows are fsync'd before their scratch directory is cleaned, and a rerun skips jobs already recorded as successful. `4_ParseScores.py` recognizes the compact CSV directly.
+
+By default, compact mode does not retain pose PDBQT files. To retain only the ranked structures needed for review, add `--compact-retain-top-poses N`; this atomically writes the top `N` ligands per receptor to `retained_poses/` and records their ranks and scores in `compact_retained_poses.json`. It does not recreate the legacy per-ligand output tree.
+
+Scratch-root precedence is:
+
+1. `--compact-scratch-root`
+2. `VINA_SCRATCH_ROOT` (including an HPC-profile export)
+3. The active results root, as a temporary fallback
+
+The fallback is shared-storage behavior, not verified local NVMe. Configure an approved NVMe path through `VINA_SCRATCH_ROOT` or the independent `compact_scratch_root` field of each HPC profile. Do not submit a campaign or the included `test_normal_queue.sh` smoke test until the relevant queue, project, and storage allocation have been approved by the cluster administrators.
 
 ---
 
@@ -1956,6 +1986,18 @@ Acknowledgements:
 * Schürer Lab molecular design workflows and tooling ecosystem
 
 If you use this tool in academic work, please cite the relevant upstream software packages used in your workflow, including AutoDock Vina and Open Babel.
+
+Also cite the exact tagged PrepServer release:
+
+> The Schürer Lab. (2026). *AutoDock-Vina PrepServer* (Version 2026.10) [Computer software]. https://github.com/Joey305/autodock-WEBSERVER
+
+This citation refers only to the PrepServer implementation. It does not replace citation of AutoDock Vina, Open Babel, RDKit, AutoDockTools-derived utilities, or other upstream software and data used in an analysis. The repository includes `CITATION.cff` and `.zenodo.json`; after the Zenodo release DOI is issued, cite the version DOI instead of the GitHub URL and add it to `CITATION.cff`.
+
+---
+
+## License
+
+AutoDock-Vina PrepServer is available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). Commercial use requires prior written permission from The Schürer Lab and the University of Miami.
 
 ---
 
