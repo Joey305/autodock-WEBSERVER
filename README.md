@@ -1987,6 +1987,18 @@ Acknowledgements:
 
 If you use this tool in academic work, please cite the relevant upstream software packages used in your workflow, including AutoDock Vina and Open Babel.
 
+Also cite the exact tagged PrepServer release:
+
+> The Schürer Lab. (2026). *AutoDock-Vina PrepServer* (Version 2026.10) [Computer software]. https://github.com/Joey305/autodock-WEBSERVER
+
+This citation refers only to the PrepServer implementation. It does not replace citation of AutoDock Vina, Open Babel, RDKit, AutoDockTools-derived utilities, or other upstream software and data used in an analysis. The repository includes `CITATION.cff` and `.zenodo.json`; after the Zenodo release DOI is issued, cite the version DOI instead of the GitHub URL and add it to `CITATION.cff`.
+
+---
+
+## License
+
+AutoDock-Vina PrepServer is available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). Commercial use requires prior written permission from The Schürer Lab and the University of Miami.
+
 ---
 
 ## Contact

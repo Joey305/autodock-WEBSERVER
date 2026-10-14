@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use AutoDock-Vina PrepServer in academic work, please cite this software and the upstream tools used in your workflow."
+title: "AutoDock-Vina PrepServer"
+type: software
+authors:
+  - name: "The Schürer Lab"
+    affiliation: "University of Miami"
+license: "PolyForm-Noncommercial-1.0.0"
+repository-code: "https://github.com/Joey305/autodock-WEBSERVER"
+url: "https://autodockvina.com"
+date-released: 2026-10-13
+version: "2026.10"
