@@ -1987,11 +1987,11 @@ Acknowledgements:
 
 If you use this tool in academic work, please cite the relevant upstream software packages used in your workflow, including AutoDock Vina and Open Babel.
 
-Also cite the exact tagged PrepServer release:
+Also cite the published PrepServer Zenodo software record:
 
-> The Schürer Lab. (2026). *AutoDock-Vina PrepServer* (Version 2026.10) [Computer software]. https://github.com/Joey305/autodock-WEBSERVER
+> The Schürer Lab. (2026). *AutoDock-Vina PrepServer* (Version v2026.10) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.23374581
 
-This citation refers only to the PrepServer implementation. It does not replace citation of AutoDock Vina, Open Babel, RDKit, AutoDockTools-derived utilities, or other upstream software and data used in an analysis. The repository includes `CITATION.cff` and `.zenodo.json`; after the Zenodo release DOI is issued, cite the version DOI instead of the GitHub URL and add it to `CITATION.cff`.
+This citation refers only to the PrepServer implementation. It does not replace citation of AutoDock Vina, Open Babel, RDKit, AutoDockTools-derived utilities, or other upstream software and data used in an analysis. Visit [autodockvina.com/citation](https://autodockvina.com/citation) to copy the citation or download RIS; `CITATION.cff` contains the same release metadata for GitHub.
 
 ---
 
