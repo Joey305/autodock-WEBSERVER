@@ -269,8 +269,17 @@ def write_lsf(
     ]
     if receptor_file:
         docking_args.append(f'--receptor-file "{receptor_file}"')
+    results_root_block = ""
     if profile.compact_results:
         docking_args.append("--compact-results")
+        # Compact job outputs must never fall back to the submission directory
+        # (often an inode-limited home filesystem).  The submitter chooses the
+        # persistent campaign location once via VINA_RESULTS_ROOT.
+        results_root_block = (
+            'RESULTS_ROOT="${VINA_RESULTS_ROOT:?Set VINA_RESULTS_ROOT to a writable persistent campaign directory}"\n'
+            'mkdir -p "$RESULTS_ROOT"\n'
+        )
+        docking_args.append(f'--results-dir "$RESULTS_ROOT/{jobtag}"')
     docking_command = '"$PYBIN" 3_Complete_batch_docking.py \\\n' + " \\\n".join(
         f"  {arg}" for arg in docking_args
     ) + "\n"
@@ -297,6 +306,7 @@ def write_lsf(
             f'export VINA_SCRATCH_ROOT="${{VINA_SCRATCH_ROOT:-{profile.compact_scratch_root}}}"\n'
             if profile.compact_results and profile.compact_scratch_root else ""
         )
+        + results_root_block
         + f'PYBIN="{profile.python_command}"\n'
         + 'if [ -z "$PYBIN" ]; then\n  echo "No Python command configured"; exit 127\nfi\n'
         + docking_command
