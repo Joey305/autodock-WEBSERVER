@@ -78,6 +78,11 @@
     <script src="https://unpkg.com/ngl@2.0.0-dev.38/dist/ngl.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/theme-toggle.js') }}"></script>
+    {% if analytics_enabled %}<script>
+      window.autodockAnalytics = {event: (event_type, feature = '') => {
+        fetch('/api/analytics/event', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({event_type, feature})}).catch(() => {});
+      }};
+    </script>{% endif %}
     <script>
       document.addEventListener('DOMContentLoaded', () => {
         [...document.querySelectorAll('[data-bs-toggle="tooltip"]')]

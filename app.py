@@ -32,6 +32,7 @@ from center_resolver import (
     resolve_center_from_file,
     resolve_xyz,
 )
+from analytics import attach as attach_analytics, browser_event as analytics_browser_event
 
 try:
     import gemmi  # type: ignore
@@ -411,6 +412,21 @@ def create_app() -> Flask:
 
     login_manager.init_app(app)
 
+    @app.after_request
+    def _aggregate_analytics(response):
+        try:
+            return attach_analytics(response)
+        except Exception:
+            # Telemetry must never affect a preparation, download, or API job.
+            return response
+
+    @app.post("/api/analytics/event")
+    def analytics_event():
+        # This endpoint consumes only the allow-listed event label and feature.
+        # It never reads or relays form data, uploaded files, or scientific input.
+        accepted = analytics_browser_event(request.get_json(silent=True))
+        return jsonify({"ok": accepted}), 202 if accepted else 400
+
     @login_manager.user_loader
     def _load(uid):
         return db.session.get(User, int(uid))
@@ -444,6 +460,7 @@ def create_app() -> Flask:
             "ecosystem_links": [*TOOL_LINKS, LAB_LINK],
             "nav_links": nav_links,
             "public_mode": current_app.config.get("PUBLIC_MODE", True),
+            "analytics_enabled": os.environ.get("AUTODOCK_ANALYTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"},
         }
 
     def _resolve_casefold_path(base_dir: Path, relative_path: Path) -> Optional[Path]:
