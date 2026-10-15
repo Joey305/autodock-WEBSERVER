@@ -6,6 +6,7 @@ import os
 import secrets
 import threading
 import re
+import time
 from http.cookiejar import CookieJar
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 
@@ -23,6 +24,7 @@ EVENTS = {
     "headless_client_downloaded": {"interactive", "bound_ligand"},
     "api_example_copied": {"interactive", "bound_ligand"},
     "workflow_failed": {"validation", "timeout", "dependency", "server"},
+    "package_build_duration": {"under_10s", "10_to_30s", "30_to_120s", "over_120s"},
 }
 
 
@@ -56,12 +58,38 @@ def _browser(user_agent: str) -> str:
     return "firefox" if "firefox" in value else "safari" if "safari" in value and "chrome" not in value else "chrome" if "chrome" in value else "other"
 
 
+def _platform(user_agent: str) -> str:
+    """Return a broad OS family only; never preserve the user-agent string."""
+    value = user_agent.lower()
+    if "android" in value: return "android"
+    if any(item in value for item in ("iphone", "ipad", "ios")): return "ios"
+    if "windows" in value: return "windows"
+    if "mac os" in value or "macintosh" in value: return "macos"
+    if "linux" in value or "x11" in value: return "linux"
+    return "other"
+
+
 def _referrer(value: str) -> str:
-    # Store a domain label only; paths and queries are intentionally discarded.
+    # Store a broad acquisition category only; never retain a referring domain.
     from urllib.parse import urlparse
     host = urlparse(value).hostname or ""
     public_host = urlparse(os.environ.get("AUTODOCK_PUBLIC_BASE_URL", "")).hostname or ""
-    return "internal" if host and public_host and host == public_host else host[:255] if host else "direct"
+    if not host: return "direct"
+    if public_host and host == public_host: return "internal"
+    if "youtube" in host: return "youtube"
+    if "github" in host: return "github"
+    if any(item in host for item in ("google.", "bing.", "duckduckgo.", "yahoo.")): return "search"
+    if any(item in host for item in ("x.com", "twitter.", "linkedin.", "facebook.", "reddit.")): return "social"
+    return "other_referral"
+
+
+def _duration_bucket(seconds: float) -> str:
+    return "under_10s" if seconds < 10 else "10_to_30s" if seconds < 30 else "30_to_120s" if seconds < 120 else "over_120s"
+
+
+def begin_request() -> None:
+    """Capture an in-process elapsed time only for coarse build-duration buckets."""
+    g.autodock_analytics_started = time.monotonic()
 
 
 def _send(payload: dict[str, str]) -> None:
@@ -88,7 +116,7 @@ def track(event_type: str, feature: str = "", status: str = "", path: str | None
     safe_path = path or request.path
     if not safe_path.startswith("/") or "?" in safe_path or len(safe_path) > 240:
         return visitor, session
-    payload = {"event_id": secrets.token_urlsafe(18), "event_type": event_type, "visitor_id": visitor, "session_id": session, "path": safe_path, "referrer": _referrer(request.referrer or ""), "device": _device(request.user_agent.string), "browser": _browser(request.user_agent.string), "feature": feature, "status": status, "campaign": campaign if campaign is not None else _campaign()}
+    payload = {"event_id": secrets.token_urlsafe(18), "event_type": event_type, "visitor_id": visitor, "session_id": session, "path": safe_path, "referrer": _referrer(request.referrer or ""), "device": _device(request.user_agent.string), "browser": _browser(request.user_agent.string), "platform": _platform(request.user_agent.string), "feature": feature, "status": status, "campaign": campaign if campaign is not None else _campaign()}
     threading.Thread(target=_send, args=(payload,), daemon=True).start()
     return visitor, session
 
@@ -122,6 +150,12 @@ def attach(response: Response) -> Response:
         track("workflow_selected", workflow)
         track("package_build_started", workflow)
         track("package_build_completed" if response.status_code < 400 else "package_build_failed", workflow, "success" if response.status_code < 400 else "failure")
+        # Browser builds measure elapsed time in the page so navigation and
+        # response delivery are included.  This server-side fallback is only
+        # needed for the headless API.
+        started = getattr(g, "autodock_analytics_started", None)
+        if workflow == "headless" and started is not None:
+            track("package_build_duration", _duration_bucket(time.monotonic() - started), "success" if response.status_code < 400 else "failure")
     if request.method == "GET" and response.status_code < 400 and (request.path == "/download" or request.path.endswith("/download")):
         track("package_downloaded")
     if request.method == "GET" and response.status_code < 400 and request.path.startswith("/api/v1/clients/"):

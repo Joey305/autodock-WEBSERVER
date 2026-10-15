@@ -1562,6 +1562,7 @@ $('#btnBuild').onclick=async()=>{
   const csvIdCol = getCsvColumnValue('csvIdCol','csvIdCustom');
   const singleLig = $('#ligSingle').files[0];
   if(singleLig && /\.csv$/i.test(singleLig.name) && !csvSmilesCol){
+    window.autodockAnalytics?.event('workflow_failed', 'validation');
     $('#buildStatus').textContent='Failed: select a CSV SMILES column first';
     return;
   }
@@ -1585,8 +1586,12 @@ $('#btnBuild').onclick=async()=>{
   fd.append('csv_smiles_col', csvSmilesCol); fd.append('csv_id_col', csvIdCol);
   $('#buildStatus').textContent='Building…';
   $('#buildModeResult').classList.add('d-none');
+  const buildStartedAt = Date.now();
   const r=await fetch('/api/build',{method:'POST', body:fd});
-  if(!r.ok){ $('#buildStatus').textContent='Failed: '+await r.text(); return; }
+  const elapsed = Date.now() - buildStartedAt;
+  const durationBucket = elapsed < 10000 ? 'under_10s' : elapsed < 30000 ? '10_to_30s' : elapsed < 120000 ? '30_to_120s' : 'over_120s';
+  window.autodockAnalytics?.event('package_build_duration', durationBucket);
+  if(!r.ok){ window.autodockAnalytics?.event('workflow_failed', 'server'); $('#buildStatus').textContent='Failed: '+await r.text(); return; }
   const j=await r.json();
   const dl=$('#downloadLink');
   dl.href=j.download_url || ('/download?path='+encodeURIComponent(j.zip));

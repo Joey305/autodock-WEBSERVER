@@ -32,7 +32,7 @@ from center_resolver import (
     resolve_center_from_file,
     resolve_xyz,
 )
-from analytics import attach as attach_analytics, browser_event as analytics_browser_event
+from analytics import attach as attach_analytics, begin_request as begin_analytics_request, browser_event as analytics_browser_event
 
 try:
     import gemmi  # type: ignore
@@ -411,6 +411,12 @@ def create_app() -> Flask:
         db.create_all()
 
     login_manager.init_app(app)
+
+    @app.before_request
+    def _begin_aggregate_analytics():
+        # A monotonic timestamp supports coarse elapsed-time buckets only.
+        # It is never persisted directly and never reads a scientific request.
+        begin_analytics_request()
 
     @app.after_request
     def _aggregate_analytics(response):
