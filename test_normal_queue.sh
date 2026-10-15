@@ -5,7 +5,7 @@ set -euo pipefail
 PROJECT="${PROJECT:-brd}"
 QUEUE="${QUEUE:-normal}"
 LOG_DIR="${LOG_DIR:-logs}"
-RESULTS_ROOT="${VINA_RESULTS_ROOT:-/projectnb/cheminfo/home/jxs794/IE1-restart/results}"
+RESULTS_ROOT="${VINA_RESULTS_ROOT:-/projectnb/cheminfo/home/${USER}/AutoDockVina-Results/smoke-tests}"
 SCRATCH_ROOT="${VINA_SCRATCH_ROOT:-/tmp}"
 mkdir -p "$LOG_DIR"
 export RESULTS_ROOT SCRATCH_ROOT

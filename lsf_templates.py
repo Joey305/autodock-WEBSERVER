@@ -181,6 +181,7 @@ def build_vina_lsfs(
     lig_dir = (jobroot / "Ligands").name
     centers_csv = next((p.name for p in jobroot.glob("vina_centers*.csv")), "vina_centers.csv")
     jobtag = sanitize_name(f"vina_{jobroot.name}")
+    campaign_name = sanitize_name(jobroot.parent.name or jobroot.name)
     header = _header_with_timestamp(
         profile,
         jobname=jobtag,
@@ -197,11 +198,18 @@ def build_vina_lsfs(
     )
     if profile.compact_results:
         scratch_export = ""
+        results_root_block = ""
         if profile.compact_scratch_root:
             scratch_export = (
                 f'export VINA_SCRATCH_ROOT="${{VINA_SCRATCH_ROOT:-{profile.compact_scratch_root}}}"\n'
             )
-        body = scratch_export + body.rstrip("\n") + " \\\n  --compact-results\n"
+        if profile.results_root:
+            results_root_block = (
+                f'CAMPAIGN_ROOT="${{VINA_RESULTS_ROOT:-{profile.results_root}/{campaign_name}}}"\n'
+                'mkdir -p "$CAMPAIGN_ROOT/shards"\n'
+            )
+            body = body.rstrip("\n") + f' \\\n  --results-dir "$CAMPAIGN_ROOT/shards/{jobtag}"'
+        body = results_root_block + scratch_export + body.rstrip("\n") + " \\\n  --compact-results\n"
 
     out = lsf_dir / "run_vina_job.lsf"
     out.write_text(header + render_setup_block(profile) + _vina_export(profile) + _python_export(profile) + body)

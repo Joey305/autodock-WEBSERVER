@@ -21,5 +21,6 @@
   "setup_commands": [],
   "compact_results": true,
   "compact_scratch_root": "/tmp",
+  "results_root": "/projectnb/cheminfo/home/${USER}/AutoDockVina-Results",
   "gpu_request": ""
 }

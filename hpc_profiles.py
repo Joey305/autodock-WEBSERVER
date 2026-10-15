@@ -99,6 +99,9 @@ class HPCProfile:
     # Opt-in policy for metadata-sensitive shared filesystems.
     compact_results: bool = False
     compact_scratch_root: str = ""
+    # Persistent campaign root. Generated compact jobs add the workspace name
+    # and a shard directory below this path automatically.
+    results_root: str = ""
     # Some queues may require a GPU allocation even for CPU-bound workloads.
     gpu_request: str = ""
 
@@ -142,6 +145,7 @@ JOEY_LSF_PROFILE = HPCProfile(
     # Normal Pegasus nodes use node-local /tmp for short-lived compact work;
     # scores and provenance remain on the configured shared results storage.
     compact_scratch_root="/tmp",
+    results_root="/projectnb/cheminfo/home/${USER}/AutoDockVina-Results",
 )
 
 MAINAK_LSF_PROFILE = HPCProfile(
@@ -149,9 +153,12 @@ MAINAK_LSF_PROFILE = HPCProfile(
     email="mxb2638@miami.edu",
     notify_begin=True,
     notify_end=True,
-    queue="general",
+    queue="normal",
     project="brd",
     workers=16,
+    vina_cpus=16,
+    confgen_cpus=16,
+    confgen_workers=16,
     mem_per_core_mb=2000,
     confgen_walltime="48:00",
     vina_walltime="96:00",
@@ -159,6 +166,9 @@ MAINAK_LSF_PROFILE = HPCProfile(
     conda_env="vina_env",
     vina_executable="$HOME/miniconda3/envs/vina_env/bin/vina",
     python_command='$(command -v python3 || command -v python)',
+    compact_results=True,
+    compact_scratch_root="/tmp",
+    results_root="/projectnb/cheminfo/home/${USER}/AutoDockVina-Results",
 )
 
 # Verified on Triton (Boston University): normal is the active CPU queue and
@@ -212,6 +222,7 @@ def profile_from_dict(payload: Mapping[str, Any]) -> HPCProfile:
         "span_hosts": _clean_int(payload.get("span_hosts"), 1),
         "compact_results": _clean_bool(payload.get("compact_results"), False),
         "compact_scratch_root": _clean_str(payload.get("compact_scratch_root")),
+        "results_root": _clean_str(payload.get("results_root")),
         "gpu_request": _clean_str(payload.get("gpu_request")),
     }
     extra = {key: value for key, value in payload.items() if key in known and key not in cleaned}
@@ -243,6 +254,7 @@ def build_custom_profile(values: Mapping[str, Any] | None) -> HPCProfile:
             "span_hosts": values.get("span_hosts") or 1,
             "compact_results": values.get("compact_results"),
             "compact_scratch_root": _clean_str(values.get("compact_scratch_root")),
+            "results_root": _clean_str(values.get("results_root")),
             "gpu_request": _clean_str(values.get("gpu_request")),
         }
     )
@@ -295,6 +307,8 @@ def validate_hpc_profile(profile: HPCProfile) -> None:
         errors.append("host span must be a positive integer")
     if "\n" in profile.gpu_request or "\r" in profile.gpu_request:
         errors.append("GPU request must be a single LSF resource string")
+    if "\n" in profile.results_root or "\r" in profile.results_root:
+        errors.append("results root must be a single path")
     if profile.email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", profile.email):
         errors.append("email is invalid")
     if profile.conda_env and not profile.conda_sh:
@@ -322,6 +336,7 @@ def format_hpc_profile_summary(profile: HPCProfile) -> str:
         f"Memory: {profile.mem_per_core_mb} MB/core (LSF rusage[mem=...] per slot)",
         f"Host span: {profile.span_hosts}",
         f"Compact results: {'enabled' if profile.compact_results else 'disabled'}",
+        f"Results root: {profile.results_root or 'package directory'}",
         f"GPU request: {profile.gpu_request or 'none'}",
     ))
 

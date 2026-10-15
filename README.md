@@ -1533,7 +1533,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
 
 ### Joey LSF mode
 
-Joey LSF mode preserves the University of Miami workflow and keeps the legacy `lsf` API alias working. Pegasus Vina runs use the CPU-only `normal` queue: each job requests one 16-core host, runs up to 15 single-core Vina workers, and does not request a GPU. The generated profile keeps compact scores and provenance on shared Cheminfo storage while each ligand's transient Vina config and pose output live in node-local `/tmp` and are removed after the result is recorded. For a large campaign, submit independent bounded ligand shards; the scheduler can then place many shards across normal nodes without accumulating per-ligand output trees on shared storage.
+Joey and Mainak LSF modes use the CPU-only Pegasus `normal` queue: each job requests one 16-core host, runs up to 15 single-core Vina workers, and does not request a GPU. Generated compact jobs automatically write to `/projectnb/cheminfo/home/$USER/AutoDockVina-Results/<workspace>/shards/`, so a user submits the package exactly as before while every project gets its own resumable campaign tree. Scores and provenance persist there; each ligand's transient Vina config and pose output live in node-local `/tmp` and are removed after the result is recorded. For a large campaign, submit independent bounded ligand shards; the scheduler can then place many shards across normal nodes without accumulating per-ligand output trees on shared storage.
 
 Example build request:
 
@@ -1608,7 +1608,7 @@ Scratch-root precedence is:
 2. `VINA_SCRATCH_ROOT` (including an HPC-profile export)
 3. The active results root, as a temporary fallback
 
-The fallback is shared-storage behavior, not verified local scratch. Configure an approved local path through `VINA_SCRATCH_ROOT` or the independent `compact_scratch_root` field of each HPC profile. The Joey Pegasus profile uses `/tmp` on normal nodes for short-lived Vina files; its results root remains shared Cheminfo storage. Do not submit a campaign or the included smoke test until the relevant queue, project, and storage allocation have been approved by the cluster administrators.
+The fallback is shared-storage behavior, not verified local scratch. Configure an approved local path through `VINA_SCRATCH_ROOT` or the independent `compact_scratch_root` field of each HPC profile. Joey and Mainak Pegasus profiles use `/tmp` on normal nodes for short-lived Vina files and automatically create a user- and workspace-scoped shared Cheminfo campaign root. Set `VINA_RESULTS_ROOT` only when you intentionally want to override that campaign root. Do not submit a campaign or the included smoke test until the relevant queue, project, and storage allocation have been approved by the cluster administrators.
 
 ---
 

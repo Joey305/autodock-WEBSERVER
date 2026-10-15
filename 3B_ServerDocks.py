@@ -38,6 +38,10 @@ def _ignore_candidate_dir(d: Path) -> bool:
 
 
 # ---------- utilities ----------
+def sanitize_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", value)
+
+
 def all_dirs_sorted() -> List[Path]:
     return sorted([p for p in Path(".").iterdir() if p.is_dir()], key=lambda x: x.name.lower())
 
@@ -273,13 +277,22 @@ def write_lsf(
     if profile.compact_results:
         docking_args.append("--compact-results")
         # Compact job outputs must never fall back to the submission directory
-        # (often an inode-limited home filesystem).  The submitter chooses the
-        # persistent campaign location once via VINA_RESULTS_ROOT.
-        results_root_block = (
-            'RESULTS_ROOT="${VINA_RESULTS_ROOT:?Set VINA_RESULTS_ROOT to a writable persistent campaign directory}"\n'
-            'mkdir -p "$RESULTS_ROOT"\n'
-        )
-        docking_args.append(f'--results-dir "$RESULTS_ROOT/{jobtag}"')
+        # (often an inode-limited home filesystem). Profiled deployments get a
+        # user- and campaign-scoped shared root automatically; VINA_RESULTS_ROOT
+        # remains an optional campaign-root override.
+        if profile.results_root:
+            campaign_name = sanitize_name(HERE.parent.name or HERE.name)
+            results_root_block = (
+                f'CAMPAIGN_ROOT="${{VINA_RESULTS_ROOT:-{profile.results_root}/{campaign_name}}}"\n'
+                'mkdir -p "$CAMPAIGN_ROOT/shards"\n'
+            )
+            docking_args.append(f'--results-dir "$CAMPAIGN_ROOT/shards/{jobtag}"')
+        else:
+            results_root_block = (
+                'CAMPAIGN_ROOT="${VINA_RESULTS_ROOT:?Set VINA_RESULTS_ROOT to a writable persistent campaign directory}"\n'
+                'mkdir -p "$CAMPAIGN_ROOT/shards"\n'
+            )
+            docking_args.append(f'--results-dir "$CAMPAIGN_ROOT/shards/{jobtag}"')
     docking_command = '"$PYBIN" 3_Complete_batch_docking.py \\\n' + " \\\n".join(
         f"  {arg}" for arg in docking_args
     ) + "\n"

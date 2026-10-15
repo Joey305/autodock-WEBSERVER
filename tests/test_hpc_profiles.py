@@ -45,6 +45,7 @@ class HpcProfileTests(unittest.TestCase):
         self.assertEqual(JOEY_LSF_PROFILE.confgen_walltime, "48:00")
         self.assertTrue(JOEY_LSF_PROFILE.compact_results)
         self.assertEqual(JOEY_LSF_PROFILE.compact_scratch_root, "/tmp")
+        self.assertEqual(JOEY_LSF_PROFILE.results_root, "/projectnb/cheminfo/home/${USER}/AutoDockVina-Results")
         self.assertEqual(JOEY_LSF_PROFILE.gpu_request, "")
         validate_hpc_profile(JOEY_LSF_PROFILE)
 
@@ -60,6 +61,13 @@ class HpcProfileTests(unittest.TestCase):
         self.assertEqual(TRITON_LSF_PROFILE.vina_executable, "/projectnb/triton/home/jxs794/miniforge3/envs/vina_env/bin/vina")
         self.assertEqual(TRITON_LSF_PROFILE.python_command, "python")
         validate_hpc_profile(TRITON_LSF_PROFILE)
+
+    def test_mainak_profile_uses_normal_queue_compact_campaign_layout(self):
+        self.assertEqual(MAINAK_LSF_PROFILE.queue, "normal")
+        self.assertTrue(MAINAK_LSF_PROFILE.compact_results)
+        self.assertEqual(MAINAK_LSF_PROFILE.compact_scratch_root, "/tmp")
+        self.assertEqual(MAINAK_LSF_PROFILE.results_root, "/projectnb/cheminfo/home/${USER}/AutoDockVina-Results")
+        validate_hpc_profile(MAINAK_LSF_PROFILE)
 
     def test_confgen_workers_cannot_exceed_lsf_cpu_request(self):
         invalid = replace_profile(JOEY_LSF_PROFILE, confgen_cpus=16, confgen_workers=17)
@@ -184,6 +192,8 @@ class HpcProfileTests(unittest.TestCase):
         self.assertIn("--workers 16", confgen)
         self.assertIn("--compact-results", vina)
         self.assertIn('VINA_SCRATCH_ROOT="${VINA_SCRATCH_ROOT:-/tmp}"', vina)
+        self.assertIn('CAMPAIGN_ROOT="${VINA_RESULTS_ROOT:-/projectnb/cheminfo/home/${USER}/AutoDockVina-Results/', vina)
+        self.assertIn('--results-dir "$CAMPAIGN_ROOT/shards/vina_', vina)
         self.assertNotIn("--stage-inputs-to-scratch", vina)
 
     def test_compact_profile_is_serialized_and_enables_generated_vina_mode(self):
