@@ -99,7 +99,7 @@ class HPCProfile:
     # Opt-in policy for metadata-sensitive shared filesystems.
     compact_results: bool = False
     compact_scratch_root: str = ""
-    # GPU queues may require an allocation even for CPU-bound workloads.
+    # Some queues may require a GPU allocation even for CPU-bound workloads.
     gpu_request: str = ""
 
     @property
@@ -125,7 +125,7 @@ JOEY_LSF_PROFILE = HPCProfile(
     email="jxs794@miami.edu",
     notify_begin=True,
     notify_end=True,
-    queue="gpu_cheminfo",
+    queue="normal",
     project="brd",
     workers=16,
     vina_cpus=16,
@@ -139,8 +139,9 @@ JOEY_LSF_PROFILE = HPCProfile(
     vina_executable="$HOME/miniconda3/envs/vina_env/bin/vina",
     python_command='$(command -v python3 || command -v python)',
     compact_results=True,
-    compact_scratch_root="/staging",
-    gpu_request="num=1:j_exclusive=no",
+    # Normal Pegasus nodes use node-local /tmp for short-lived compact work;
+    # scores and provenance remain on the configured shared results storage.
+    compact_scratch_root="/tmp",
 )
 
 MAINAK_LSF_PROFILE = HPCProfile(

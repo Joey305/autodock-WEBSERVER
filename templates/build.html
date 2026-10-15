@@ -419,7 +419,7 @@
     </div>
 
     <div id="lsfPanel" class="lsf-panel mt-3">
-      <div id="joeyLsfHint" class="small text-muted mb-2">Joey Pegasus mode uses <code>gpu_cheminfo</code>, requests one shared GPU, and uses <code>/staging</code> for temporary compact docking work (16 CPUs; Vina 240:00, ConfGen 48:00). Confirm your authorized LSF project before submitting.</div>
+      <div id="joeyLsfHint" class="small text-muted mb-2">Joey Pegasus mode uses the CPU-only <code>normal</code> queue: one 16-core node per shard, up to 15 parallel Vina workers, and node-local <code>/tmp</code> for short-lived compact docking files. Scores and provenance remain on shared Cheminfo storage (Vina 240:00, ConfGen 48:00).</div>
       <div id="mainakLsfHint" class="small text-muted mb-2 d-none">Mainak mode mirrors Joey's Miami workflow but swaps the user-specific paths and email to Mainak's setup.</div>
       <div id="tritonLsfHint" class="small text-muted mb-2 d-none">Triton mode requests 16 cores on one host in <code>normal</code> under <code>brd</code>. Install or set Vina in the unpacked project before submitting docking jobs.</div>
       <div id="customLsfHint" class="small text-muted mb-2 d-none">Custom mode stores these LSF/HPC values inside the generated package so helper scripts can regenerate matching `.lsf` files later.</div>

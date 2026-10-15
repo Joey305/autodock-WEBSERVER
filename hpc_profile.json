@@ -2,7 +2,7 @@
   "profile_name": "joey_pegasus",
   "scheduler": "lsf",
   "project": "brd",
-  "queue": "gpu_cheminfo",
+  "queue": "normal",
   "vina_cpus": 16,
   "confgen_cpus": 16,
   "confgen_workers": 16,
@@ -20,6 +20,6 @@
   "python_command": "$(command -v python3 || command -v python)",
   "setup_commands": [],
   "compact_results": true,
-  "compact_scratch_root": "/staging",
-  "gpu_request": "num=1:j_exclusive=no"
+  "compact_scratch_root": "/tmp",
+  "gpu_request": ""
 }
