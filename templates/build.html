@@ -1556,6 +1556,7 @@ async function gateLigandsAndBuild(started=false, s=null){
 $('#btnBuild').onclick=async()=>{
   const packageMode = getSelectedPackageMode();
   const analyticsWorkflow = packageMode === 'portable' ? 'interactive' : 'batch';
+  window.autodockAnalytics?.event('package_mode_selected', packageMode === 'portable' ? 'portable' : 'hpc');
   window.autodockAnalytics?.event('workflow_selected', analyticsWorkflow);
   const csvSmilesCol = getCsvColumnValue('csvSmilesCol','csvSmilesCustom');
   const csvIdCol = getCsvColumnValue('csvIdCol','csvIdCustom');

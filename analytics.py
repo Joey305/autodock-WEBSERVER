@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import threading
+import re
 from http.cookiejar import CookieJar
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 
@@ -12,6 +13,7 @@ from flask import Response, g, request
 
 EVENTS = {
     "page_view": {""}, "build_opened": {""},
+    "workspace_created": {"browser", "headless"}, "receptor_staged": {"upload", "fetch"}, "box_defined": {"interactive", "api"}, "receptor_prepared": {"browser", "headless"}, "ligand_staged": {"upload", "curated"}, "package_mode_selected": {"portable", "hpc"},
     "workflow_selected": {"interactive", "bound_ligand", "batch", "headless"},
     "package_build_started": {"interactive", "bound_ligand", "batch", "headless"},
     "package_build_completed": {"interactive", "bound_ligand", "batch", "headless"},
@@ -74,7 +76,11 @@ def _send(payload: dict[str, str]) -> None:
         pass
 
 
-def track(event_type: str, feature: str = "", status: str = "", path: str | None = None) -> tuple[str, str]:
+def _campaign() -> str:
+    value = request.args.get("utm_campaign", "").strip().lower()
+    return value if re.fullmatch(r"youtube-[a-z0-9-]{1,60}", value) else ""
+
+def track(event_type: str, feature: str = "", status: str = "", path: str | None = None, campaign: str | None = None) -> tuple[str, str]:
     """Queue a validated event without reading request bodies or scientific data."""
     visitor, session = _identifier("autodock_visitor"), _identifier("autodock_session")
     if event_type not in EVENTS or feature not in EVENTS[event_type]:
@@ -82,7 +88,7 @@ def track(event_type: str, feature: str = "", status: str = "", path: str | None
     safe_path = path or request.path
     if not safe_path.startswith("/") or "?" in safe_path or len(safe_path) > 240:
         return visitor, session
-    payload = {"event_id": secrets.token_urlsafe(18), "event_type": event_type, "visitor_id": visitor, "session_id": session, "path": safe_path, "referrer": _referrer(request.referrer or ""), "device": _device(request.user_agent.string), "browser": _browser(request.user_agent.string), "feature": feature, "status": status}
+    payload = {"event_id": secrets.token_urlsafe(18), "event_type": event_type, "visitor_id": visitor, "session_id": session, "path": safe_path, "referrer": _referrer(request.referrer or ""), "device": _device(request.user_agent.string), "browser": _browser(request.user_agent.string), "feature": feature, "status": status, "campaign": campaign if campaign is not None else _campaign()}
     threading.Thread(target=_send, args=(payload,), daemon=True).start()
     return visitor, session
 
@@ -101,6 +107,16 @@ def attach(response: Response) -> Response:
         if request.path in page_events:
             track(page_events[request.path])
     build_routes = {"/api/build": "interactive", "/api/v1/headless/package": "headless"}
+    milestones = {"/api/workspace": ("workspace_created", "browser"), "/api/receptors/upload": ("receptor_staged", "upload"), "/api/receptors/fetch": ("receptor_staged", "fetch"), "/api/receptor/center": ("box_defined", "interactive"), "/api/prep/start": ("receptor_prepared", "browser"), "/api/prep/start_one": ("receptor_prepared", "browser"), "/api/ligands/upload": ("ligand_staged", "upload"), "/api/ligands/curated": ("ligand_staged", "curated")}
+    if request.method == "POST" and response.status_code < 400:
+        if request.path in milestones: track(*milestones[request.path])
+        elif request.path == "/api/v1/workspaces": track("workspace_created", "headless")
+        elif request.path.endswith("/receptors/upload"): track("receptor_staged", "upload")
+        elif request.path.endswith("/receptors/fetch"): track("receptor_staged", "fetch")
+        elif request.path.endswith(("/centers/resolve", "/centers/save")): track("box_defined", "api")
+        elif request.path.endswith("/prep/start"): track("receptor_prepared", "headless")
+        elif request.path.endswith("/ligands/upload"): track("ligand_staged", "upload")
+        elif request.path.endswith(("/ligands/curated", "/ligands/extract")): track("ligand_staged", "curated")
     if request.method == "POST" and (request.path in build_routes or (request.path.startswith("/api/v1/workspaces/") and request.path.endswith("/build"))):
         workflow = build_routes.get(request.path, "headless")
         track("workflow_selected", workflow)
@@ -121,5 +137,6 @@ def browser_event(data: object) -> bool:
     event_type, feature = data.get("event_type"), data.get("feature", "")
     if event_type not in EVENTS or feature not in EVENTS[event_type]:
         return False
-    track(str(event_type), str(feature))
+    campaign = str(data.get("campaign") or "")
+    track(str(event_type), str(feature), campaign=campaign if re.fullmatch(r"youtube-[a-z0-9-]{1,60}", campaign) else "")
     return True

@@ -80,7 +80,8 @@
     <script src="{{ url_for('static', filename='js/theme-toggle.js') }}"></script>
     {% if analytics_enabled %}<script>
       window.autodockAnalytics = {event: (event_type, feature = '') => {
-        fetch('/api/analytics/event', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({event_type, feature})}).catch(() => {});
+        const campaign = new URLSearchParams(location.search).get('utm_campaign') || '';
+        fetch('/api/analytics/event', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({event_type, feature, campaign})}).catch(() => {});
       }};
     </script>{% endif %}
     <script>
