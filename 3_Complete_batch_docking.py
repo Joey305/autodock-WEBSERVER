@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import csv
 import glob
 import hashlib
@@ -673,6 +674,45 @@ def resolve_compact_scratch_root(cli_root: str | None, results_dir: str) -> tupl
     return os.path.abspath(results_dir), "results-root fallback (temporary; not verified local NVMe)"
 
 
+def stage_compact_inputs(
+    receptor_dir: str,
+    receptor_file: str | None,
+    ligand_files: list[str],
+    centers_csv: str,
+    scratch_root: str,
+) -> tuple[str, str | None, list[str], str, str]:
+    """Stage one bounded ligand shard and its small shared inputs to local SSD."""
+    workspace = tempfile.mkdtemp(prefix="vina_inputs_", dir=scratch_root)
+    staged_receptors = Path(workspace) / "Receptors"
+    staged_ligands = Path(workspace) / "Ligands"
+    staged_receptors.mkdir()
+    staged_ligands.mkdir()
+
+    for path in Path(receptor_dir).iterdir():
+        if path.is_file() and path.suffix.lower() in RECEPTOR_SUFFIXES:
+            shutil.copy2(path, staged_receptors / path.name)
+
+    staged_ligand_files: list[str] = []
+    copied_names: set[str] = set()
+    for source in ligand_files:
+        src = Path(source)
+        if src.name in copied_names:
+            raise ValueError(f"Duplicate ligand filename in shard: {src.name}")
+        if not src.is_file():
+            raise FileNotFoundError(f"Ligand listed for staging is missing: {src}")
+        target = staged_ligands / src.name
+        shutil.copy2(src, target)
+        copied_names.add(src.name)
+        staged_ligand_files.append(str(target))
+
+    staged_centers = Path(workspace) / Path(centers_csv).name
+    shutil.copy2(centers_csv, staged_centers)
+    staged_receptor_file = str(staged_receptors / Path(receptor_file).name) if receptor_file else None
+    if staged_receptor_file and not Path(staged_receptor_file).is_file():
+        raise FileNotFoundError(f"Selected receptor listed for staging is missing: {receptor_file}")
+    return str(staged_receptors), staged_receptor_file, staged_ligand_files, str(staged_centers), workspace
+
+
 def _job_key(job: dict) -> tuple[str, str, str]:
     return str(job["resolved_receptor"]), str(job["ligand"]), str(job["seed"])
 
@@ -770,6 +810,11 @@ def parse_args():
         help="Temporary Vina workspace. Overrides VINA_SCRATCH_ROOT; defaults to --results-dir temporarily.",
     )
     ap.add_argument(
+        "--stage-inputs-to-scratch",
+        action="store_true",
+        help="Copy this bounded ligand shard, receptors, and centers CSV to compact scratch before docking.",
+    )
+    ap.add_argument(
         "--compact-retain-top-poses", type=int, default=0, metavar="N",
         help="In compact mode, retain full PDBQT poses only for the top N ligands per receptor (default: 0).",
     )
@@ -840,6 +885,8 @@ def main():
         raise SystemExit("--compact-retain-top-poses must be zero or greater")
     if args.compact_retain_top_poses and not args.compact_results:
         raise SystemExit("--compact-retain-top-poses requires --compact-results")
+    if args.stage_inputs_to_scratch and not args.compact_results:
+        raise SystemExit("--stage-inputs-to-scratch requires --compact-results")
 
     start_time = time.time()
     start_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -948,6 +995,14 @@ def main():
             if path.suffix.lower() != ".pdbqt" or not path.is_file():
                 raise FileNotFoundError(f"Invalid ligand path in {list_path}: {value}")
             ligand_files.append(str(path.resolve()))
+
+    staged_input_workspace = None
+    if args.stage_inputs_to_scratch:
+        ligand_files_for_staging = ligand_files or glob.glob(os.path.join(ligand_dir, "*.pdbqt"))
+        receptor_dir, receptor_file, ligand_files, vina_csv, staged_input_workspace = stage_compact_inputs(
+            receptor_dir, receptor_file, ligand_files_for_staging, vina_csv, compact_scratch_root
+        )
+        atexit.register(shutil.rmtree, staged_input_workspace, ignore_errors=True)
 
     jobs = build_jobs(
         results_dir,

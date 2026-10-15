@@ -2,7 +2,7 @@
   "profile_name": "joey_pegasus",
   "scheduler": "lsf",
   "project": "brd",
-  "queue": "normal",
+  "queue": "gpu_cheminfo",
   "vina_cpus": 16,
   "confgen_cpus": 16,
   "confgen_workers": 16,
@@ -19,6 +19,7 @@
   "vina_executable": "$HOME/miniconda3/envs/vina_env/bin/vina",
   "python_command": "$(command -v python3 || command -v python)",
   "setup_commands": [],
-  "compact_results": false,
-  "compact_scratch_root": ""
+  "compact_results": true,
+  "compact_scratch_root": "/staging",
+  "gpu_request": "num=1:j_exclusive=no"
 }

@@ -201,7 +201,7 @@ def build_vina_lsfs(
             scratch_export = (
                 f'export VINA_SCRATCH_ROOT="${{VINA_SCRATCH_ROOT:-{profile.compact_scratch_root}}}"\n'
             )
-        body = scratch_export + body.rstrip("\n") + " \\\n+  --compact-results\n"
+        body = scratch_export + body.rstrip("\n") + " \\\n  --compact-results\n"
 
     out = lsf_dir / "run_vina_job.lsf"
     out.write_text(header + render_setup_block(profile) + _vina_export(profile) + _python_export(profile) + body)

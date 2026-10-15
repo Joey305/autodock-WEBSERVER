@@ -1533,7 +1533,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
 
 ### Joey LSF mode
 
-Joey LSF mode preserves the existing University of Miami workflow and keeps the legacy `lsf` API alias working. The example below reflects the current requested `normal` queue configuration; cluster approval remains required before submission.
+Joey LSF mode preserves the University of Miami workflow and keeps the legacy `lsf` API alias working. Pedro confirmed that the near-term Pegasus path is `gpu_cheminfo`: jobs must request a shared GPU even though Vina is CPU-bound, and `/staging` is the node-local temporary SSD. The generated profile uses compact results and runs per-ligand temporary files in `/staging`; only score/provenance files (and explicitly retained top poses) persist in the unpacked project. For a large campaign, invoke the runner per bounded `--ligand-list` shard with `--stage-inputs-to-scratch` rather than staging an entire library at once. Confirm that the selected LSF project is authorized for this queue before submission.
 
 Example build request:
 
@@ -1543,7 +1543,7 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
   -d '{
     "package_mode":"joey_lsf",
     "workers":16,
-    "queue":"normal",
+    "queue":"gpu_cheminfo",
     "project":"brd",
     "mem_per_core":2000,
     "confgen_walltime":"48:00",
@@ -1553,9 +1553,9 @@ curl -sS -X POST "$BASE/api/v1/workspaces/$JOB/build" \
   }'
 ```
 
-To explicitly smoke-test the Pegasus queue before a production submission, run
-`./test_normal_queue.sh`. It submits a one-core, ten-minute test only;
-normal docking scripts never invoke it automatically.
+To explicitly smoke-test the Pegasus queue and `/staging` before a production submission, run
+`./test_normal_queue.sh`. It submits a one-core, ten-minute shared-GPU test only;
+docking scripts never invoke it automatically.
 
 ### Custom LSF mode
 
@@ -1609,7 +1609,7 @@ Scratch-root precedence is:
 2. `VINA_SCRATCH_ROOT` (including an HPC-profile export)
 3. The active results root, as a temporary fallback
 
-The fallback is shared-storage behavior, not verified local NVMe. Configure an approved NVMe path through `VINA_SCRATCH_ROOT` or the independent `compact_scratch_root` field of each HPC profile. Do not submit a campaign or the included `test_normal_queue.sh` smoke test until the relevant queue, project, and storage allocation have been approved by the cluster administrators.
+The fallback is shared-storage behavior, not verified local NVMe. Configure an approved NVMe path through `VINA_SCRATCH_ROOT` or the independent `compact_scratch_root` field of each HPC profile. The Joey Pegasus profile is configured for the administrator-confirmed `/staging` path. Do not submit a campaign or the included smoke test until the relevant queue, project, and storage allocation have been approved by the cluster administrators.
 
 ---
 

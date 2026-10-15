@@ -80,6 +80,39 @@ class CompactResultsTests(unittest.TestCase):
             self.assertEqual(len(parsed), 4)
             self.assertEqual(parsed[0]["OutFile"], "")
 
+    def test_compact_runner_stages_selected_inputs_and_cleans_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receptors = root / "Receptors"; receptors.mkdir()
+            ligands = root / "Ligands"; ligands.mkdir()
+            scratch = root / "staging"; scratch.mkdir()
+            (receptors / "recA.pdbqt").write_text("RECEPTOR\n", encoding="utf-8")
+            (ligands / "ligA.pdbqt").write_text("LIGAND\n", encoding="utf-8")
+            (root / "centers.csv").write_text("PDB_ID,X,Y,Z\nrecA,1,2,3\n", encoding="utf-8")
+            vina = root / "fake_vina.py"
+            vina.write_text(
+                "#!/usr/bin/env python3\nimport pathlib,sys\n"
+                "if '--version' in sys.argv: print('Fake Vina 1.0'); raise SystemExit(0)\n"
+                "cfg=pathlib.Path(sys.argv[sys.argv.index('--config')+1]).read_text()\n"
+                "pathlib.Path(__file__).with_name('seen_config.txt').write_text(cfg)\n"
+                "out=[x.split(' = ',1)[1] for x in cfg.splitlines() if x.startswith('out = ')][0]\n"
+                "pathlib.Path(out).write_text('REMARK VINA RESULT: -7.5 0.0 0.0\\n')\n",
+                encoding="utf-8",
+            )
+            vina.chmod(0o755)
+            subprocess.run([
+                sys.executable, str(ROOT / "3_Complete_batch_docking.py"),
+                "--receptors", str(receptors), "--ligands", str(ligands),
+                "--centers_csv", str(root / "centers.csv"), "--poses", "1",
+                "--vina-exe", str(vina), "--results-dir", str(root / "results"),
+                "--compact-results", "--compact-scratch-root", str(scratch),
+                "--stage-inputs-to-scratch", "--workers", "1", "--max-pending", "1",
+            ], cwd=root, check=True, capture_output=True, text=True)
+            config = (root / "seen_config.txt").read_text(encoding="utf-8")
+            self.assertIn(str(scratch / "vina_inputs_"), config)
+            self.assertNotIn(str(ligands / "ligA.pdbqt"), config)
+            self.assertFalse(list(scratch.glob("vina_inputs_*")))
+
     def test_interrupted_compact_run_resumes_without_duplicate_scores(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

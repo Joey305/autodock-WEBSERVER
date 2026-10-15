@@ -36,13 +36,16 @@ class HpcProfileTests(unittest.TestCase):
 
     def test_joey_pegasus_profile_has_verified_allocations(self):
         self.assertEqual(JOEY_LSF_PROFILE.profile_name, "joey_pegasus")
-        self.assertEqual(JOEY_LSF_PROFILE.queue, "normal")
+        self.assertEqual(JOEY_LSF_PROFILE.queue, "gpu_cheminfo")
         self.assertEqual(JOEY_LSF_PROFILE.project, "brd")
         self.assertEqual(JOEY_LSF_PROFILE.effective_vina_cpus, 16)
         self.assertEqual(JOEY_LSF_PROFILE.effective_confgen_cpus, 16)
         self.assertEqual(JOEY_LSF_PROFILE.effective_confgen_workers, 16)
         self.assertEqual(JOEY_LSF_PROFILE.vina_walltime, "240:00")
         self.assertEqual(JOEY_LSF_PROFILE.confgen_walltime, "48:00")
+        self.assertTrue(JOEY_LSF_PROFILE.compact_results)
+        self.assertEqual(JOEY_LSF_PROFILE.compact_scratch_root, "/staging")
+        self.assertEqual(JOEY_LSF_PROFILE.gpu_request, "num=1:j_exclusive=no")
         validate_hpc_profile(JOEY_LSF_PROFILE)
 
     def test_triton_profile_has_verified_cpu_queue_and_project(self):
@@ -171,13 +174,16 @@ class HpcProfileTests(unittest.TestCase):
 
         self.assertIn("#BSUB -P brd", vina)
         self.assertIn("#BSUB -W 240:00", vina)
-        self.assertIn("#BSUB -q normal", vina)
+        self.assertIn("#BSUB -q gpu_cheminfo", vina)
+        self.assertIn('#BSUB -gpu "num=1:j_exclusive=no"', vina)
         self.assertIn("#BSUB -n 16", vina)
         self.assertIn('#BSUB -R "span[hosts=1]"', vina)
         self.assertIn('#BSUB -R "rusage[mem=2000]"', vina)
         self.assertIn("#BSUB -W 48:00", confgen)
         self.assertIn("#BSUB -n 16", confgen)
         self.assertIn("--workers 16", confgen)
+        self.assertIn("--compact-results", vina)
+        self.assertNotIn("--stage-inputs-to-scratch", vina)
 
     def test_compact_profile_is_serialized_and_enables_generated_vina_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:

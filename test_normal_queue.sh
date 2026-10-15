@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Explicit Pegasus/LSF smoke test.  This does not run as part of normal docking.
+# Explicit Pegasus/LSF smoke test. This does not run as part of normal docking.
 set -euo pipefail
 
 PROJECT="${PROJECT:-brd}"
-QUEUE="${QUEUE:-normal}"
+QUEUE="${QUEUE:-gpu_cheminfo}"
 LOG_DIR="${LOG_DIR:-logs}"
 mkdir -p "$LOG_DIR"
 
 bsub \
   -P "$PROJECT" \
   -q "$QUEUE" \
+  -gpu "num=1:j_exclusive=no" \
   -n 1 \
   -W 00:10 \
-  -o "$LOG_DIR/normal_queue_test_%J.out" \
-  -e "$LOG_DIR/normal_queue_test_%J.err" \
-  'echo "HOST=$(hostname)"; echo "CPUS=${LSB_DJOB_NUMPROC:-unknown}"; sleep 5'
+  -o "$LOG_DIR/gpu_cheminfo_test_%J.out" \
+  -e "$LOG_DIR/gpu_cheminfo_test_%J.err" \
+  'test -d /staging; echo "HOST=$(hostname)"; echo "CPUS=${LSB_DJOB_NUMPROC:-unknown}"; df -h /staging; sleep 5'

@@ -99,6 +99,8 @@ class HPCProfile:
     # Opt-in policy for metadata-sensitive shared filesystems.
     compact_results: bool = False
     compact_scratch_root: str = ""
+    # GPU queues may require an allocation even for CPU-bound workloads.
+    gpu_request: str = ""
 
     @property
     def effective_vina_cpus(self) -> int:
@@ -123,7 +125,7 @@ JOEY_LSF_PROFILE = HPCProfile(
     email="jxs794@miami.edu",
     notify_begin=True,
     notify_end=True,
-    queue="normal",
+    queue="gpu_cheminfo",
     project="brd",
     workers=16,
     vina_cpus=16,
@@ -136,6 +138,9 @@ JOEY_LSF_PROFILE = HPCProfile(
     conda_env="vina_env",
     vina_executable="$HOME/miniconda3/envs/vina_env/bin/vina",
     python_command='$(command -v python3 || command -v python)',
+    compact_results=True,
+    compact_scratch_root="/staging",
+    gpu_request="num=1:j_exclusive=no",
 )
 
 MAINAK_LSF_PROFILE = HPCProfile(
@@ -206,6 +211,7 @@ def profile_from_dict(payload: Mapping[str, Any]) -> HPCProfile:
         "span_hosts": _clean_int(payload.get("span_hosts"), 1),
         "compact_results": _clean_bool(payload.get("compact_results"), False),
         "compact_scratch_root": _clean_str(payload.get("compact_scratch_root")),
+        "gpu_request": _clean_str(payload.get("gpu_request")),
     }
     extra = {key: value for key, value in payload.items() if key in known and key not in cleaned}
     return HPCProfile(**(cleaned | extra))
@@ -236,6 +242,7 @@ def build_custom_profile(values: Mapping[str, Any] | None) -> HPCProfile:
             "span_hosts": values.get("span_hosts") or 1,
             "compact_results": values.get("compact_results"),
             "compact_scratch_root": _clean_str(values.get("compact_scratch_root")),
+            "gpu_request": _clean_str(values.get("gpu_request")),
         }
     )
 
@@ -285,6 +292,8 @@ def validate_hpc_profile(profile: HPCProfile) -> None:
         errors.append("memory per core must be a positive integer")
     if profile.span_hosts < 1:
         errors.append("host span must be a positive integer")
+    if "\n" in profile.gpu_request or "\r" in profile.gpu_request:
+        errors.append("GPU request must be a single LSF resource string")
     if profile.email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", profile.email):
         errors.append("email is invalid")
     if profile.conda_env and not profile.conda_sh:
@@ -312,6 +321,7 @@ def format_hpc_profile_summary(profile: HPCProfile) -> str:
         f"Memory: {profile.mem_per_core_mb} MB/core (LSF rusage[mem=...] per slot)",
         f"Host span: {profile.span_hosts}",
         f"Compact results: {'enabled' if profile.compact_results else 'disabled'}",
+        f"GPU request: {profile.gpu_request or 'none'}",
     ))
 
 
@@ -344,6 +354,8 @@ def render_lsf_header(
             f'#BSUB -R "rusage[mem={mem_per_core_mb}]"',
         ]
     )
+    if profile.gpu_request:
+        lines.append(f'#BSUB -gpu "{profile.gpu_request}"')
     if profile.email:
         if profile.notify_begin:
             lines.append("#BSUB -B")
