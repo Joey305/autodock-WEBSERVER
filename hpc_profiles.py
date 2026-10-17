@@ -130,11 +130,15 @@ JOEY_LSF_PROFILE = HPCProfile(
     notify_end=True,
     queue="normal",
     project="brd",
-    workers=16,
-    vina_cpus=16,
+    # Vina runs one memory-intensive process per requested CPU.  The previous
+    # 16 × 2-GB allocation caused worker launches to fail with ENOMEM on
+    # Pegasus normal nodes.  Eight 8-GB slots keep each compact shard within a
+    # reliable 64-GB envelope while allowing many shards to run in parallel.
+    workers=8,
+    vina_cpus=8,
     confgen_cpus=16,
     confgen_workers=16,
-    mem_per_core_mb=2000,
+    mem_per_core_mb=8000,
     confgen_walltime="48:00",
     vina_walltime="240:00",
     conda_sh="/nethome/jxs794/miniconda3/etc/profile.d/conda.sh",
@@ -155,11 +159,12 @@ MAINAK_LSF_PROFILE = HPCProfile(
     notify_end=True,
     queue="normal",
     project="brd",
-    workers=16,
-    vina_cpus=16,
+    # Match the Pegasus memory-safe Vina allocation above.
+    workers=8,
+    vina_cpus=8,
     confgen_cpus=16,
     confgen_workers=16,
-    mem_per_core_mb=2000,
+    mem_per_core_mb=8000,
     confgen_walltime="48:00",
     vina_walltime="96:00",
     conda_sh="/nethome/mxb2638/miniconda3/etc/profile.d/conda.sh",
