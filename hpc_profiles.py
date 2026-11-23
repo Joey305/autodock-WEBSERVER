@@ -107,6 +107,8 @@ class HPCProfile:
     # compound, up to this limit, for every receptor. Zero explicitly disables
     # retention without changing compact score collection.
     compact_retain_top_poses: int = 100
+    # For each retained parent, keep this many best state/pose structures.
+    compact_retain_poses_per_parent: int = 5
     compact_scratch_root: str = ""
     # Persistent campaign root. Generated compact jobs add the workspace name
     # and a shard directory below this path automatically.
@@ -245,6 +247,7 @@ def profile_from_dict(payload: Mapping[str, Any]) -> HPCProfile:
         "span_hosts": _clean_int(payload.get("span_hosts"), 1),
         "compact_results": _clean_bool(payload.get("compact_results"), False),
         "compact_retain_top_poses": _clean_int(payload.get("compact_retain_top_poses"), 100),
+        "compact_retain_poses_per_parent": _clean_int(payload.get("compact_retain_poses_per_parent"), 5),
         "compact_scratch_root": _clean_str(payload.get("compact_scratch_root")),
         "results_root": _clean_str(payload.get("results_root")),
         "gpu_request": _clean_str(payload.get("gpu_request")),
@@ -280,6 +283,7 @@ def build_custom_profile(values: Mapping[str, Any] | None) -> HPCProfile:
             "span_hosts": values.get("span_hosts") or 1,
             "compact_results": values.get("compact_results"),
             "compact_retain_top_poses": values.get("compact_retain_top_poses", 100),
+            "compact_retain_poses_per_parent": values.get("compact_retain_poses_per_parent", 5),
             "compact_scratch_root": _clean_str(values.get("compact_scratch_root")),
             "results_root": _clean_str(values.get("results_root")),
             "gpu_request": _clean_str(values.get("gpu_request")),
@@ -334,6 +338,8 @@ def validate_hpc_profile(profile: HPCProfile) -> None:
         errors.append("memory limit must be zero or a positive integer")
     if profile.compact_retain_top_poses < 0:
         errors.append("compact retained pose count must be zero or a positive integer")
+    if profile.compact_retain_poses_per_parent < 1:
+        errors.append("compact retained poses per parent must be a positive integer")
     if profile.span_hosts < 1:
         errors.append("host span must be a positive integer")
     if "\n" in profile.gpu_request or "\r" in profile.gpu_request:
@@ -370,6 +376,7 @@ def format_hpc_profile_summary(profile: HPCProfile) -> str:
         f"Host span: {profile.span_hosts}",
         f"Compact results: {'enabled' if profile.compact_results else 'disabled'}",
         f"Compact retained parent poses: {profile.compact_retain_top_poses if profile.compact_results else 0}",
+        f"Compact retained poses per parent: {profile.compact_retain_poses_per_parent if profile.compact_results else 0}",
         f"Results root: {profile.results_root or 'package directory'}",
         f"GPU request: {profile.gpu_request or 'none'}",
     ))

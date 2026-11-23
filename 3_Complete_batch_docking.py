@@ -868,19 +868,34 @@ def _candidate_from_row(job: dict, row: dict, pose_bytes: bytes) -> dict:
     }
 
 
-def _insert_retained_candidate(candidates: dict[str, dict[str, dict]], candidate: dict, limit: int) -> None:
-    """Keep at most ``limit`` parent winners per receptor in memory."""
+def _insert_retained_candidate(
+    candidates: dict[str, dict[str, list[dict]]],
+    candidate: dict,
+    parent_limit: int,
+    poses_per_parent: int,
+) -> None:
+    """Keep bounded state/pose candidates for the best distinct parents."""
     receptor_candidates = candidates.setdefault(candidate["receptor"], {})
     parent = candidate["parent_ligand"]
-    existing = receptor_candidates.get(parent)
-    if existing is None or _retained_sort_key(candidate) < _retained_sort_key(existing):
-        receptor_candidates[parent] = candidate
-    if len(receptor_candidates) > limit:
-        worst_parent = max(receptor_candidates, key=lambda key: _retained_sort_key(receptor_candidates[key]))
+    parent_candidates = receptor_candidates.setdefault(parent, [])
+    # A retry or restored manifest must not retain the same Vina result twice.
+    parent_candidates[:] = [
+        item for item in parent_candidates
+        if item["source_result_row"] != candidate["source_result_row"]
+    ]
+    parent_candidates.append(candidate)
+    parent_candidates.sort(key=_retained_sort_key)
+    del parent_candidates[poses_per_parent:]
+    # A parent occupies exactly one global slot. Its best candidate decides
+    # that slot; the remaining candidates are only visual alternatives.
+    if len(receptor_candidates) > parent_limit:
+        worst_parent = max(receptor_candidates, key=lambda key: _retained_sort_key(receptor_candidates[key][0]))
         del receptor_candidates[worst_parent]
 
 
-def _load_retained_candidates(results_dir: Path, limit: int) -> dict[str, dict[str, dict]]:
+def _load_retained_candidates(
+    results_dir: Path, parent_limit: int, poses_per_parent: int,
+) -> dict[str, dict[str, list[dict]]]:
     """Seed a resumed run from its last atomic manifest and retained bytes."""
     manifest = results_dir / "compact_retained_poses.json"
     if not manifest.is_file():
@@ -889,7 +904,7 @@ def _load_retained_candidates(results_dir: Path, limit: int) -> dict[str, dict[s
         payload = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
-    candidates: dict[str, dict[str, dict]] = {}
+    candidates: dict[str, dict[str, list[dict]]] = {}
     for entry in payload.get("retained", []):
         pose_path = results_dir / str(entry.get("path", ""))
         if not pose_path.is_file() or not entry.get("parent_ligand"):
@@ -897,12 +912,12 @@ def _load_retained_candidates(results_dir: Path, limit: int) -> dict[str, dict[s
         candidate = dict(entry)
         candidate["pose_bytes"] = pose_path.read_bytes()
         candidate["receptor_path"] = str(results_dir / entry.get("receptor_path", ""))
-        _insert_retained_candidate(candidates, candidate, limit)
+        _insert_retained_candidate(candidates, candidate, parent_limit, poses_per_parent)
     return candidates
 
 
-def _write_retained_poses(results_dir: Path, candidates: dict[str, dict[str, dict]]) -> list[dict]:
-    """Publish an atomic manifest for one bounded, parent-deduplicated pose set."""
+def _write_retained_poses(results_dir: Path, candidates: dict[str, dict[str, list[dict]]]) -> list[dict]:
+    """Publish an atomic manifest for bounded parent winners and their alternatives."""
     retained: list[dict] = []
     root = results_dir / "retained_poses"
     wanted_paths: set[Path] = set()
@@ -910,7 +925,7 @@ def _write_retained_poses(results_dir: Path, candidates: dict[str, dict[str, dic
         receptor_dir = root / _sanitize_tag(receptor)
         receptor_dir.mkdir(parents=True, exist_ok=True)
         receptor_copy = receptor_dir / "receptor.pdbqt"
-        winner = min(parent_winners.values(), key=_retained_sort_key)
+        winner = min((entries[0] for entries in parent_winners.values()), key=_retained_sort_key)
         source_receptor = Path(winner.get("receptor_path", ""))
         if source_receptor.is_file():
             receptor_bytes = source_receptor.read_bytes()
@@ -922,30 +937,36 @@ def _write_retained_poses(results_dir: Path, candidates: dict[str, dict[str, dic
         tmp_receptor.write_bytes(receptor_bytes)
         os.replace(tmp_receptor, receptor_copy)
         wanted_paths.add(receptor_copy)
-        for rank, candidate in enumerate(sorted(parent_winners.values(), key=_retained_sort_key), start=1):
-            name = (
-                f"top_{rank:03d}_{_sanitize_tag(candidate['parent_ligand'])}_"
-                f"{_sanitize_tag(candidate['state_specific_ligand'])}_seed{candidate['seed']}.pdbqt"
-            )
-            path = receptor_dir / name
-            tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-            tmp.write_bytes(candidate["pose_bytes"])
-            os.replace(tmp, path)
-            wanted_paths.add(path)
-            retained.append({
-                key: value for key, value in candidate.items()
-                if key not in {"pose_bytes", "receptor_path"}
-            } | {
-                "rank": rank,
-                "path": str(path.relative_to(results_dir)),
-                "receptor_path": str(receptor_copy.relative_to(results_dir)),
-                "tie_breakers": RETENTION_TIE_BREAKERS,
-            })
+        ranked_parents = sorted(parent_winners.values(), key=lambda entries: _retained_sort_key(entries[0]))
+        for parent_rank, entries in enumerate(ranked_parents, start=1):
+            for within_parent_rank, candidate in enumerate(entries, start=1):
+                name = (
+                    f"top_{parent_rank:03d}_{_sanitize_tag(candidate['parent_ligand'])}_"
+                    f"pose_{within_parent_rank:02d}_{_sanitize_tag(candidate['state_specific_ligand'])}_"
+                    f"seed{candidate['seed']}.pdbqt"
+                )
+                path = receptor_dir / name
+                tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+                tmp.write_bytes(candidate["pose_bytes"])
+                os.replace(tmp, path)
+                wanted_paths.add(path)
+                retained.append({
+                    key: value for key, value in candidate.items()
+                    if key not in {"pose_bytes", "receptor_path"}
+                } | {
+                    # ``rank`` remains the parent rank for compatibility.
+                    "rank": parent_rank,
+                    "parent_rank": parent_rank,
+                    "within_parent_rank": within_parent_rank,
+                    "path": str(path.relative_to(results_dir)),
+                    "receptor_path": str(receptor_copy.relative_to(results_dir)),
+                    "tie_breakers": RETENTION_TIE_BREAKERS,
+                })
     # The manifest is the commit point: stale files are removed only after it
     # describes a complete new set, so interruption cannot lose a valid set.
     _atomic_json(results_dir / "compact_retained_poses.json", {
-        "schema_version": 2,
-        "selection": "one winning state per parent compound per receptor",
+        "schema_version": 3,
+        "selection": "top parent compounds ranked by best state; retained state/pose alternatives per parent",
         "tie_breakers": RETENTION_TIE_BREAKERS,
         "retained": retained,
     })
@@ -998,7 +1019,11 @@ def parse_args():
     )
     ap.add_argument(
         "--compact-retain-top-poses", type=int, default=0, metavar="N",
-        help="In compact mode, retain full PDBQT poses only for the top N ligands per receptor (default: 0).",
+        help="In compact mode, retain parent compounds only for the top N parents per receptor (default: 0).",
+    )
+    ap.add_argument(
+        "--compact-retain-poses-per-parent", type=int, default=1, metavar="N",
+        help="Full PDBQT state/pose structures to retain for each retained parent compound (default: 1).",
     )
     ap.add_argument(
         "--workers",
@@ -1081,6 +1106,8 @@ def main():
         raise SystemExit("Use either --full-pose-ensemble OR --energy-range, not both.")
     if args.compact_retain_top_poses < 0:
         raise SystemExit("--compact-retain-top-poses must be zero or greater")
+    if args.compact_retain_poses_per_parent < 1:
+        raise SystemExit("--compact-retain-poses-per-parent must be one or greater")
     if args.compact_retain_top_poses and not args.compact_results:
         raise SystemExit("--compact-retain-top-poses requires --compact-results")
     if args.stage_inputs_to_scratch and not args.compact_results:
@@ -1291,6 +1318,7 @@ def main():
             "completion_metadata": "compact_completion.json", "scratch_root": compact_scratch_root,
             "scratch_source": scratch_source, "poses_retained": bool(args.compact_retain_top_poses),
             "retain_top_poses_per_receptor": args.compact_retain_top_poses,
+            "retain_poses_per_parent": args.compact_retain_poses_per_parent,
         } if args.compact_results else None),
     )
 
@@ -1310,16 +1338,16 @@ def main():
     print(f"📋 Job manifest     : {job_manifest_path}", flush=True)
     print(f"🧬 Dock provenance  : {provenance_path}", flush=True)
     if args.compact_results:
-        pose_note = "no pose PDBQT files retained" if not args.compact_retain_top_poses else f"top {args.compact_retain_top_poses} pose PDBQT files retained per receptor"
+        pose_note = "no pose PDBQT files retained" if not args.compact_retain_top_poses else f"up to {args.compact_retain_top_poses} parents × {args.compact_retain_poses_per_parent} pose PDBQT files retained per receptor"
         print(f"🗜  Compact results : enabled ({pose_note})", flush=True)
         print(f"🧹 Scratch root     : {compact_scratch_root} ({scratch_source})", flush=True)
 
     successes, failures = 0, 0
     results_log = []
-    # A receptor maps each parent compound to exactly one currently winning
-    # state. This remains bounded to --compact-retain-top-poses throughout a
-    # run rather than retaining every state or Vina mode in memory.
-    retained_candidates: dict[str, dict[str, dict]] = {}
+    # A receptor maps each parent to a bounded ordered list. The list's best
+    # candidate controls its one parent-ranking slot; later entries are
+    # visualization alternatives. Memory is bounded to parent limit × poses.
+    retained_candidates: dict[str, dict[str, list[dict]]] = {}
 
     compact_results_path = Path(results_dir) / "compact_results.csv"
     compact_failures_path = Path(results_dir) / "compact_failures.csv"
@@ -1343,6 +1371,7 @@ def main():
     if args.compact_results and args.compact_retain_top_poses and retained_manifest_path.exists():
         retained_candidates = _load_retained_candidates(
             Path(results_dir), args.compact_retain_top_poses,
+            args.compact_retain_poses_per_parent,
         )
     if completed_jobs and not replay_completed_for_retention:
         jobs = [job for job in jobs if _job_key(job) not in completed_jobs]
@@ -1415,6 +1444,7 @@ def main():
                                 retained_candidates,
                                 _candidate_from_row(job, row, pose_bytes),
                                 args.compact_retain_top_poses,
+                                args.compact_retain_poses_per_parent,
                             )
                 else:
                     failures += 1
@@ -1478,6 +1508,7 @@ def main():
             "scratch_source": scratch_source,
             "poses_retained": bool(args.compact_retain_top_poses),
             "retained_top_poses_per_receptor": args.compact_retain_top_poses,
+            "retained_poses_per_parent": args.compact_retain_poses_per_parent,
             "retained_pose_files": retained,
         })
 
@@ -1507,6 +1538,7 @@ def main():
             "completion_metadata": "compact_completion.json", "scratch_root": compact_scratch_root,
             "scratch_source": scratch_source, "poses_retained": bool(args.compact_retain_top_poses),
             "retain_top_poses_per_receptor": args.compact_retain_top_poses,
+            "retain_poses_per_parent": args.compact_retain_poses_per_parent,
         } if args.compact_results else None),
     )
 

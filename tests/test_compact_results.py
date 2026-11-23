@@ -124,23 +124,26 @@ class CompactResultsTests(unittest.TestCase):
             command = [sys.executable, str(ROOT / "3_Complete_batch_docking.py"), "--receptors", str(receptors),
                        "--ligands", str(ligands), "--centers_csv", str(root / "centers.csv"), "--poses", "2",
                        "--vina-exe", str(vina), "--results-dir", str(results), "--compact-results",
-                       "--compact-retain-top-poses", "2", "--workers", "1", "--max-pending", "1", "--seed", "11"]
+                       "--compact-retain-top-poses", "2", "--compact-retain-poses-per-parent", "2",
+                       "--workers", "1", "--max-pending", "1", "--seed", "11"]
             subprocess.run(command, cwd=root, check=True, capture_output=True, text=True)
             manifest_path = results / "compact_retained_poses.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             retained = manifest["retained"]
-            self.assertEqual([entry["parent_ligand"] for entry in retained], ["Parent A", "Parent B"])
+            self.assertEqual([entry["parent_ligand"] for entry in retained], ["Parent A", "Parent A", "Parent B", "Parent B"])
             self.assertEqual(retained[0]["state_specific_ligand"], "parentA_prot2_taut2_conf2")
             self.assertEqual(retained[0]["state_specific_ligand_filename"], "parentA_prot2_taut2_conf2.pdbqt")
             self.assertEqual(retained[0]["vina_pose_rank"], 1)
             self.assertEqual(retained[0]["protomer"], "p2")
-            self.assertEqual(len({entry["parent_ligand"] for entry in retained}), len(retained))
+            self.assertEqual(len({entry["parent_ligand"] for entry in retained}), 2)
+            self.assertEqual([entry["within_parent_rank"] for entry in retained[:2]], [1, 2])
+            self.assertEqual([entry["parent_rank"] for entry in retained], [1, 1, 2, 2])
             self.assertIn("state_specific_ligand", retained[0]["tie_breakers"])
             self.assertEqual((results / retained[0]["receptor_path"]).read_text(encoding="utf-8"), "EXACT RECEPTOR\n")
             for entry in retained:
                 pose = (results / entry["path"]).read_text(encoding="utf-8")
-                self.assertIn("MODEL 1", pose)
-                self.assertNotIn("MODEL 2", pose)
+                self.assertIn(f"MODEL {entry['vina_pose_rank']}", pose)
+                self.assertEqual(pose.count("MODEL "), 1)
 
             # A later/retry shard adds a better parent; its snapshot merges
             # with the earlier winners and removes the displaced Parent B file.
@@ -150,10 +153,13 @@ class CompactResultsTests(unittest.TestCase):
                 build_ligand_state_metadata(parent, name, parent, "library.csv", "csv", pdbqt_file=f"{name}.pdbqt")
                 for name, (parent, *_rest) in states.items()
             ] + [build_ligand_state_metadata("Parent D", state, "Parent D", "library.csv", "csv", pdbqt_file=f"{state}.pdbqt")])
-            displaced = results / retained[1]["path"]
+            displaced = results / next(entry["path"] for entry in retained if entry["parent_ligand"] == "Parent B")
             subprocess.run(command, cwd=root, check=True, capture_output=True, text=True)
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual([entry["parent_ligand"] for entry in manifest["retained"]], ["Parent D", "Parent A"])
+            self.assertEqual(
+                [entry["parent_ligand"] for entry in manifest["retained"]],
+                ["Parent D", "Parent D", "Parent A", "Parent A"],
+            )
             self.assertFalse(displaced.exists())
             self.assertTrue(all((results / entry["path"]).is_file() for entry in manifest["retained"]))
 

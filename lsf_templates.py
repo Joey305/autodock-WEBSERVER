@@ -211,7 +211,7 @@ def build_vina_lsfs(
             body = body.rstrip("\n") + f' \\\n  --results-dir "$CAMPAIGN_ROOT/shards/{jobtag}"'
         body = (
             results_root_block + scratch_export + body.rstrip("\n")
-            + f" \\\n  --compact-results \\\n  --compact-retain-top-poses {profile.compact_retain_top_poses}\n"
+            + f" \\\n  --compact-results \\\n  --compact-retain-top-poses {profile.compact_retain_top_poses} \\\n  --compact-retain-poses-per-parent {profile.compact_retain_poses_per_parent}\n"
         )
 
     out = lsf_dir / "run_vina_job.lsf"
