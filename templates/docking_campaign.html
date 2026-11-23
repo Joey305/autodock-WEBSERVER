@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Submit docking campaign · AutoDock-Vina PrepServer{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:960px">
+  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+    <div><h1 class="h3 mb-1">Submit a docking campaign</h1><p class="text-muted mb-0">Upload the ZIP exported by this AutoDock/Vina tool. The portal validates it, splits the raw library, and prepares dependent Pegasus LSF jobs.</p></div>
+    <span class="badge text-bg-primary">ZIP is the only input</span>
+  </div>
+  <div class="card mb-3"><div class="card-body">
+    <label class="form-label fw-semibold" for="packageZip">1. AutoDock/Vina package ZIP</label>
+    <div class="input-group"><input class="form-control" id="packageZip" type="file" accept=".zip"><button class="btn btn-primary" id="inspect">Inspect package</button></div>
+    <div id="inspectStatus" class="form-text">The ZIP must contain raw ligands, prepared receptor PDBQT files, and <code>vina_centers.csv</code>.</div>
+  </div></div>
+
+  <form id="campaignForm" class="d-none">
+    <div class="card mb-3"><div class="card-body">
+      <h2 class="h5">2. Library and batches</h2>
+      <div id="packageSummary" class="alert alert-success py-2"></div>
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label">Raw ligand input</label><select id="ligandInput" class="form-select"></select></div>
+        <div class="col-md-3"><label class="form-label">Split by</label><select id="splitMode" class="form-select"><option value="group_size">Ligands per batch</option><option value="num_groups">Number of batches</option></select></div>
+        <div class="col-md-3"><label class="form-label" id="splitLabel">Ligands per batch</label><input id="splitValue" class="form-control" type="number" min="1" value="500"></div>
+        <div class="col-md-6"><label class="form-label">Campaign name</label><input id="campaignName" class="form-control" value="campaign-001" pattern="[A-Za-z0-9._-]+"><div class="form-text">Used as the clean Pegasus results directory name.</div></div>
+        <div class="col-md-6"><label class="form-label">Batch prefix</label><input id="batchPrefix" class="form-control" value="batch"></div>
+      </div>
+    </div></div>
+    <div class="card mb-3"><div class="card-body">
+      <h2 class="h5">3. ConfGen and Vina settings</h2>
+      <div id="csvFields" class="row g-3 d-none"><div class="col-md-6"><label class="form-label">CSV SMILES column</label><select id="smilesColumn" class="form-select"></select></div><div class="col-md-6"><label class="form-label">CSV compound-ID column</label><select id="idColumn" class="form-select"></select></div></div>
+      <div class="row g-3 mt-0">
+        <div class="col-md-3"><label class="form-label">Conformers / ligand</label><input id="confgenPoses" class="form-control" type="number" min="1" value="64"></div>
+        <div class="col-md-3"><label class="form-label">Vina poses</label><input id="vinaPoses" class="form-control" type="number" min="1" value="20"></div>
+        <div class="col-md-3"><label class="form-label">ConfGen CPUs / batch</label><input id="confgenWorkers" class="form-control" type="number" min="1" value="16"></div>
+        <div class="col-md-3"><label class="form-label">Vina workers / batch</label><input id="vinaWorkers" class="form-control" type="number" min="1" value="8"></div>
+        <div class="col-md-3"><label class="form-label">Concurrent batches</label><input id="maxParallel" class="form-control" type="number" min="1" value="3"></div>
+        <div class="col-md-3"><label class="form-label">ConfGen walltime</label><input id="confgenWalltime" class="form-control" value="48:00"></div>
+        <div class="col-md-3"><label class="form-label">Vina walltime</label><input id="vinaWalltime" class="form-control" value="240:00"></div>
+        <div class="col-md-3"><label class="form-label">Memory / core (MB)</label><input id="memPerCore" class="form-control" type="number" min="1" value="8000"></div>
+      </div>
+      <div class="form-check mt-3"><input id="enumerateProtomers" class="form-check-input" type="checkbox"><label class="form-check-label" for="enumerateProtomers">Enumerate protonation states and tautomers</label></div>
+      <details class="mt-3"><summary>Advanced chemistry, Vina, and Pegasus setup</summary><div class="row g-3 mt-1"><div class="col-md-3"><label class="form-label">pH minimum</label><input id="phMin" class="form-control" type="number" step=".1" value="6.8"></div><div class="col-md-3"><label class="form-label">pH maximum</label><input id="phMax" class="form-control" type="number" step=".1" value="7.4"></div><div class="col-md-3"><label class="form-label">pH precision</label><input id="phPrecision" class="form-control" type="number" step=".1" value="0.5"></div><div class="col-md-3"><label class="form-label">Max protomers</label><input id="maxProtomers" class="form-control" type="number" min="1" value="4"></div><div class="col-md-3"><label class="form-label">Max tautomers</label><input id="maxTautomers" class="form-control" type="number" min="1" value="4"></div><div class="col-md-3"><label class="form-label">Max tautomer transforms</label><input id="maxTransforms" class="form-control" type="number" min="1" value="200"></div><div class="col-md-3"><label class="form-label">Vina exhaustiveness</label><input id="exhaustiveness" class="form-control" type="number" min="1" value="8"></div><div class="col-md-3"><label class="form-label">Minimum RMSD (Å)</label><input id="minRmsd" class="form-control" type="number" min="0" step=".1" value="1.0"></div><div class="col-md-3"><label class="form-label">Energy range (kcal/mol)</label><input id="energyRange" class="form-control" type="number" min="0" step=".1" placeholder="Vina default"></div><div class="col-md-3"><label class="form-label">Random seed</label><input id="seed" class="form-control" type="number" min="0" placeholder="Auto"></div><div class="col-md-3"><label class="form-label">Retain top poses / receptor</label><input id="retainTopPoses" class="form-control" type="number" min="0" value="0"></div><div class="col-md-6"><label class="form-label">Queue</label><input id="queue" class="form-control" value="normal"></div><div class="col-md-6"><label class="form-label">Project/account</label><input id="project" class="form-control" value="brd"></div><div class="col-12"><label class="form-label">Environment setup commands</label><textarea id="setup" class="form-control" rows="2">source /nethome/jxs794/miniconda3/etc/profile.d/conda.sh
+conda activate vina_env</textarea></div></div></details>
+    </div></div>
+    <div class="card mb-4"><div class="card-body d-flex align-items-center gap-3 flex-wrap"><button class="btn btn-success" id="build" type="submit">Build Pegasus campaign ZIP</button><span id="buildStatus" class="text-muted small"></span><a id="download" class="btn btn-outline-primary d-none" target="_blank">Download campaign ZIP</a></div><div class="card-footer small text-muted">The campaign includes <code>monitor_campaign.sh</code>. It reports actual PDBQT files against the configured maximum, then uses the exact Vina job count once jobs are enumerated.</div></div>
+  </form>
+</div>
+<script>
+const el=id=>document.getElementById(id); let token='', report={};
+const val=id=>el(id).value;
+function selectedInput(){ return (report.ligand_inputs||[]).find(x=>x.path===val('ligandInput')); }
+function refreshInput(){ const item=selectedInput(); const csv=item?.type==='csv'; el('csvFields').classList.toggle('d-none',!csv); if(csv){ const headers=item.headers||[]; for(const id of ['smilesColumn','idColumn']) el(id).innerHTML=headers.map(h=>`<option value="${h.replaceAll('&','&amp;').replaceAll('"','&quot;')}">${h}</option>`).join(''); const sm=headers.find(h=>/smiles/i.test(h)); if(sm) el('smilesColumn').value=sm; const ident=headers.find(h=>/(compound|molecule|chembl|^id$|name)/i.test(h)); if(ident) el('idColumn').value=ident; }}
+el('splitMode').onchange=()=>el('splitLabel').textContent=el('splitMode').value==='group_size'?'Ligands per batch':'Number of batches';
+el('ligandInput').onchange=refreshInput;
+el('inspect').onclick=async()=>{ const file=el('packageZip').files[0]; if(!file)return; el('inspectStatus').textContent='Inspecting package…'; const body=new FormData(); body.append('package_zip',file); const r=await fetch('/api/campaigns/inspect',{method:'POST',body}); const d=await r.json(); if(!d.ok){el('inspectStatus').textContent=d.message;return} token=d.token; report=d; el('ligandInput').innerHTML=d.ligand_inputs.map(x=>`<option value="${x.path}">${x.path} — ${x.ligand_count.toLocaleString()} ligands (${x.type})</option>`).join(''); el('packageSummary').textContent=`Found ${d.receptors.length} prepared receptor file(s), ${d.centers.length} center file(s), and ${d.ligand_inputs.length} raw ligand input(s).`; el('campaignForm').classList.remove('d-none'); refreshInput(); el('inspectStatus').textContent='Package validated.'; };
+el('campaignForm').onsubmit=async event=>{ event.preventDefault(); const p={token,ligand_input:val('ligandInput'),campaign_name:val('campaignName'),batch_prefix:val('batchPrefix'),split_mode:val('splitMode'),split_value:val('splitValue'),csv_smiles_col:val('smilesColumn'),csv_id_col:val('idColumn'),confgen_poses:val('confgenPoses'),vina_poses:val('vinaPoses'),confgen_workers:val('confgenWorkers'),vina_workers:val('vinaWorkers'),max_parallel:val('maxParallel'),confgen_walltime:val('confgenWalltime'),vina_walltime:val('vinaWalltime'),mem_per_core:val('memPerCore'),enumerate_protomers:el('enumerateProtomers').checked,ph_min:val('phMin'),ph_max:val('phMax'),ph_precision:val('phPrecision'),max_protomers:val('maxProtomers'),max_tautomers:val('maxTautomers'),max_transforms:val('maxTransforms'),exhaustiveness:val('exhaustiveness'),min_rmsd:val('minRmsd'),energy_range:val('energyRange'),seed:val('seed'),retain_top_poses:val('retainTopPoses'),queue:val('queue'),project:val('project'),setup:val('setup')}; el('buildStatus').textContent='Splitting and writing dependent LSF jobs…'; const r=await fetch('/api/campaigns/build',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); const d=await r.json(); if(!d.ok){el('buildStatus').textContent=d.message;return} el('buildStatus').textContent=`Ready: ${d.manifest.batch_count} batches. On Pegasus, unpack the ZIP, run ${d.submit_command}, then ./monitor_campaign.sh.`; el('download').href=d.download_url; el('download').classList.remove('d-none'); };
+</script>
+{% endblock %}

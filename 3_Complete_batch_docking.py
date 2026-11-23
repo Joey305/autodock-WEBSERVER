@@ -258,6 +258,37 @@ def _compact_rows(job: dict, output_pdbqt: str) -> tuple[list[dict], bytes]:
     return rows, pose_bytes
 
 
+def _rss_mb(pid: int) -> float:
+    """Return a Linux process's resident memory without counting virtual mappings."""
+    try:
+        for line in Path(f"/proc/{pid}/status").read_text(encoding="utf-8").splitlines():
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) / 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0.0
+
+
+def _stop_process(process: subprocess.Popen) -> None:
+    """Stop one over-limit Vina process while leaving the batch worker healthy."""
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _telemetry(peak_rss_mb: float, elapsed_seconds: float, reason: str = "") -> dict:
+    return {
+        "peak_rss_mb": round(peak_rss_mb, 1),
+        "elapsed_seconds": round(elapsed_seconds, 1),
+        "reason": reason,
+    }
+
+
 def run_docking(job):
     """Run one ligand safely; no single worker error may abort a whole batch."""
     try:
@@ -271,17 +302,17 @@ def run_docking(job):
                 config_path = os.path.join(work, "config.txt")
                 output_pdbqt = os.path.join(work, "out.pdbqt")
                 _write_vina_config(job, config_path, output_pdbqt)
-                ok, line, rows, pose_bytes = _run_vina(job, config_path, output_pdbqt, compact=True)
-                return ok, line, rows, work, pose_bytes
+                ok, line, rows, pose_bytes, telemetry = _run_vina(job, config_path, output_pdbqt, compact=True)
+                return ok, line, rows, work, pose_bytes, telemetry
             except Exception as exc:
-                return False, f"❌ {job['ligand']} vs {job['pdbid']}: {exc}", [], work, b""
+                return False, f"❌ {job['ligand']} vs {job['pdbid']}: {exc}", [], work, b"", _telemetry(0, 0, type(exc).__name__)
         _write_vina_config(job, job["config_path"], job["output_pdbqt"])
         return _run_vina(job, job["config_path"], job["output_pdbqt"], compact=False)
     except Exception as exc:
         message = f"runner exception: {type(exc).__name__}: {exc}"
         if job.get("compact_scratch_root"):
-            return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}", [], "", b""
-        return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}"
+            return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}", [], "", b"", _telemetry(0, 0, type(exc).__name__)
+        return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}", _telemetry(0, 0, type(exc).__name__)
 
 
 def _run_vina(job: dict, config_path: str, output_pdbqt: str, *, compact: bool):
@@ -292,47 +323,57 @@ def _run_vina(job: dict, config_path: str, output_pdbqt: str, *, compact: bool):
         # Keep each Vina process to 1 thread; the Python pool controls total concurrency.
         env = os.environ.copy()
         env["OMP_NUM_THREADS"] = "1"
-        result = subprocess.run(
-            [vina_exe, "--config", config_path, "--cpu", "1"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-        )
+        log_path = os.path.join(os.path.dirname(output_pdbqt), "vina.log") if compact else job["output_log"]
+        started, peak_rss, reason = time.monotonic(), 0.0, ""
+        with open(log_path, "wb") as log_file:
+            process = subprocess.Popen(
+                [vina_exe, "--config", config_path, "--cpu", "1"],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+            while process.poll() is None:
+                peak_rss = max(peak_rss, _rss_mb(process.pid))
+                if job.get("max_rss_mb") and peak_rss > job["max_rss_mb"]:
+                    reason = f"memory cap {job['max_rss_mb']} MB exceeded"
+                elif job.get("timeout_seconds") and time.monotonic() - started > job["timeout_seconds"]:
+                    reason = f"timeout {job['timeout_seconds']}s exceeded"
+                if reason:
+                    _stop_process(process)
+                    break
+                time.sleep(0.5)
+        peak_rss = max(peak_rss, _rss_mb(process.pid))
+        telemetry = _telemetry(peak_rss, time.monotonic() - started, reason)
 
-        if result.returncode == 0:
+        if reason:
+            line = f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {reason} (peak RSS {peak_rss:.0f} MB)"
+            return (False, line, [], b"", telemetry) if compact else (False, line, telemetry)
+
+        if process.returncode == 0:
             line = f"✅ {job['ligand']} → {job['pdbid']}  seed={job['seed']}"
             if compact:
                 rows, pose_bytes = _compact_rows(job, output_pdbqt)
                 if not rows:
-                    return False, f"❌ {job['ligand']} vs {job['pdbid']}: Vina wrote no score rows", [], b""
-                return True, line, rows, pose_bytes
-            with open(job["output_log"], "wb") as log_file:
-                log_file.write(result.stdout)
-                if result.stderr:
-                    log_file.write(b"\n--- STDERR ---\n" + result.stderr)
-            return True, line
+                    return False, f"❌ {job['ligand']} vs {job['pdbid']}: Vina wrote no score rows", [], b"", telemetry
+                return True, line, rows, pose_bytes, telemetry
+            return True, line, telemetry
 
-        err = result.stderr.decode(errors="ignore").strip()
-        line = f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {err}"
+        line = f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: Vina exit {process.returncode}; see {log_path}"
         if compact:
-            return False, line, [], b""
-        with open(job["output_log"], "wb") as log_file:
-            log_file.write(result.stdout)
-            if result.stderr:
-                log_file.write(b"\n--- STDERR ---\n" + result.stderr)
-        return False, line
+            return False, line, [], b"", telemetry
+        return False, line, telemetry
     except Exception as exc:
         # In particular, fork_exec can raise ENOMEM. Record it for retry while
         # allowing all other queued ligands to finish.
         message = f"runner exception: {type(exc).__name__}: {exc}"
         if compact:
-            return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}", [], b""
+            return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}", [], b"", _telemetry(0, 0, type(exc).__name__)
         try:
             with open(job["output_log"], "ab") as log_file:
                 log_file.write((message + "\n").encode("utf-8", errors="replace"))
         except OSError:
             pass
-        return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}"
+        return False, f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: {message}", _telemetry(0, 0, type(exc).__name__)
 
 
 def resolve_vina_executable(cli_vina_exe: str | None = None) -> str:
@@ -829,6 +870,22 @@ def parse_args():
         help="Maximum submitted-but-unfinished worker tasks; defaults to twice --workers.",
     )
     ap.add_argument(
+        "--max-rss-mb",
+        type=int,
+        default=0,
+        help="Per-Vina-process resident-memory cap in MB; 0 disables the cap (default).",
+    )
+    ap.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=0,
+        help="Per-Vina-process wall-time cap in seconds; 0 disables the cap (default).",
+    )
+    ap.add_argument(
+        "--memory-trace",
+        help="Write one TSV record per completed docking with peak Vina RSS and elapsed time.",
+    )
+    ap.add_argument(
         "--reserve_cores",
         type=int,
         default=1,
@@ -887,6 +944,8 @@ def main():
         raise SystemExit("--compact-retain-top-poses requires --compact-results")
     if args.stage_inputs_to_scratch and not args.compact_results:
         raise SystemExit("--stage-inputs-to-scratch requires --compact-results")
+    if args.max_rss_mb < 0 or args.timeout_seconds < 0:
+        raise SystemExit("--max-rss-mb and --timeout-seconds must be zero or greater")
 
     start_time = time.time()
     start_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1051,6 +1110,9 @@ def main():
     max_pending = int(args.max_pending) if args.max_pending is not None else max_workers * 2
     if max_pending < max_workers:
         raise ValueError("--max-pending must be at least --workers")
+    for job in jobs:
+        job["max_rss_mb"] = args.max_rss_mb
+        job["timeout_seconds"] = args.timeout_seconds
 
     total_jobs = len(jobs)
     if total_jobs == 0:
@@ -1119,6 +1181,7 @@ def main():
     compact_failures_path = Path(results_dir) / "compact_failures.csv"
     compact_completion_path = Path(results_dir) / "compact_completion.json"
     retained_manifest_path = Path(results_dir) / "compact_retained_poses.json"
+    memory_trace_path = Path(args.memory_trace) if args.memory_trace else None
     completed_jobs = _completed_compact_jobs(compact_results_path) if args.compact_results else set()
     replay_completed_for_retention = bool(
         args.compact_results and args.compact_retain_top_poses and completed_jobs and not retained_manifest_path.exists()
@@ -1133,6 +1196,15 @@ def main():
 
     # Keep only a bounded task buffer. Submitting tens of thousands of futures
     # consumes unnecessary parent-process memory and makes an OOM more likely.
+    trace_handle = None
+    if memory_trace_path:
+        memory_trace_path.parent.mkdir(parents=True, exist_ok=True)
+        is_new_trace = not memory_trace_path.exists() or memory_trace_path.stat().st_size == 0
+        trace_handle = memory_trace_path.open("a", encoding="utf-8")
+        if is_new_trace:
+            trace_handle.write("ligand\treceptor\tseed\tpeak_rss_mb\telapsed_seconds\tstatus\treason\n")
+            trace_handle.flush()
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         job_iter = iter(jobs)
         futures = {}
@@ -1147,9 +1219,9 @@ def main():
                 try:
                     outcome = future.result()
                     if args.compact_results:
-                        ok, line, score_rows, scratch_job_dir, pose_bytes = outcome
+                        ok, line, score_rows, scratch_job_dir, pose_bytes, telemetry = outcome
                     else:
-                        ok, line = outcome
+                        ok, line, telemetry = outcome
                         score_rows = []
                         scratch_job_dir = ""
                         pose_bytes = b""
@@ -1158,6 +1230,7 @@ def main():
                     score_rows = []
                     scratch_job_dir = ""
                     pose_bytes = b""
+                    telemetry = _telemetry(0, 0, type(exc).__name__)
                     line = (
                         f"❌ {job['ligand']} vs {job['pdbid']}  seed={job['seed']}: "
                         f"worker future exception: {type(exc).__name__}: {exc}"
@@ -1165,6 +1238,13 @@ def main():
                 results_log.append(line)
                 run_log.write(line + "\n")
                 run_log.flush()
+                if trace_handle:
+                    trace_handle.write(
+                        f"{job['ligand']}\t{job['pdbid']}\t{job['seed']}\t"
+                        f"{telemetry['peak_rss_mb']:.1f}\t{telemetry['elapsed_seconds']:.1f}\t"
+                        f"{'success' if ok else 'failed'}\t{str(telemetry['reason']).replace(chr(9), ' ')}\n"
+                    )
+                    trace_handle.flush()
 
                 if ok:
                     successes += 1
@@ -1195,6 +1275,9 @@ def main():
                 except StopIteration:
                     continue
                 futures[executor.submit(run_docking, next_job)] = next_job
+
+    if trace_handle:
+        trace_handle.close()
 
     end_time = time.time()
     duration_min = round((end_time - start_time) / 60, 2)

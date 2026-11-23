@@ -21,6 +21,7 @@ from packager import (
     assemble_job_tree, zip_job_tree, fetch_pdb_and_prep, rename_centers_with_tags,
     save_uploaded_ligand_zip, save_uploaded_ligand_folder,
 )
+from campaigns import extract_package, inspect_package, build_campaign, safe_name as campaign_safe_name
 from runner_templates import build_portable_runners
 from center_resolver import (
     CenterResolutionError,
@@ -378,6 +379,7 @@ class Config:
     RESULTS_ZIP_MAX_BYTES = int(os.getenv("RESULTS_ZIP_MAX_BYTES", str(50 * 1024 * 1024)))
     RESULTS_ZIP_MAX_UNCOMPRESSED_BYTES = int(os.getenv("RESULTS_ZIP_MAX_UNCOMPRESSED_BYTES", str(300 * 1024 * 1024)))
     RESULTS_ZIP_MAX_FILES = int(os.getenv("RESULTS_ZIP_MAX_FILES", "2000"))
+    CAMPAIGN_UPLOAD_MAX_BYTES = int(os.getenv("CAMPAIGN_UPLOAD_MAX_BYTES", str(2 * 1024 * 1024 * 1024)))
 
 
 class PublicUser:
@@ -451,6 +453,7 @@ def create_app() -> Flask:
         nav_links = [
             {"name": "Home", "endpoint": "home"},
             {"name": "Build", "endpoint": "build"},
+            {"name": "Docking campaign", "endpoint": "docking_campaign"},
             {"name": "Results", "endpoint": "results"},
             {"name": "Workflow", "endpoint": "workflow"},
             {"name": "About", "endpoint": "about"},
@@ -677,6 +680,11 @@ def create_app() -> Flask:
                 lsf_enabled=app.config["ENABLE_LSF_PACKAGE"],
             ),
         )
+
+    @app.get("/docking")
+    @login_required
+    def docking_campaign():
+        return render_template("docking_campaign.html")
 
     @app.get("/about")
     def about():
@@ -2110,6 +2118,88 @@ def create_app() -> Flask:
         return jsonify({"ok": True, **st["ligand_info"]})
 
     # ---------- BUILD ----------
+    @app.post("/api/campaigns/inspect")
+    @login_required
+    def api_campaign_inspect():
+        uploaded = request.files.get("package_zip")
+        if uploaded is None or not uploaded.filename or not uploaded.filename.lower().endswith(".zip"):
+            return jsonify({"ok": False, "message": "Upload the AutoDock/Vina package as a .zip file."}), 400
+        token = uuid.uuid4().hex
+        root = Path(current_app.config["TMP_ROOT"]) / "CampaignUploads" / token / "source"
+        try:
+            extract_package(uploaded.stream, root)
+            report = inspect_package(root)
+        except (ValueError, zipfile.BadZipFile, OSError) as exc:
+            shutil.rmtree(root.parent, ignore_errors=True)
+            return jsonify({"ok": False, "message": str(exc)}), 400
+        if not report["ligand_inputs"]:
+            return jsonify({"ok": False, "message": "No raw CSV, SDF, SMI, or SMILES ligand input was found in this ZIP."}), 400
+        if not report["receptors"] or not report["centers"]:
+            return jsonify({"ok": False, "message": "The ZIP needs prepared receptor .pdbqt file(s) and a vina_centers.csv file."}), 400
+        return jsonify({"ok": True, "token": token, **report})
+
+    @app.post("/api/campaigns/build")
+    @login_required
+    def api_campaign_build():
+        payload = request.get_json(silent=True) or request.form.to_dict()
+        token = str(payload.get("token") or "").strip()
+        if not re.fullmatch(r"[0-9a-f]{32}", token):
+            return jsonify({"ok": False, "message": "The uploaded package session is invalid. Inspect the ZIP again."}), 400
+        source = Path(current_app.config["TMP_ROOT"]) / "CampaignUploads" / token / "source"
+        if not source.is_dir():
+            return jsonify({"ok": False, "message": "The uploaded package session has expired. Inspect the ZIP again."}), 404
+        try:
+            selected_input = str(payload.get("ligand_input") or "")
+            if selected_input.lower().endswith(".csv") and (not str(payload.get("csv_smiles_col") or "").strip() or not str(payload.get("csv_id_col") or "").strip()):
+                return jsonify({"ok": False, "message": "Select both the SMILES and compound-ID columns for a CSV campaign."}), 400
+            state_flags = []
+            if payload.get("enumerate_protomers") in (True, "true", "1", "on"):
+                state_flags = ["--enumerate-protomers"]
+            for key, flag, default in (("ph_min", "--ph-min", 6.8), ("ph_max", "--ph-max", 7.4), ("ph_precision", "--ph-precision", 0.5), ("max_protomers", "--max-protomers", 4), ("max_tautomers", "--max-tautomers", 4), ("max_transforms", "--max-transforms", 200)):
+                value = payload.get(key, default)
+                state_flags.extend([flag, str(value)])
+            settings = {
+                "queue": str(payload.get("queue") or "normal").strip(),
+                "project": str(payload.get("project") or "brd").strip(),
+                "confgen_workers": int(payload.get("confgen_workers") or 16),
+                "vina_workers": int(payload.get("vina_workers") or 8),
+                "mem_per_core": int(payload.get("mem_per_core") or 8000),
+                "confgen_walltime": str(payload.get("confgen_walltime") or "48:00").strip(),
+                "vina_walltime": str(payload.get("vina_walltime") or "240:00").strip(),
+                "confgen_poses": int(payload.get("confgen_poses") or 64),
+                "vina_poses": int(payload.get("vina_poses") or 20),
+                "exhaustiveness": int(payload.get("exhaustiveness") or 8),
+                "min_rmsd": float(payload.get("min_rmsd") or 1.0),
+                "energy_range": payload.get("energy_range") or "",
+                "seed": payload.get("seed") or "",
+                "retain_top_poses": int(payload.get("retain_top_poses") or 0),
+                "max_parallel": int(payload.get("max_parallel") or 3),
+                "csv_smiles_col": str(payload.get("csv_smiles_col") or "").strip(),
+                "csv_id_col": str(payload.get("csv_id_col") or "").strip(),
+                "setup": str(payload.get("setup") or "").strip(),
+                "enumerate_protomers": payload.get("enumerate_protomers") in (True, "true", "1", "on"),
+                "max_protomers": int(payload.get("max_protomers") or 4),
+                "max_tautomers": int(payload.get("max_tautomers") or 4),
+                "state_flags": state_flags,
+            }
+            manifest = build_campaign(
+                source_root=source,
+                app_root=APP_ROOT,
+                output_root=source.parent / "bundles",
+                campaign_name=campaign_safe_name(str(payload.get("campaign_name") or "campaign-001")),
+                ligand_rel=selected_input,
+                split_mode=str(payload.get("split_mode") or "group_size"),
+                split_value=int(payload.get("split_value") or 500),
+                batch_prefix=str(payload.get("batch_prefix") or "batch"),
+                settings=settings,
+            )
+            bundle = Path(manifest.pop("path"))
+            archive_base = source.parent / manifest["campaign"]
+            archive = Path(shutil.make_archive(str(archive_base), "zip", root_dir=bundle.parent, base_dir=bundle.name))
+            return jsonify({"ok": True, "manifest": manifest, "download_url": url_for("download", path=str(archive)), "submit_command": "./submit_campaign.sh"})
+        except (ValueError, subprocess.CalledProcessError, OSError) as exc:
+            return jsonify({"ok": False, "message": getattr(exc, "stderr", None) or str(exc)}), 400
+
     @app.post("/api/build")
     @login_required
     def api_build():

@@ -88,6 +88,11 @@ class HPCProfile:
     confgen_cpus: int | None = None
     confgen_workers: int | None = None
     mem_per_core_mb: int = 2000
+    # Despite the legacy field name, Pegasus normal interprets rusage[mem] as
+    # a job reservation (RESOURCE_RESERVE_PER_TASK=N). Keep the field for
+    # package compatibility while rendering it as a job-level reservation.
+    memory_limit_mb: int = 0
+    exclusive_host: bool = False
     confgen_walltime: str = "48:00"
     vina_walltime: str = "96:00"
     conda_sh: str = ""
@@ -130,15 +135,16 @@ JOEY_LSF_PROFILE = HPCProfile(
     notify_end=True,
     queue="normal",
     project="brd",
-    # Vina runs one memory-intensive process per requested CPU.  The previous
-    # 16 × 2-GB allocation caused worker launches to fail with ENOMEM on
-    # Pegasus normal nodes.  Eight 8-GB slots keep each compact shard within a
-    # reliable 64-GB envelope while allowing many shards to run in parallel.
-    workers=8,
-    vina_cpus=8,
+    # Keep Joey and Mainak on the same verified Pegasus Vina envelope. Four
+    # workers on an exclusive host prevent co-location on 31-GB nodes; the
+    # reservation and hard limit are job-level MB values on this cluster.
+    workers=4,
+    vina_cpus=4,
     confgen_cpus=16,
     confgen_workers=16,
-    mem_per_core_mb=8000,
+    mem_per_core_mb=24000,
+    memory_limit_mb=28000,
+    exclusive_host=True,
     confgen_walltime="48:00",
     vina_walltime="240:00",
     conda_sh="/nethome/jxs794/miniconda3/etc/profile.d/conda.sh",
@@ -159,12 +165,16 @@ MAINAK_LSF_PROFILE = HPCProfile(
     notify_end=True,
     queue="normal",
     project="brd",
-    # Match the Pegasus memory-safe Vina allocation above.
-    workers=8,
-    vina_cpus=8,
+    # 6S01 docking exceeded the old 8-GB reservation by up to 54 GB. Start
+    # with four workers on an exclusive host so one shard cannot co-locate
+    # with another on a 31-GB Pegasus node. The hard LSF limit is in MB.
+    workers=4,
+    vina_cpus=4,
     confgen_cpus=16,
     confgen_workers=16,
-    mem_per_core_mb=8000,
+    mem_per_core_mb=24000,
+    memory_limit_mb=28000,
+    exclusive_host=True,
     confgen_walltime="48:00",
     vina_walltime="96:00",
     conda_sh="/nethome/mxb2638/miniconda3/etc/profile.d/conda.sh",
@@ -217,6 +227,8 @@ def profile_from_dict(payload: Mapping[str, Any]) -> HPCProfile:
         "confgen_cpus": _clean_int(payload.get("confgen_cpus"), _clean_int(payload.get("workers"), 16)),
         "confgen_workers": _clean_int(payload.get("confgen_workers"), _clean_int(payload.get("confgen_cpus"), _clean_int(payload.get("workers"), 16))),
         "mem_per_core_mb": _clean_int(payload.get("mem_per_core_mb"), 2000),
+        "memory_limit_mb": _clean_int(payload.get("memory_limit_mb"), 0),
+        "exclusive_host": _clean_bool(payload.get("exclusive_host"), False),
         "confgen_walltime": _clean_str(payload.get("confgen_walltime"), "48:00") or "48:00",
         "vina_walltime": _clean_str(payload.get("vina_walltime"), "96:00") or "96:00",
         "conda_sh": _clean_str(payload.get("conda_sh")),
@@ -249,6 +261,8 @@ def build_custom_profile(values: Mapping[str, Any] | None) -> HPCProfile:
             "confgen_cpus": values.get("confgen_cpus") or values.get("workers") or values.get("ncores") or 16,
             "confgen_workers": values.get("confgen_workers") or values.get("workers") or values.get("ncores") or 16,
             "mem_per_core_mb": values.get("mem_per_core") or values.get("mem") or 2000,
+            "memory_limit_mb": values.get("memory_limit_mb") or 0,
+            "exclusive_host": values.get("exclusive_host"),
             "confgen_walltime": _clean_str(values.get("confgen_walltime"), "48:00"),
             "vina_walltime": _clean_str(values.get("vina_walltime"), _clean_str(values.get("walltime"), "96:00")),
             "conda_sh": _clean_str(values.get("conda_sh")),
@@ -308,6 +322,8 @@ def validate_hpc_profile(profile: HPCProfile) -> None:
         errors.append("Vina and ConfGen walltimes are required")
     if profile.mem_per_core_mb < 1:
         errors.append("memory per core must be a positive integer")
+    if profile.memory_limit_mb < 0:
+        errors.append("memory limit must be zero or a positive integer")
     if profile.span_hosts < 1:
         errors.append("host span must be a positive integer")
     if "\n" in profile.gpu_request or "\r" in profile.gpu_request:
@@ -338,7 +354,9 @@ def format_hpc_profile_summary(profile: HPCProfile) -> str:
         f"ConfGen CPUs: {profile.effective_confgen_cpus}",
         f"ConfGen workers: {profile.effective_confgen_workers}",
         f"ConfGen walltime: {profile.confgen_walltime}",
-        f"Memory: {profile.mem_per_core_mb} MB/core (LSF rusage[mem=...] per slot)",
+        f"Memory reservation: {profile.mem_per_core_mb} MB (LSF rusage[mem=...])",
+        f"Memory limit: {profile.memory_limit_mb or 'none'} MB",
+        f"Exclusive host: {'yes' if profile.exclusive_host else 'no'}",
         f"Host span: {profile.span_hosts}",
         f"Compact results: {'enabled' if profile.compact_results else 'disabled'}",
         f"Results root: {profile.results_root or 'package directory'}",
@@ -375,6 +393,10 @@ def render_lsf_header(
             f'#BSUB -R "rusage[mem={mem_per_core_mb}]"',
         ]
     )
+    if profile.exclusive_host:
+        lines.append("#BSUB -x")
+    if profile.memory_limit_mb:
+        lines.append(f"#BSUB -M {profile.memory_limit_mb}")
     if profile.gpu_request:
         lines.append(f'#BSUB -gpu "{profile.gpu_request}"')
     if profile.email:

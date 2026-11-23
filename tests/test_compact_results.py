@@ -153,6 +153,37 @@ class CompactResultsTests(unittest.TestCase):
                 rows = list(csv.DictReader(handle))
             self.assertEqual(sorted(row["Ligand"] for row in rows), ["ligA", "ligB"])
 
+    def test_timeout_is_recorded_per_ligand_and_trace_is_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receptors = root / "Receptors"; receptors.mkdir()
+            ligands = root / "Ligands"; ligands.mkdir()
+            (receptors / "recA.pdbqt").write_text("RECEPTOR\n", encoding="utf-8")
+            (ligands / "ligA.pdbqt").write_text("LIGAND\n", encoding="utf-8")
+            (root / "centers.csv").write_text("PDB_ID,X,Y,Z\nrecA,1,2,3\n", encoding="utf-8")
+            vina = root / "slow_fake_vina.py"
+            vina.write_text(
+                "#!/usr/bin/env python3\nimport sys,time\n"
+                "if '--version' in sys.argv: print('Slow Fake Vina'); raise SystemExit(0)\n"
+                "time.sleep(5)\n",
+                encoding="utf-8",
+            )
+            vina.chmod(0o755)
+            results, trace = root / "results", root / "memory.tsv"
+            subprocess.run([
+                sys.executable, str(ROOT / "3_Complete_batch_docking.py"),
+                "--receptors", str(receptors), "--ligands", str(ligands),
+                "--centers_csv", str(root / "centers.csv"), "--poses", "1",
+                "--vina-exe", str(vina), "--results-dir", str(results), "--compact-results",
+                "--workers", "1", "--max-pending", "1", "--timeout-seconds", "1",
+                "--memory-trace", str(trace),
+            ], cwd=root, check=True, capture_output=True, text=True)
+            with (results / "compact_failures.csv").open(encoding="utf-8") as handle:
+                failures = list(csv.DictReader(handle))
+            self.assertEqual(len(failures), 1)
+            self.assertIn("timeout 1s exceeded", failures[0]["Error"])
+            self.assertIn("failed", trace.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
