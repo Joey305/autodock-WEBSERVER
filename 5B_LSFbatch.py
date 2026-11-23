@@ -182,7 +182,7 @@ def parse_args():
     parser.add_argument("--queue", default=DEFAULT_PROFILE.queue, help=f"LSF queue (default: {DEFAULT_PROFILE.queue})")
     parser.add_argument("--project", default=DEFAULT_PROFILE.project, help=f"LSF project (default: {DEFAULT_PROFILE.project})")
     parser.add_argument("--walltime", default=DEFAULT_PROFILE.vina_walltime, help=f"Walltime (default: {DEFAULT_PROFILE.vina_walltime})")
-    parser.add_argument("--mem-per-core", default=str(DEFAULT_PROFILE.mem_per_core_mb), help=f"MB per core for rusage[mem=...] (default: {DEFAULT_PROFILE.mem_per_core_mb})")
+    parser.add_argument("--mem-per-core", type=int, default=DEFAULT_PROFILE.mem_per_core_mb, help=f"MB per core for rusage[mem=...] (default: {DEFAULT_PROFILE.mem_per_core_mb})")
     parser.add_argument("--email", default=DEFAULT_PROFILE.email, help="Email for LSF notifications.")
     parser.add_argument("--env-activate", default=DEFAULT_ENV, help="Shell line(s) to activate the software environment.")
     return parser.parse_args()

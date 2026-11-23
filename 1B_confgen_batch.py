@@ -34,7 +34,7 @@ def parse_args():
     p.add_argument("--queue", default=DEFAULT_PROFILE.queue, help=f"LSF queue (default: {DEFAULT_PROFILE.queue})")
     p.add_argument("--project", default=DEFAULT_PROFILE.project, help=f"LSF project (default: {DEFAULT_PROFILE.project})")
     p.add_argument("--walltime", default=DEFAULT_PROFILE.confgen_walltime, help=f"Walltime (default: {DEFAULT_PROFILE.confgen_walltime})")
-    p.add_argument("--mem-per-core", default=str(DEFAULT_PROFILE.mem_per_core_mb), help=f"MB per core for rusage[mem=...] (default: {DEFAULT_PROFILE.mem_per_core_mb})")
+    p.add_argument("--mem-per-core", type=int, default=DEFAULT_PROFILE.mem_per_core_mb, help=f"MB per core for rusage[mem=...] (default: {DEFAULT_PROFILE.mem_per_core_mb})")
     p.add_argument("--email", default=DEFAULT_PROFILE.email, help="Email for notifications")
     p.add_argument("--env-activate", default=DEFAULT_ENV, help="Shell line to activate conda/env")
     p.add_argument("--obabel-bin", default="", help="Path to obabel (optional). Empty → PATH/OBABEL_BIN.")

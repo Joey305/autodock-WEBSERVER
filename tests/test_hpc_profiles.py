@@ -77,6 +77,11 @@ class HpcProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot exceed"):
             validate_hpc_profile(invalid)
 
+    def test_replace_profile_normalizes_memory_reservation(self):
+        profile = replace_profile(JOEY_LSF_PROFILE, mem_per_core_mb="24000")
+        self.assertEqual(profile.mem_per_core_mb, 24000)
+        validate_hpc_profile(profile)
+
     def test_custom_profile_is_sanitized(self):
         profile = build_custom_profile(
             {

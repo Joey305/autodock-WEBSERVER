@@ -442,4 +442,6 @@ def packaged_profile_or_default(base_dir: Path | None = None) -> HPCProfile:
 def replace_profile(profile: HPCProfile, **changes: Any) -> HPCProfile:
     if "setup_commands" in changes:
         changes["setup_commands"] = tuple(split_setup_commands(changes["setup_commands"]))
+    if "mem_per_core_mb" in changes:
+        changes["mem_per_core_mb"] = _clean_int(changes["mem_per_core_mb"], profile.mem_per_core_mb)
     return replace(profile, **changes)
