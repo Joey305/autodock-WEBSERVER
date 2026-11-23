@@ -47,6 +47,7 @@ class HpcProfileTests(unittest.TestCase):
         self.assertFalse(JOEY_LSF_PROFILE.exclusive_host)
         self.assertEqual(JOEY_LSF_PROFILE.confgen_walltime, "48:00")
         self.assertTrue(JOEY_LSF_PROFILE.compact_results)
+        self.assertEqual(JOEY_LSF_PROFILE.compact_retain_top_poses, 100)
         self.assertEqual(JOEY_LSF_PROFILE.compact_scratch_root, "/tmp")
         self.assertEqual(JOEY_LSF_PROFILE.results_root, "/projectnb/cheminfo/home/${USER}/AutoDockVina-Results")
         self.assertEqual(JOEY_LSF_PROFILE.gpu_request, "")
@@ -201,6 +202,7 @@ class HpcProfileTests(unittest.TestCase):
         self.assertIn("#BSUB -n 16", confgen)
         self.assertIn("--workers 16", confgen)
         self.assertIn("--compact-results", vina)
+        self.assertIn("--compact-retain-top-poses 100", vina)
         self.assertIn('VINA_SCRATCH_ROOT="${VINA_SCRATCH_ROOT:-/tmp}"', vina)
         self.assertIn('CAMPAIGN_ROOT="${VINA_RESULTS_ROOT:-/projectnb/cheminfo/home/${USER}/AutoDockVina-Results/', vina)
         self.assertIn('--results-dir "$CAMPAIGN_ROOT/shards/vina_', vina)
@@ -218,7 +220,18 @@ class HpcProfileTests(unittest.TestCase):
         self.assertTrue(packaged["compact_results"])
         self.assertEqual(packaged["compact_scratch_root"], "/scratch/mainak")
         self.assertIn("--compact-results", script)
+        self.assertIn("--compact-retain-top-poses 100", script)
         self.assertIn("VINA_SCRATCH_ROOT", script)
+
+    def test_compact_retention_zero_is_preserved_in_generated_lsf(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "Ligands").mkdir(); (root / "Receptors").mkdir()
+            (root / "vina_centers.csv").write_text("PDB_ID,X,Y,Z\nrec,1,2,3\n", encoding="utf-8")
+            profile = replace_profile(JOEY_LSF_PROFILE, compact_retain_top_poses=0)
+            build_vina_lsfs(root, root, profile=profile, poses=9)
+            script = (root / "run_vina_job.lsf").read_text(encoding="utf-8")
+        self.assertIn("--compact-retain-top-poses 0", script)
 
     def test_triton_generation_requests_one_16_core_node(self):
         with tempfile.TemporaryDirectory() as tmpdir:

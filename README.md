@@ -1600,7 +1600,7 @@ python 3_Complete_batch_docking.py \
 
 Each shard writes `compact_results.csv`, `compact_failures.csv`, `docking_parameters.json`, and `compact_completion.json`. Successful rows are fsync'd before their scratch directory is cleaned, and a rerun skips jobs already recorded as successful. `4_ParseScores.py` recognizes the compact CSV directly.
 
-By default, compact mode does not retain pose PDBQT files. To retain only the ranked structures needed for review, add `--compact-retain-top-poses N`; this atomically writes the top `N` ligands per receptor to `retained_poses/` and records their ranks and scores in `compact_retained_poses.json`. It does not recreate the legacy per-ligand output tree.
+Direct compact runs do not retain pose PDBQT files unless `--compact-retain-top-poses N` is supplied. Generated HPC-profile compact jobs supply this automatically and default to `100`; use profile value `0` to disable it explicitly. Retention is one winning state per parent/source compound per receptor (not one per protomer, tautomer, conformer, or Vina mode). The runner atomically publishes `retained_poses/<receptor>/receptor.pdbqt` and the ranked pose PDBQTs plus `compact_retained_poses.json`; the manifest records the winning state, Vina pose, seed, affinity, source result row, and deterministic tie-breakers. It does not recreate the legacy per-ligand output tree.
 
 Scratch-root precedence is:
 
