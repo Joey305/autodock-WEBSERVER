@@ -66,6 +66,9 @@ class CompactResultsTests(unittest.TestCase):
             self.assertFalse(list(results.glob("vina_job_*")))
             completion = json.loads((results / "compact_completion.json").read_text(encoding="utf-8"))
             self.assertTrue(completion["poses_retained"] is False)
+            progress = json.loads((results / "vina_progress.json").read_text(encoding="utf-8"))
+            self.assertEqual((progress["total"], progress["attempted"], progress["successful"], progress["failed"]), (2, 2, 2, 0))
+            self.assertIn("updated_at", progress)
             subprocess.run(command, cwd=root, check=True, capture_output=True, text=True)
             with (results / "compact_results.csv").open(newline="", encoding="utf-8") as handle:
                 self.assertEqual(len(list(csv.DictReader(handle))), 4)

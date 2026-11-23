@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ligand_manifest import (
@@ -769,6 +769,17 @@ def _completed_compact_jobs(path: Path) -> set[tuple[str, str, str]]:
         }
 
 
+def _failed_compact_jobs(path: Path) -> set[tuple[str, str, str]]:
+    if not path.is_file():
+        return set()
+    with path.open(newline="", encoding="utf-8") as handle:
+        return {
+            (row.get("ResolvedReceptor", ""), row.get("Ligand", ""), row.get("Seed", ""))
+            for row in csv.DictReader(handle)
+            if row.get("Status") == "failed"
+        }
+
+
 def _append_csv_rows(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
     """Durably append final records; a record is complete only after fsync."""
     if not rows:
@@ -791,6 +802,17 @@ def _atomic_json(path: Path, payload: dict) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(tmp, path)
+
+
+def _compact_progress(path: Path, *, total: int, attempted: int, successful: int, failed: int) -> None:
+    """Publish a small atomic terminal-ligand snapshot for read-only monitors."""
+    if attempted != successful + failed or attempted < 0 or attempted > total:
+        raise ValueError("invalid compact progress counters")
+    _atomic_json(path, {
+        "schema_version": 1, "total": total, "attempted": attempted,
+        "successful": successful, "failed": failed,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 def _write_retained_poses(results_dir: Path, candidates: dict[str, list[tuple[float, dict, bytes]]]) -> list[dict]:
@@ -1180,9 +1202,19 @@ def main():
     compact_results_path = Path(results_dir) / "compact_results.csv"
     compact_failures_path = Path(results_dir) / "compact_failures.csv"
     compact_completion_path = Path(results_dir) / "compact_completion.json"
+    compact_progress_path = Path(results_dir) / "vina_progress.json"
     retained_manifest_path = Path(results_dir) / "compact_retained_poses.json"
     memory_trace_path = Path(args.memory_trace) if args.memory_trace else None
     completed_jobs = _completed_compact_jobs(compact_results_path) if args.compact_results else set()
+    failed_jobs = _failed_compact_jobs(compact_failures_path) if args.compact_results else set()
+    # Successful compact jobs are skipped on resume; failed jobs are retried.
+    # They remain terminal evidence until that retry completes, which keeps a
+    # monitor's totals stable across an interrupted/restarted runner.
+    terminal_jobs = set(completed_jobs) | set(failed_jobs)
+    if args.compact_results:
+        _compact_progress(compact_progress_path, total=total_jobs,
+                          attempted=len(terminal_jobs), successful=len(completed_jobs),
+                          failed=len(failed_jobs - completed_jobs))
     replay_completed_for_retention = bool(
         args.compact_results and args.compact_retain_top_poses and completed_jobs and not retained_manifest_path.exists()
     )
@@ -1245,6 +1277,7 @@ def main():
                         f"{'success' if ok else 'failed'}\t{str(telemetry['reason']).replace(chr(9), ' ')}\n"
                     )
                     trace_handle.flush()
+                    os.fsync(trace_handle.fileno())
 
                 if ok:
                     successes += 1
@@ -1262,6 +1295,19 @@ def main():
                             "PDB_ID": job["pdbid"], "ResolvedReceptor": job["resolved_receptor"],
                             "Ligand": job["ligand"], "Seed": job["seed"], "Error": line, "Status": "failed",
                         }])
+                if args.compact_results:
+                    key = _job_key(job)
+                    # A successful retry supersedes an earlier failure for
+                    # this ligand.  Counts are per ligand, not per pose row.
+                    if ok:
+                        failed_jobs.discard(key)
+                        completed_jobs.add(key)
+                    else:
+                        failed_jobs.add(key)
+                    terminal_jobs = set(completed_jobs) | set(failed_jobs)
+                    _compact_progress(compact_progress_path, total=total_jobs,
+                                      attempted=len(terminal_jobs), successful=len(completed_jobs),
+                                      failed=len(failed_jobs - completed_jobs))
                 if scratch_job_dir:
                     # The directory was made by this run with mkdtemp; never
                     # remove a configured scratch root or existing results dir.

@@ -185,6 +185,9 @@ def build_campaign(
         else:
             conf_command = f'"$PYBIN" "$CAMPAIGN_ROOT/1_ConformerGeneration.py" --mode 2 --folder . --filetype smiles'
         conf_command += f" --num-confs {conf_poses} --workers {conf_workers} {state_flags}".rstrip() + "\n"
+        # The board reads this fixed-size value rather than globbing a large
+        # PDBQT directory on every scheduler poll.
+        conf_command += 'LIGAND_DIR="$(find . -maxdepth 1 -type d -name "*_Ligands_PDBQT_*" | sort | tail -n 1)"\n[ -n "$LIGAND_DIR" ] || { echo "ConfGen PDBQT output was not found"; exit 2; }\nfind "$LIGAND_DIR" -maxdepth 1 -type f -name "*.pdbqt" -printf . | wc -c > confgen_pdbqt_count.txt\n'
         prelude = f'CAMPAIGN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"\ncd "{shard_rel}"\nmkdir -p logs\n{common_setup}\nPYBIN="${{PYBIN:-python}}"\n'
         (shard / "run_confgen.lsf").write_text(_lsf_header(f"{campaign_name}-conf-{job_suffix}", queue, project, conf_workers, memory, settings.get("confgen_walltime", "48:00")) + prelude + conf_command)
         vina = _lsf_header(

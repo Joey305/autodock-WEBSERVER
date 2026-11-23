@@ -1,0 +1,49 @@
+#!/bin/bash
+# Safe restart wrapper for an already-prepared portal docking batch.
+# Submit from a batch directory with: bsub -J "portal-vina-batch-001-retry" < ../../run_vina_safe_pilot.lsf
+#BSUB -q normal
+#BSUB -P brd
+# The Pegasus normal queue has a 16-core, single-host maximum.  Request the
+# whole host so no second normal-queue job can be co-located with this batch.
+#BSUB -n 16
+#BSUB -R "rusage[mem=24000]"
+#BSUB -M 28000
+#BSUB -W 240:00
+#BSUB -oo logs/vina-%J.out
+#BSUB -eo logs/vina-%J.err
+
+set -euo pipefail
+
+BATCH_DIR="$PWD"
+ROOT="$(cd "$BATCH_DIR/../.." && pwd)"
+cd "$BATCH_DIR"
+mkdir -p logs
+
+source /nethome/jxs794/miniconda3/etc/profile.d/conda.sh
+conda activate vina_env
+PYBIN="$(command -v python3 || command -v python)"
+
+HANDOFF_FILE="$BATCH_DIR/confgen_pdbqt_dir.txt"
+[ -s "$HANDOFF_FILE" ] || { echo "ConfGen handoff file is missing or empty" >&2; exit 2; }
+LIGAND_DIR="$(< "$HANDOFF_FILE")"
+[ -d "$LIGAND_DIR" ] || { echo "ConfGen PDBQT directory does not exist: $LIGAND_DIR" >&2; exit 2; }
+find "$LIGAND_DIR" -maxdepth 1 -type f -name "*.pdbqt" -print -quit | grep -q . || {
+  echo "ConfGen PDBQT directory is empty: $LIGAND_DIR" >&2; exit 2;
+}
+
+RESULTS_ROOT="${VINA_RESULTS_ROOT:-$ROOT/results}"
+DEST="$RESULTS_ROOT/$(basename "$BATCH_DIR")"
+mkdir -p "$DEST"
+
+"$PYBIN" "$ROOT/3_Complete_batch_docking.py" \
+  --receptors "$ROOT/Receptors" \
+  --ligands "$LIGAND_DIR" \
+  --centers_csv "$ROOT/vina_centers.csv" \
+  --poses 10 \
+  --workers 4 \
+  --max-pending 8 \
+  --reserve_cores 0 \
+  --results-dir "$DEST" \
+  --compact-results \
+  --timeout-seconds 1800 \
+  --memory-trace "$DEST/vina_memory_trace.tsv"

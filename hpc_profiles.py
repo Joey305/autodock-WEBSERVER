@@ -135,16 +135,17 @@ JOEY_LSF_PROFILE = HPCProfile(
     notify_end=True,
     queue="normal",
     project="brd",
-    # Keep Joey and Mainak on the same verified Pegasus Vina envelope. Four
-    # workers on an exclusive host prevent co-location on 31-GB nodes; the
-    # reservation and hard limit are job-level MB values on this cluster.
+    # Keep Joey and Mainak on the same verified Pegasus Vina envelope. The
+    # normal queue is a 16-core, single-host queue and rejects ``-x``; request
+    # all 16 slots while running four Vina workers so another normal-queue job
+    # cannot be co-located on the host.
     workers=4,
-    vina_cpus=4,
+    vina_cpus=16,
     confgen_cpus=16,
     confgen_workers=16,
     mem_per_core_mb=24000,
     memory_limit_mb=28000,
-    exclusive_host=True,
+    exclusive_host=False,
     confgen_walltime="48:00",
     vina_walltime="240:00",
     conda_sh="/nethome/jxs794/miniconda3/etc/profile.d/conda.sh",
@@ -165,16 +166,17 @@ MAINAK_LSF_PROFILE = HPCProfile(
     notify_end=True,
     queue="normal",
     project="brd",
-    # 6S01 docking exceeded the old 8-GB reservation by up to 54 GB. Start
-    # with four workers on an exclusive host so one shard cannot co-locate
-    # with another on a 31-GB Pegasus node. The hard LSF limit is in MB.
+    # 6S01 docking exceeded the old 8-GB reservation by up to 54 GB. Pegasus
+    # normal rejects ``-x`` but is capped at 16 cores on one host, so request
+    # all 16 slots while permitting only four Vina workers. The hard LSF limit
+    # is in MB.
     workers=4,
-    vina_cpus=4,
+    vina_cpus=16,
     confgen_cpus=16,
     confgen_workers=16,
     mem_per_core_mb=24000,
     memory_limit_mb=28000,
-    exclusive_host=True,
+    exclusive_host=False,
     confgen_walltime="48:00",
     vina_walltime="96:00",
     conda_sh="/nethome/mxb2638/miniconda3/etc/profile.d/conda.sh",
