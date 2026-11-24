@@ -158,8 +158,10 @@ def build_campaign(
     memory = int(settings.get("mem_per_core", 8000))
     vina_exclusive_host = bool(settings.get("vina_exclusive_host", False))
     vina_memory_limit_mb = int(settings.get("vina_memory_limit_mb", 0))
-    vina_max_rss_mb = int(settings.get("vina_max_rss_mb", 0))
-    vina_timeout_seconds = int(settings.get("vina_timeout_seconds", 0))
+    # Keep the runner's per-process safeguards active in generated LSF jobs.
+    # Campaign authors can override these deliberately in settings.
+    vina_max_rss_mb = int(settings.get("vina_max_rss_mb", 16000))
+    vina_timeout_seconds = int(settings.get("vina_timeout_seconds", 21600))
     conf_poses, vina_poses = int(settings.get("confgen_poses", 64)), int(settings.get("vina_poses", 20))
     common_setup = settings.get("setup", "")
     state_flags = " ".join(settings.get("state_flags", []))

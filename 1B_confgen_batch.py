@@ -52,6 +52,14 @@ def parse_args():
                    help="Maximum tautomer states to keep per protomer (default: 4)")
     p.add_argument("--max-transforms", type=int, default=200,
                    help="RDKit tautomer transform cap (default: 200)")
+    p.add_argument("--max-heavy-atoms", type=int, default=150,
+                   help="Pass parent-ligand heavy-atom limit to conformer generation (default: 150)")
+    p.add_argument("--max-rotatable-bonds", type=int, default=32,
+                   help="Pass parent-ligand rotatable-bond limit to conformer generation (default: 32)")
+    p.add_argument("--max-molecular-weight", type=float, default=1500,
+                   help="Pass parent-ligand molecular-weight limit to conformer generation (default: 1500)")
+    p.add_argument("--allow-large-ligands", action="store_true",
+                   help="Disable parent-ligand complexity screening for this specialized batch")
 
     # Non-interactive fast-path (still supported)
     p.add_argument("--mode", choices=["1","2","3","4"], help="1=CSV, 2=Folder, 3=Single SDF, 4=Folder containing CSV")
@@ -196,9 +204,14 @@ def build_state_flags(args) -> str:
         f" --max-protomers {args.max_protomers}",
         f" --max-tautomers {args.max_tautomers}",
         f" --max-transforms {args.max_transforms}",
+        f" --max-heavy-atoms {getattr(args, 'max_heavy_atoms', 150)}",
+        f" --max-rotatable-bonds {getattr(args, 'max_rotatable_bonds', 32)}",
+        f" --max-molecular-weight {getattr(args, 'max_molecular_weight', 1500)}",
     ]
     if args.enumerate_protomers:
         flags.append(" --enumerate-protomers")
+    if getattr(args, "allow_large_ligands", False):
+        flags.append(" --allow-large-ligands")
     return "".join(flags)
 
 def build_run_cmd(mode: str, target: str, poses: int, workers: int,

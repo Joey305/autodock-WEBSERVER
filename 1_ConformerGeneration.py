@@ -1,6 +1,6 @@
 
 #!/usr/bin/env python3
-import os, sys, csv, shutil, subprocess
+import os, sys, csv, json, shutil, subprocess
 from pathlib import Path
 from datetime import datetime
 from multiprocessing import Pool, cpu_count
@@ -12,7 +12,7 @@ from rdkit import Chem
 from pathlib import Path
 import subprocess
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, Descriptors, Lipinski
 from rdkit import Chem
 from pathlib import Path
 from rdkit.Chem.MolStandardize import rdMolStandardize
@@ -78,6 +78,14 @@ def build_args():
                    help="Maximum tautomer states to keep per protomer")
     p.add_argument("--max-transforms", type=int, default=200,
                    help="RDKit tautomer transform cap")
+    p.add_argument("--max-heavy-atoms", type=int, default=150,
+                   help="Exclude parent ligands with more heavy atoms (default: 150)")
+    p.add_argument("--max-rotatable-bonds", type=int, default=32,
+                   help="Exclude parent ligands with more rotatable bonds (default: 32)")
+    p.add_argument("--max-molecular-weight", type=float, default=1500,
+                   help="Exclude parent ligands above this molecular weight in Da (default: 1500)")
+    p.add_argument("--allow-large-ligands", action="store_true",
+                   help="Disable parent-ligand complexity screening for specialized campaigns")
 
     return p.parse_args()
 
@@ -184,6 +192,123 @@ def write_manifest_for_outputs(pdbqt_dir: Path, rows: List[dict]) -> Optional[Pa
     write_ligand_state_manifest(manifest_path, rows)
     print(f"🗒️  Wrote ligand state manifest: {manifest_path}")
     return manifest_path
+
+
+EXCLUSION_REPORT_COLUMNS = [
+    "LigandID", "SourceInput", "SourceInputType", "SourceRecordIndex",
+    "SourceRecordName", "SourceLigandID", "CanonicalSMILES", "HeavyAtomCount",
+    "RotatableBondCount", "MolecularWeight", "MaxHeavyAtoms",
+    "MaxRotatableBonds", "MaxMolecularWeight", "AllowLargeLigands",
+    "RejectionReasons",
+]
+
+
+def parent_ligand_screening_policy(args) -> dict:
+    """Build the auditable, parent-molecule eligibility policy from CLI args."""
+    return {
+        "enabled": not bool(args.allow_large_ligands),
+        "max_heavy_atoms": int(args.max_heavy_atoms),
+        "max_rotatable_bonds": int(args.max_rotatable_bonds),
+        "max_molecular_weight": float(args.max_molecular_weight),
+        "allow_large_ligands": bool(args.allow_large_ligands),
+    }
+
+
+def screen_parent_molecule(mol: Chem.Mol, policy: dict) -> dict:
+    """Measure and screen one rebuilt parent molecule before state enumeration.
+
+    This intentionally operates on RDKit descriptors rather than ligand names.
+    All exceeded limits are retained so the exclusion report is actionable.
+    """
+    parent = Chem.RemoveHs(Chem.Mol(mol))
+    heavy_atoms = int(parent.GetNumHeavyAtoms())
+    rotatable_bonds = int(Lipinski.NumRotatableBonds(parent))
+    molecular_weight = float(Descriptors.MolWt(parent))
+    reasons = []
+    if policy.get("enabled", True):
+        if heavy_atoms > policy["max_heavy_atoms"]:
+            reasons.append(f"heavy_atom_count {heavy_atoms} exceeds limit {policy['max_heavy_atoms']}")
+        if rotatable_bonds > policy["max_rotatable_bonds"]:
+            reasons.append(f"rotatable_bond_count {rotatable_bonds} exceeds limit {policy['max_rotatable_bonds']}")
+        if molecular_weight > policy["max_molecular_weight"]:
+            reasons.append(f"molecular_weight {molecular_weight:.2f} exceeds limit {policy['max_molecular_weight']:.2f}")
+    return {
+        "canonical_smiles": Chem.MolToSmiles(parent, isomericSmiles=True),
+        "heavy_atom_count": heavy_atoms,
+        "rotatable_bond_count": rotatable_bonds,
+        "molecular_weight": molecular_weight,
+        "rejection_reasons": reasons,
+        "eligible": not reasons,
+    }
+
+
+def screen_parent_tasks(tasks: List[dict], policy: dict) -> Tuple[List[dict], List[dict]]:
+    """Screen parsed/rebuilt input tasks before any task is sent to workers."""
+    eligible, excluded = [], []
+    for task in tasks:
+        mol = Chem.MolFromMolBlock(task["molblock"], sanitize=True, removeHs=False)
+        if mol is None:
+            # Invalid inputs retain the existing behavior of being skipped before generation.
+            continue
+        try:
+            rebuilt = Chem.MolFromSmiles(Chem.MolToSmiles(mol, isomericSmiles=True))
+        except Exception:
+            rebuilt = None
+        if rebuilt is None:
+            continue
+        screening = screen_parent_molecule(rebuilt, policy)
+        task = dict(task)
+        task["screening"] = screening
+        if screening["eligible"]:
+            eligible.append(task)
+        else:
+            excluded.append(task)
+    return eligible, excluded
+
+
+def write_excluded_ligands_report(pdbqt_dir: Path, excluded: List[dict], policy: dict) -> Path:
+    path = Path(pdbqt_dir) / "excluded_ligands.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=EXCLUSION_REPORT_COLUMNS)
+        writer.writeheader()
+        for task in excluded:
+            result = task["screening"]
+            writer.writerow({
+                "LigandID": task["ligand_id"], "SourceInput": task.get("source_input", ""),
+                "SourceInputType": task.get("source_input_type", ""),
+                "SourceRecordIndex": task.get("source_record_index", ""),
+                "SourceRecordName": task.get("source_record_name", ""),
+                "SourceLigandID": task.get("source_ligand_id", ""),
+                "CanonicalSMILES": result["canonical_smiles"],
+                "HeavyAtomCount": result["heavy_atom_count"],
+                "RotatableBondCount": result["rotatable_bond_count"],
+                "MolecularWeight": f"{result['molecular_weight']:.4f}",
+                "MaxHeavyAtoms": policy["max_heavy_atoms"],
+                "MaxRotatableBonds": policy["max_rotatable_bonds"],
+                "MaxMolecularWeight": policy["max_molecular_weight"],
+                "AllowLargeLigands": policy["allow_large_ligands"],
+                "RejectionReasons": "; ".join(result["rejection_reasons"]),
+            })
+    print(f"🧾 Wrote exclusion report: {path}")
+    return path
+
+
+def write_screening_metadata(pdbqt_dir: Path, policy: dict, input_count: int, eligible_count: int, excluded_count: int) -> Path:
+    path = Path(pdbqt_dir) / "conformer_generation_metadata.json"
+    payload = {
+        "parent_molecule_screening": policy,
+        "input_parent_molecules": input_count,
+        "eligible_for_conformer_generation": eligible_count,
+        "excluded_by_small_molecule_eligibility_policy": excluded_count,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def print_screening_summary(input_count: int, eligible_count: int, excluded_count: int) -> None:
+    print(f"Input parent molecules: {input_count}")
+    print(f"Eligible for conformer generation: {eligible_count}")
+    print(f"Excluded by small-molecule eligibility policy: {excluded_count}")
 
 
 
@@ -1194,7 +1319,7 @@ def resolve_csv_path_from_folder(args) -> Path:
     return next(p for p in csv_files if p.name == pick)
 
 
-def run_csv_mode(csv_path: Path, args, num_confs: int, num_workers: int, OBABEL: str, state_opts: dict):
+def run_csv_mode(csv_path: Path, args, num_confs: int, num_workers: int, OBABEL: str, state_opts: dict, screening_policy: dict):
     base_name = csv_path.stem
 
     tasks: List[Dict[str, str]] = []
@@ -1247,6 +1372,14 @@ def run_csv_mode(csv_path: Path, args, num_confs: int, num_workers: int, OBABEL:
 
     tag = f"{num_confs}Poses"
     pdbqt_dir, tmp_dir = create_output_dirs(base_name, tag)
+    input_count = len(tasks)
+    tasks, excluded = screen_parent_tasks(tasks, screening_policy)
+    write_excluded_ligands_report(pdbqt_dir, excluded, screening_policy)
+    write_screening_metadata(pdbqt_dir, screening_policy, input_count, len(tasks), len(excluded))
+    print_screening_summary(input_count, len(tasks), len(excluded))
+    if not tasks:
+        print(f"⚠️ No eligible molecules found. No conformers or PDBQT files were generated: {pdbqt_dir}")
+        return
 
     print(f"\n🚀 Generating {num_confs} poses for {len(tasks)} molecules using {num_workers} cores…")
     print(f"📦 Output PDBQT: {pdbqt_dir}")
@@ -1290,7 +1423,7 @@ def run_csv_mode(csv_path: Path, args, num_confs: int, num_workers: int, OBABEL:
     write_manifest_for_outputs(pdbqt_dir, manifest_rows)
 
 # ----------------- per-folder runner -----------------
-def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBABEL: str, remove_tmp: bool, state_opts: dict):
+def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBABEL: str, remove_tmp: bool, state_opts: dict, screening_policy: dict):
     print(f"\n=== Processing folder: {folder} (type={ft}) ===")
 
     tasks: List[Dict[str, str]] = []
@@ -1311,6 +1444,14 @@ def run_one_folder(folder: Path, ft: str, num_confs: int, num_workers: int, OBAB
     # Create output dirs
     tag = f"{num_confs}Poses"
     pdbqt_dir, tmp_dir = create_output_dirs(base_name, tag)
+    input_count = len(tasks)
+    tasks, excluded = screen_parent_tasks(tasks, screening_policy)
+    write_excluded_ligands_report(pdbqt_dir, excluded, screening_policy)
+    write_screening_metadata(pdbqt_dir, screening_policy, input_count, len(tasks), len(excluded))
+    print_screening_summary(input_count, len(tasks), len(excluded))
+    if not tasks:
+        print(f"⚠️ No eligible molecules found in {folder}. No conformers or PDBQT files were generated.")
+        return 0, pdbqt_dir, tmp_dir
 
     print(f"🚀 Generating {num_confs} poses for {len(tasks)} molecules using {num_workers} cores…")
     print(f"📦 Output PDBQT: {pdbqt_dir}")
@@ -1404,6 +1545,18 @@ if __name__ == "__main__":
         "max_tautomers": args.max_tautomers,
         "max_transforms": args.max_transforms,
     }
+    if args.max_heavy_atoms < 0 or args.max_rotatable_bonds < 0 or args.max_molecular_weight < 0:
+        raise SystemExit("Parent-ligand screening limits must be zero or greater")
+    screening_policy = parent_ligand_screening_policy(args)
+    if screening_policy["enabled"]:
+        print(
+            "🛡️  Parent-ligand screen enabled: "
+            f"heavy atoms ≤ {screening_policy['max_heavy_atoms']}, "
+            f"rotatable bonds ≤ {screening_policy['max_rotatable_bonds']}, "
+            f"molecular weight ≤ {screening_policy['max_molecular_weight']:g} Da"
+        )
+    else:
+        print("⚠️ Parent-ligand screen disabled by --allow-large-ligands")
 
     # Interactive fallback if mode not provided
     if mode is None:
@@ -1416,11 +1569,11 @@ if __name__ == "__main__":
 
     # --- Mode 1: CSV ---
     if mode == "1":
-        run_csv_mode(resolve_csv_path(args), args, num_confs, num_workers, OBABEL, state_opts)
+        run_csv_mode(resolve_csv_path(args), args, num_confs, num_workers, OBABEL, state_opts, screening_policy)
 
     # --- Mode 4: Folder containing a CSV ---
     elif mode == "4":
-        run_csv_mode(resolve_csv_path_from_folder(args), args, num_confs, num_workers, OBABEL, state_opts)
+        run_csv_mode(resolve_csv_path_from_folder(args), args, num_confs, num_workers, OBABEL, state_opts, screening_policy)
 
     # --- Mode 2: MULTIPLE folders (sdf OR smiles) ---
     elif mode == "2":
@@ -1459,7 +1612,7 @@ if __name__ == "__main__":
         outputs = []
         for folder in folders:
             written, pdbqt_dir, tmp_dir = run_one_folder(
-                folder, ft, num_confs, num_workers, OBABEL, args.remove_tmp, state_opts
+                folder, ft, num_confs, num_workers, OBABEL, args.remove_tmp, state_opts, screening_policy
             )
             total_written += written
             if pdbqt_dir is not None:
@@ -1501,6 +1654,14 @@ if __name__ == "__main__":
 
         tag = f"{num_confs}Poses"
         pdbqt_dir, tmp_dir = create_output_dirs(base_name, tag)
+        input_count = len(tasks)
+        tasks, excluded = screen_parent_tasks(tasks, screening_policy)
+        write_excluded_ligands_report(pdbqt_dir, excluded, screening_policy)
+        write_screening_metadata(pdbqt_dir, screening_policy, input_count, len(tasks), len(excluded))
+        print_screening_summary(input_count, len(tasks), len(excluded))
+        if not tasks:
+            print(f"⚠️ No eligible molecules found. No conformers or PDBQT files were generated: {pdbqt_dir}")
+            sys.exit(0)
 
         print(f"\n🚀 Generating {num_confs} poses for {len(tasks)} molecules using {num_workers} cores…")
         print(f"📦 Output PDBQT: {pdbqt_dir}")

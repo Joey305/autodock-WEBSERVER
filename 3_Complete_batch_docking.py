@@ -42,6 +42,10 @@ FULL_ENSEMBLE_ENERGY_RANGE = 100.0
 
 # Keep generated seeds positive and safely inside a signed 32-bit integer.
 MAX_VINA_SEED = 2_147_483_647
+DEFAULT_MAX_PDBQT_ATOMS = 150
+DEFAULT_MAX_PDBQT_TORSIONS = 32
+DEFAULT_MAX_RSS_MB = 16000
+DEFAULT_TIMEOUT_SECONDS = 21600
 
 
 # ---------- UI helpers (only used if flags not provided) ----------
@@ -176,6 +180,44 @@ def _validate_vina_parameters(
         raise ValueError("--min-rmsd must be greater than zero")
     if energy_range <= 0:
         raise ValueError("--energy-range must be greater than zero")
+
+
+def inspect_pdbqt_complexity(path: str) -> dict:
+    """Read inexpensive PDBQT complexity signals for legacy/external inputs."""
+    atom_count, torsdof = 0, None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if line.startswith(("ATOM", "HETATM")):
+                    atom_count += 1
+                elif line.startswith("TORSDOF"):
+                    try:
+                        torsdof = int(line.split()[1])
+                    except (IndexError, ValueError):
+                        pass
+    except OSError:
+        pass
+    return {"atom_count": atom_count, "torsdof": torsdof}
+
+
+def filter_pdbqt_ligands(ligand_files: list[str], *, max_atoms: int, max_torsions: int,
+                         allow_large_ligands: bool = False) -> tuple[list[str], list[dict]]:
+    """Defense-in-depth guard for PDBQT files not made by conformer generation."""
+    if allow_large_ligands:
+        return list(ligand_files), []
+    eligible, excluded = [], []
+    for path in ligand_files:
+        complexity = inspect_pdbqt_complexity(path)
+        reasons = []
+        if complexity["atom_count"] > max_atoms:
+            reasons.append(f"atom_count {complexity['atom_count']} exceeds limit {max_atoms}")
+        if complexity["torsdof"] is not None and complexity["torsdof"] > max_torsions:
+            reasons.append(f"torsdof {complexity['torsdof']} exceeds limit {max_torsions}")
+        if reasons:
+            excluded.append({"path": path, **complexity, "reasons": reasons})
+        else:
+            eligible.append(path)
+    return eligible, excluded
 
 
 def _normalize_batch_seed(seed: int | None) -> int:
@@ -459,10 +501,20 @@ def build_jobs(
     receptor_file=None,
     ligand_files=None,
     compact_scratch_root: str | None = None,
+    max_pdbqt_atoms: int | None = None,
+    max_pdbqt_torsions: int | None = None,
+    allow_large_ligands: bool = False,
 ):
     jobs = []
     ligand_files = list(ligand_files) if ligand_files is not None else glob.glob(os.path.join(ligand_dir, "*.pdbqt"))
     ligand_files = [os.path.abspath(path) for path in ligand_files]
+    if max_pdbqt_atoms is not None and max_pdbqt_torsions is not None:
+        ligand_files, excluded = filter_pdbqt_ligands(
+            ligand_files, max_atoms=max_pdbqt_atoms, max_torsions=max_pdbqt_torsions,
+            allow_large_ligands=allow_large_ligands,
+        )
+        if excluded:
+            print(f"🛡️  Docking-stage PDBQT guard excluded {len(excluded)} ligand file(s).", flush=True)
     receptor_files = []
     for suffix in RECEPTOR_SUFFIXES:
         receptor_files.extend(glob.glob(os.path.join(receptor_dir, f"*{suffix}")))
@@ -1038,14 +1090,26 @@ def parse_args():
     ap.add_argument(
         "--max-rss-mb",
         type=int,
-        default=0,
-        help="Per-Vina-process resident-memory cap in MB; 0 disables the cap (default).",
+        default=DEFAULT_MAX_RSS_MB,
+        help=f"Per-Vina-process resident-memory cap in MB; 0 disables it (default: {DEFAULT_MAX_RSS_MB}).",
     )
     ap.add_argument(
         "--timeout-seconds",
         type=int,
-        default=0,
-        help="Per-Vina-process wall-time cap in seconds; 0 disables the cap (default).",
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help=f"Per-Vina-process wall-time cap in seconds; 0 disables it (default: {DEFAULT_TIMEOUT_SECONDS}).",
+    )
+    ap.add_argument(
+        "--max-pdbqt-atoms", type=int, default=DEFAULT_MAX_PDBQT_ATOMS,
+        help=f"Reject legacy/external PDBQT ligands above this atom count (default: {DEFAULT_MAX_PDBQT_ATOMS}).",
+    )
+    ap.add_argument(
+        "--max-pdbqt-torsions", type=int, default=DEFAULT_MAX_PDBQT_TORSIONS,
+        help=f"Reject legacy/external PDBQT ligands above this TORSDOF count (default: {DEFAULT_MAX_PDBQT_TORSIONS}).",
+    )
+    ap.add_argument(
+        "--allow-large-ligands", action="store_true",
+        help="Disable the docking-stage PDBQT complexity guard for specialized campaigns.",
     )
     ap.add_argument(
         "--memory-trace",
@@ -1114,6 +1178,8 @@ def main():
         raise SystemExit("--stage-inputs-to-scratch requires --compact-results")
     if args.max_rss_mb < 0 or args.timeout_seconds < 0:
         raise SystemExit("--max-rss-mb and --timeout-seconds must be zero or greater")
+    if args.max_pdbqt_atoms < 0 or args.max_pdbqt_torsions < 0:
+        raise SystemExit("--max-pdbqt-atoms and --max-pdbqt-torsions must be zero or greater")
 
     start_time = time.time()
     start_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1230,6 +1296,27 @@ def main():
             receptor_dir, receptor_file, ligand_files_for_staging, vina_csv, compact_scratch_root
         )
         atexit.register(shutil.rmtree, staged_input_workspace, ignore_errors=True)
+
+    candidate_ligand_files = ligand_files or glob.glob(os.path.join(ligand_dir, "*.pdbqt"))
+    ligand_files, excluded_pdbqts = filter_pdbqt_ligands(
+        candidate_ligand_files,
+        max_atoms=args.max_pdbqt_atoms,
+        max_torsions=args.max_pdbqt_torsions,
+        allow_large_ligands=args.allow_large_ligands,
+    )
+    if excluded_pdbqts:
+        guard_report = Path(results_dir) / "excluded_pdbqt_ligands.csv"
+        with guard_report.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["PDBQTFile", "AtomCount", "TORSDOF", "MaxAtoms", "MaxTORSDOF", "RejectionReasons"])
+            writer.writeheader()
+            for item in excluded_pdbqts:
+                writer.writerow({
+                    "PDBQTFile": item["path"], "AtomCount": item["atom_count"],
+                    "TORSDOF": item["torsdof"] if item["torsdof"] is not None else "",
+                    "MaxAtoms": args.max_pdbqt_atoms, "MaxTORSDOF": args.max_pdbqt_torsions,
+                    "RejectionReasons": "; ".join(item["reasons"]),
+                })
+        print(f"🛡️  Docking-stage guard excluded {len(excluded_pdbqts)} PDBQT ligand(s): {guard_report}", flush=True)
 
     jobs = build_jobs(
         results_dir,
