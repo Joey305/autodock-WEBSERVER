@@ -17,6 +17,17 @@
   --app-shadow: 0 20px 60px rgba(15, 23, 42, 0.1);
   --app-code-bg: #0b1020;
   --app-code-text: #e5edff;
+  /* Keep Bootstrap components in sync with the application theme. */
+  --bs-body-color: var(--app-text);
+  --bs-body-bg: var(--app-bg);
+  --bs-emphasis-color: var(--app-text);
+  --bs-secondary-color: var(--app-muted);
+  --bs-secondary-bg: var(--app-surface-2);
+  --bs-tertiary-bg: var(--app-surface-2);
+  --bs-border-color: var(--app-border);
+  --bs-card-color: var(--app-text);
+  --bs-card-bg: var(--app-surface);
+  --bs-card-border-color: var(--app-border);
 }
 
 [data-theme="dark"] {
@@ -37,6 +48,16 @@
   --app-shadow: 0 24px 80px rgba(0, 255, 204, 0.08), 0 18px 50px rgba(0, 0, 0, 0.38);
   --app-code-bg: #020617;
   --app-code-text: #dffaff;
+  --bs-body-color: var(--app-text);
+  --bs-body-bg: var(--app-bg);
+  --bs-emphasis-color: var(--app-text);
+  --bs-secondary-color: var(--app-muted);
+  --bs-secondary-bg: var(--app-surface-2);
+  --bs-tertiary-bg: var(--app-surface-2);
+  --bs-border-color: var(--app-border);
+  --bs-card-color: var(--app-text);
+  --bs-card-bg: var(--app-surface);
+  --bs-card-border-color: var(--app-border);
 }
 
 html {
@@ -791,6 +812,30 @@ a:hover {
   color: var(--app-text);
   background-color: var(--app-surface);
   border-color: var(--app-border);
+}
+
+.card {
+  color: var(--app-text);
+  background-color: var(--app-surface);
+  border-color: var(--app-border);
+}
+
+.card-header,
+.card-footer {
+  color: var(--app-text);
+  background-color: var(--app-surface-2);
+  border-color: var(--app-border);
+}
+
+/* File inputs include a browser-native button, so theme it independently. */
+.form-control[type="file"]::file-selector-button {
+  color: var(--app-text);
+  background-color: var(--app-surface-2);
+  border-color: inherit;
+}
+
+.form-control[type="file"]:hover::file-selector-button {
+  background-color: color-mix(in srgb, var(--app-brand) 16%, var(--app-surface-2));
 }
 
 .form-control:focus,
